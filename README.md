@@ -18,6 +18,19 @@ YodaCode is a self-hosted personal AI agent that:
 - **Streams live status** - you see what the agent is doing in real time as the placeholder message updates
 - **Falls back automatically** - if the primary model (Sonnet) is throttled, tries the next model in the chain (Haiku)
 - **Includes a web dashboard** for status, cron management, log streaming, and file editing
+- **Self-maintaining** - YodaCode can modify its own persona, create new cron tasks, update its memory, write helper scripts, and install new integrations - all from a chat message. You describe what you want, it builds it for itself.
+
+## You don't need to be technical
+
+While you *can* manually edit files, write cron scripts, and configure integrations, **you usually don't need to.** YodaCode has full access to its own workspace and knows its own directory structure. Just ask it:
+
+- *"Set up a cron that checks my inbox every 30 minutes"* - it writes the script, creates the systemd timer, and enables it.
+- *"Remember that I prefer bullet points over paragraphs"* - it appends to its own MEMORY.md under the right section.
+- *"Add HubSpot integration"* - it adds the env var to `.env`, updates `refresh-capabilities.py`, and starts using it.
+- *"Change your name to Jarvis"* - it edits IDENTITY.md and CLAUDE.md.
+- *"Write a script that checks our Stripe balance daily"* - it creates the script in `bin/`, creates the cron in `cron-tasks/`, and wires up the systemd timer.
+
+The agent knows where every file goes, what format to use, and how to wire things up - because the conventions are documented in its own persona file (CLAUDE.md). This is the whole point: **talk to it like a colleague, not a config file.**
 
 ## Quickstart
 
