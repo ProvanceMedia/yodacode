@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YodaCode</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.2.0/dist/css/tabler.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.2.0/dist/css/tabler-vendors.min.css">
+  <style>
+    :root{--tblr-body-bg:#0d1117;--tblr-card-bg:#161b22;--tblr-border-color:#30363d;}
+    .navbar-vertical{background:#0d1117!important;border-right:1px solid #30363d;}
+    .navbar-brand{font-weight:700;letter-spacing:-.02em;}
+    .code-editor{background:#010409;color:#c9d1d9;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:13px;line-height:1.7;border:none;outline:none;resize:vertical;width:100%;min-height:450px;padding:16px;tab-size:2;}
+    .code-editor:focus{box-shadow:inset 0 0 0 1px #58a6ff;}
+    .log-viewer{background:#010409;font-family:'SFMono-Regular',Consolas,monospace;font-size:12px;line-height:1.8;min-height:400px;max-height:70vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all;padding:12px 16px;color:#6e7681;}
+    .log-viewer .l-info{color:#58a6ff} .log-viewer .l-warn{color:#d29922} .log-viewer .l-error{color:#f85149}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .live-dot{width:6px;height:6px;border-radius:50%;background:#3fb950;animation:blink 2s infinite;display:inline-block;}
+    .toast-container{position:fixed;bottom:20px;right:20px;z-index:9999;}
+    .nav-link.active{background:rgba(88,166,255,.1)!important;color:#58a6ff!important;border-left:3px solid #58a6ff;}
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <!-- Sidebar -->
+    <aside class="navbar navbar-vertical navbar-expand-lg" style="width:240px;">
+      <div class="container-fluid">
+        <h1 class="navbar-brand d-flex align-items-center gap-2 px-2">
+          <span id="health-dot" style="width:10px;height:10px;border-radius:50%;background:#3fb950;box-shadow:0 0 8px #3fb950;display:inline-block;"></span>
+          YodaCode
+        </h1>
+        <div class="collapse navbar-collapse" id="sidebar-menu">
+          <ul class="navbar-nav pt-lg-3">
+            <li class="nav-item"><small class="nav-link text-uppercase text-muted fw-bold" style="font-size:10px;letter-spacing:.1em;">Control</small></li>
+            <li class="nav-item">
+              <a class="nav-link active" data-page="dashboard" onclick="navigate(this)">
+                <span class="nav-link-icon">📊</span><span class="nav-link-title">Overview</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-page="crons" onclick="navigate(this)">
+                <span class="nav-link-icon">⏰</span><span class="nav-link-title">Cron Jobs</span>
+                <span id="cron-count" class="badge bg-blue-lt ms-auto">-</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-page="cron-editor" onclick="navigate(this)">
+                <span class="nav-link-icon">✏️</span><span class="nav-link-title">Cron Editor</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-page="logs" onclick="navigate(this)">
+                <span class="nav-link-icon">📋</span><span class="nav-link-title">Logs</span>
+              </a>
+            </li>
+            <li class="nav-item mt-3"><small class="nav-link text-uppercase text-muted fw-bold" style="font-size:10px;letter-spacing:.1em;">Agent</small></li>
+            <li class="nav-item">
+              <a class="nav-link" data-page="memory" onclick="navigate(this)">
+                <span class="nav-link-icon">🧠</span><span class="nav-link-title">Memory</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-page="persona" onclick="navigate(this)">
+                <span class="nav-link-icon">🎭</span><span class="nav-link-title">Persona</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="px-3 py-2 text-muted" style="font-size:11px;">
+          YodaCode v1.0 <span id="uptime-text" class="d-block">connecting...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="page-wrapper" style="margin-left:240px;">
+      <div class="page-body">
+        <div class="container-xl">
+
+          <!-- ── Dashboard ──────────────────────────────────── -->
+          <div class="page-panel" id="page-dashboard">
+            <div class="page-header d-print-none mb-4">
+              <div class="row align-items-center">
+                <div class="col"><h2 class="page-title">Overview</h2><p class="text-muted mt-1">Status, health, recent activity</p></div>
+              </div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="row row-deck row-cards mb-4">
+              <div class="col-sm-6 col-lg">
+                <div class="card"><div class="card-body">
+                  <div class="subheader">Status</div>
+                  <div id="m-status" class="h1 mb-0 text-success">Online</div>
+                </div></div>
+              </div>
+              <div class="col-sm-6 col-lg">
+                <div class="card"><div class="card-body">
+                  <div class="subheader">Uptime</div>
+                  <div id="m-uptime" class="h1 mb-0">-</div>
+                </div></div>
+              </div>
+              <div class="col-sm-6 col-lg">
+                <div class="card"><div class="card-body">
+                  <div class="subheader">Surfaces</div>
+                  <div id="m-surfaces" class="h1 mb-0">-</div>
+                </div></div>
+              </div>
+              <div class="col-sm-6 col-lg">
+                <div class="card"><div class="card-body">
+                  <div class="subheader">Active Ticks</div>
+                  <div id="m-ticks" class="h1 mb-0 text-success">0</div>
+                  <span id="m-ticks-sub" class="text-muted small">idle</span>
+                </div></div>
+              </div>
+              <div class="col-sm-6 col-lg">
+                <div class="card"><div class="card-body">
+                  <div class="subheader">Model</div>
+                  <div id="m-model" class="h3 mb-0" style="font-size:14px;">-</div>
+                  <span id="m-fallback" class="text-muted small">-</span>
+                </div></div>
+              </div>
+            </div>
+
+            <div class="row row-deck row-cards mb-4">
+              <!-- Alerts -->
+              <div class="col-lg-6">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Attention</h3></div>
+                  <div class="card-body" id="alerts-list">
+                    <div class="alert alert-success">✅ Checking...</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Quick Actions -->
+              <div class="col-lg-6">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Quick Actions</h3></div>
+                  <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2">
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-email-sweep.service')">📧 Email Sweep</button>
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-morning-brief.service')">☀️ Morning Brief</button>
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-code-review.service')">🔍 Code Review</button>
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-memory-consolidate.service')">🧹 Memory Tidy</button>
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-stripe-alerts.service')">💳 Stripe</button>
+                      <button class="btn btn-outline-primary btn-sm" onclick="cronRun('yoda-starling-alerts.service')">🏦 Starling</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">Recent Sessions</h3></div>
+              <div id="activity-list" class="card-body p-0"></div>
+            </div>
+          </div>
+
+          <!-- ── Cron Jobs ──────────────────────────────────── -->
+          <div class="page-panel d-none" id="page-crons">
+            <div class="page-header d-print-none mb-4">
+              <div class="row align-items-center">
+                <div class="col"><h2 class="page-title">Cron Jobs</h2><p class="text-muted mt-1">Systemd timers for scheduled tasks</p></div>
+                <div class="col-auto"><button class="btn btn-outline-secondary btn-sm" onclick="loadCrons()">↻ Refresh</button></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                  <thead><tr><th>Task</th><th>Next Run</th><th>Last Run</th><th style="width:180px">Actions</th></tr></thead>
+                  <tbody id="crons-tbody"><tr><td colspan="4" class="text-muted">Loading...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Cron Editor ────────────────────────────────── -->
+          <div class="page-panel d-none" id="page-cron-editor">
+            <div class="page-header d-print-none mb-4">
+              <div class="col"><h2 class="page-title">Cron Editor</h2><p class="text-muted mt-1">Edit cron task scripts</p></div>
+            </div>
+            <div class="row g-4">
+              <div class="col-md-3">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Scripts</h3></div>
+                  <div class="list-group list-group-flush" id="cron-files-list"></div>
+                </div>
+              </div>
+              <div class="col-md-9">
+                <div class="card" id="cron-editor-area" style="display:none;">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="card-title mb-0" id="cron-editor-title">-</h3>
+                    <button class="btn btn-success btn-sm" onclick="saveCronFile()">💾 Save</button>
+                  </div>
+                  <textarea id="cron-editor-textarea" class="code-editor" spellcheck="false"></textarea>
+                </div>
+                <div class="card" id="cron-editor-placeholder"><div class="card-body text-muted text-center py-5">Select a script to edit</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Logs ───────────────────────────────────────── -->
+          <div class="page-panel d-none" id="page-logs">
+            <div class="page-header d-print-none mb-4">
+              <div class="col"><h2 class="page-title">Logs</h2><p class="text-muted mt-1">Live-streamed log output</p></div>
+            </div>
+            <div class="card">
+              <div class="card-header d-flex align-items-center gap-3">
+                <select id="log-select" class="form-select form-select-sm" style="width:auto;"><option>Loading...</option></select>
+                <button class="btn btn-outline-secondary btn-sm" onclick="clearLog()">Clear</button>
+                <div class="ms-auto d-flex align-items-center gap-1 text-success" style="font-size:12px;"><span class="live-dot"></span> Live</div>
+              </div>
+              <div id="log-output" class="log-viewer">Connecting...</div>
+            </div>
+          </div>
+
+          <!-- ── Memory ─────────────────────────────────────── -->
+          <div class="page-panel d-none" id="page-memory">
+            <div class="page-header d-print-none mb-4">
+              <div class="col"><h2 class="page-title">Memory</h2><p class="text-muted mt-1">View and edit Yoda's long-term memory</p></div>
+            </div>
+            <div class="row g-4">
+              <div class="col-md-3">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Files</h3></div>
+                  <div class="list-group list-group-flush" id="memory-files"></div>
+                </div>
+              </div>
+              <div class="col-md-9">
+                <div class="card" id="memory-editor" style="display:none;">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="card-title mb-0" id="memory-editor-title">-</h3>
+                    <button class="btn btn-success btn-sm btn-save" onclick="saveFile('memory-editor')">💾 Save</button>
+                  </div>
+                  <textarea class="code-editor" spellcheck="false"></textarea>
+                </div>
+                <div class="card" id="memory-placeholder"><div class="card-body text-muted text-center py-5">Click a file to view and edit</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Persona ────────────────────────────────────── -->
+          <div class="page-panel d-none" id="page-persona">
+            <div class="page-header d-print-none mb-4">
+              <div class="col"><h2 class="page-title">Persona</h2><p class="text-muted mt-1">Edit identity, voice, tools, and agent config</p></div>
+            </div>
+            <div class="row g-4">
+              <div class="col-md-3">
+                <div class="card">
+                  <div class="card-header"><h3 class="card-title">Persona Files</h3></div>
+                  <div class="list-group list-group-flush" id="persona-files"></div>
+                </div>
+              </div>
+              <div class="col-md-9">
+                <div class="card" id="persona-editor" style="display:none;">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h3 class="card-title mb-0" id="persona-editor-title">-</h3>
+                    <button class="btn btn-success btn-sm btn-save" onclick="saveFile('persona-editor')">💾 Save</button>
+                  </div>
+                  <textarea class="code-editor" spellcheck="false"></textarea>
+                </div>
+                <div class="card" id="persona-placeholder"><div class="card-body text-muted text-center py-5">Click a file to view and edit</div></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.2.0/dist/js/tabler.min.js"></script>
+  <script>
+    function navigate(el) {
+      document.querySelectorAll('.nav-link[data-page]').forEach(n => n.classList.remove('active'));
+      el.classList.add('active');
+      document.querySelectorAll('.page-panel').forEach(p => p.classList.add('d-none'));
+      const page = document.getElementById('page-' + el.dataset.page);
+      if (page) page.classList.remove('d-none');
+    }
+  </script>
+  <script src="/app.js"></script>
+</body>
+</html>

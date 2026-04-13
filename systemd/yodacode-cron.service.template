@@ -1,0 +1,12 @@
+[Unit]
+Description=YodaCode — {{CRON_NAME}} (oneshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{INSTALL_DIR}}/cron-tasks
+ExecStart={{INSTALL_DIR}}/cron-tasks/{{CRON_SCRIPT}}
+StandardOutput=append:{{INSTALL_DIR}}/logs/{{CRON_NAME}}.log
+StandardError=append:{{INSTALL_DIR}}/logs/{{CRON_NAME}}.log
+TimeoutStartSec=600

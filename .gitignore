@@ -1,0 +1,34 @@
+# Secrets
+.env
+workspace/.config/
+workspace/.ssh/id_*
+
+# Runtime state
+workspace/state/
+workspace/.memory-backups/
+logs/
+pollers/*.json
+
+# Node
+workspace/node_modules/
+workspace/package-lock.json
+
+# Cloned repos
+workspace/github/
+
+# User-specific data
+workspace/exports/
+workspace/legacy-memory/
+workspace/legacy-crons/
+workspace/legacy-scripts/
+workspace/LEGACY_MEMORY.md
+
+# Auto-generated
+workspace/CAPABILITIES.md
+
+# Temp
+*.png
+*.jpg
+workspace/.cache/
+workspace/.local/
+workspace/.pki/

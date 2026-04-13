@@ -1,0 +1,23 @@
+{
+  "name": "yoda",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Personal Claude-Code-powered Slack agent (Socket Mode)",
+  "type": "module",
+  "main": "yoda.js",
+  "scripts": {
+    "start": "node yoda.js"
+  },
+  "dependencies": {
+    "@slack/socket-mode": "^2.0.4",
+    "@slack/web-api": "^7.10.0",
+    "@whiskeysockets/baileys": "^6.7.21",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

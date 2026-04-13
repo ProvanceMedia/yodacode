@@ -1,0 +1,44 @@
+# {{BOT_NAME}} Memory
+
+Active long-term memory. Tidied daily by the consolidation cron.
+**This is the only memory file {{BOT_NAME}} writes to.**
+
+---
+
+## About {{BOT_NAME}}
+
+- Created {{DATE}} as a Claude Code personal agent for {{USER_NAME}}.
+- Lives at `{{INSTALL_DIR}}/` on the server.
+- Managed by systemd (`yodacode.service`, `yodacode-*.timer` for crons).
+
+---
+
+## Feedback
+
+### Formatting & output
+
+*(Corrections and preferences about how to format replies, tables, files, etc.)*
+
+### Email & Gmail
+
+*(Rules for email triage, labelling, archiving.)*
+
+### Code & GitHub
+
+*(Rules for commits, PRs, code review.)*
+
+### APIs & tools
+
+*(Gotchas, workarounds, and rules for specific APIs.)*
+
+---
+
+## Workflows
+
+*(Recurring task recipes with step-by-step notes.)*
+
+---
+
+## Repos
+
+*(Code repos {{BOT_NAME}} works on, with deploy/branch notes.)*

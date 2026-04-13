@@ -1,0 +1,10 @@
+[Unit]
+Description=YodaCode — {{CRON_NAME}} timer
+
+[Timer]
+OnCalendar={{SCHEDULE}}
+Persistent=true
+Unit=yodacode-{{CRON_NAME}}.service
+
+[Install]
+WantedBy=timers.target

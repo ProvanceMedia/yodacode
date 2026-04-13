@@ -1,0 +1,18 @@
+[Unit]
+Description=YodaCode — Claude Code chat agent (Socket Mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={{INSTALL_DIR}}/workspace
+EnvironmentFile={{INSTALL_DIR}}/.env
+Environment=ANTHROPIC_API_KEY=
+ExecStart=/usr/bin/node {{INSTALL_DIR}}/workspace/yoda.js
+Restart=always
+RestartSec=5
+StandardOutput=append:{{INSTALL_DIR}}/logs/yoda.log
+StandardError=append:{{INSTALL_DIR}}/logs/yoda.log
+
+[Install]
+WantedBy=multi-user.target
