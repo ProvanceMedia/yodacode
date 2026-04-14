@@ -106,9 +106,29 @@ async function main() {
               ],
               denyWrite: [
                 `${installDir}/.env`,
-                `${installDir}/workspace/.claude`,
+                `${installDir}/workspace/.claude/settings.json`,
+                `${installDir}/workspace/.claude/settings.local.json`,
               ],
             },
+            // Network: merge manually-specified domains with auto-discovered
+            // ones from refresh-capabilities.py's SERVICE_MAP base URLs.
+            // This means adding a service to the map auto-whitelists its domain.
+            ...(() => {
+              const domains = new Set(config.sandbox.allowedDomains);
+              // Always allow Slack (needed for slack-tools.sh in crons)
+              domains.add('slack.com');
+              // Auto-discover from CAPABILITIES.md base URLs
+              try {
+                const caps = readFileSync(`${config.workspace}/CAPABILITIES.md`, 'utf8');
+                const urlRegex = /https?:\/\/([a-zA-Z0-9._-]+)/g;
+                let match;
+                while ((match = urlRegex.exec(caps)) !== null) {
+                  if (match[1] && !match[1].includes('$')) domains.add(match[1]);
+                }
+              } catch (_) {}
+              const domainList = [...domains].filter(Boolean).sort();
+              return domainList.length > 0 ? { network: { allowedDomains: domainList } } : {};
+            })(),
           },
         }
       : { sandbox: { enabled: false } };

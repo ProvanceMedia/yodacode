@@ -5,14 +5,7 @@
     "allowUnsandboxedCommands": false,
     "failIfUnavailable": true,
     "filesystem": {
-      "allowWrite": [
-        ".",
-        "/tmp"
-      ],
-      "denyWrite": [
-        "../.env",
-        ".claude"
-      ]
+      "allowWrite": [".", "/tmp"]
     }
   }
 }

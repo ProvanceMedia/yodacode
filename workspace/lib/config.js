@@ -99,11 +99,14 @@ export const config = {
     channelFetchLimit: parseInt(process.env.YODA_CHANNEL_LIMIT || '15', 10),
   },
 
-  // Sandbox — uses Claude Code's native bubblewrap/Seatbelt sandbox.
-  // Configured via workspace/.claude/settings.json, toggled via YODA_SANDBOX env var.
-  // 'off' = no sandbox, 'auto' = sandbox + auto-allow, 'prompt' = sandbox + ask permission
+  // Sandbox — uses Claude Code's built-in bubblewrap/Seatbelt sandbox.
+  // When enabled, bash commands run with filesystem + network isolation.
   sandbox: {
+    // 'off' = no sandbox (default), 'auto' = sandbox + auto-allow
     mode: process.env.YODA_SANDBOX || 'auto',
+    // CSV of domains the agent is allowed to reach when sandboxed.
+    // Add your API domains here when adding new integrations.
+    allowedDomains: csv('YODA_SANDBOX_ALLOWED_DOMAINS', ''),
   },
 
   // Misc
