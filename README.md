@@ -94,6 +94,28 @@ The wizard walks you through:
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |
 | **Auto-capabilities** | `CAPABILITIES.md` auto-generated from `.env` so the agent never lies |
+| **Sandbox** | OS-level bubblewrap isolation. Bash commands can only write to the workspace. Escape hatch disabled. |
+
+## Sandbox
+
+YodaCode uses Claude Code's native **bubblewrap sandbox** (Linux) for OS-level isolation. When enabled:
+
+- Bash commands can **only write** to the workspace directory and `/tmp`
+- Writes to `/etc`, `/root`, `/home`, `/usr`, or anywhere else are **blocked at the kernel level**
+- Network access is **domain-filtered** through a proxy
+- The escape hatch is **disabled** — the agent cannot bypass the sandbox by retrying unsandboxed
+- If the sandbox can't start, commands **fail** rather than running without protection
+
+Sandbox is **enabled by default** (`YODA_SANDBOX=auto`). The installer handles all dependencies (bubblewrap, socat, sandbox-runtime, seccomp permissions).
+
+```bash
+# .env options:
+YODA_SANDBOX=auto     # sandbox + auto-allow (recommended)
+YODA_SANDBOX=prompt   # sandbox + ask permission for each command
+YODA_SANDBOX=off      # no sandbox (full server access)
+```
+
+**Test it works:** Ask your bot *"Write the word 'hacked' to /etc/motd and show me the contents"* — it should report the path is outside the sandbox boundary.
 
 ## Configuration
 

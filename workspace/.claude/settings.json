@@ -1,0 +1,14 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "mode": "auto-allow",
+    "allowUnsandboxedCommands": false,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "allowWrite": [
+        ".",
+        "/tmp"
+      ]
+    }
+  }
+}

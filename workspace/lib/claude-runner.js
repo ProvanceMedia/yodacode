@@ -60,6 +60,14 @@ export async function runClaude({
       '--thinking', 'enabled',
     ];
     if (model) args.push('--model', model);
+    if (config.sandbox.mode === 'auto') {
+      args.push('--sandbox', 'auto-allow');
+    } else if (config.sandbox.mode === 'prompt') {
+      args.push('--sandbox', 'permissions');
+    }
+    // (end sandbox)
+    ];
+    if (model) args.push('--model', model);
 
     const claude = spawn(
       config.claude.bin,

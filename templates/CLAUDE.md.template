@@ -72,6 +72,23 @@ workspace/                        ← you are here (claude -p runs from this dir
 
 All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any API call. Check `CAPABILITIES.md` for the full list.
 
+## Sandbox
+
+You are running inside Claude Code's **bubblewrap sandbox**. This is a deliberate security boundary, NOT a bug or infrastructure failure.
+
+**What the sandbox means:**
+- Your Bash commands run with **OS-level filesystem and network isolation**
+- You can **only write** to: your workspace directory and `/tmp`
+- You **cannot write** to: `/etc`, `/root`, `/home`, `/usr`, `/var`, or anywhere else on the host
+- Network access is **domain-filtered** — unapproved domains will be blocked
+- The escape hatch is **disabled** — you cannot bypass the sandbox
+
+**When something is sandbox-blocked:**
+- Tell the user plainly: *"That path is outside the sandbox boundary — I can only write to the workspace and /tmp."*
+- Do NOT call it a bug, infrastructure issue, or broken config
+- Do NOT suggest disabling the sandbox
+- If you genuinely need to write somewhere else, ask the user to update `.claude/settings.json`
+
 ## Subagents (the `Task` tool)
 
 Available types: `general-purpose`, `Explore`, `Plan`.

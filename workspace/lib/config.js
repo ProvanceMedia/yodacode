@@ -99,6 +99,13 @@ export const config = {
     channelFetchLimit: parseInt(process.env.YODA_CHANNEL_LIMIT || '15', 10),
   },
 
+  // Sandbox — uses Claude Code's native bubblewrap/Seatbelt sandbox.
+  // Configured via workspace/.claude/settings.json, toggled via YODA_SANDBOX env var.
+  // 'off' = no sandbox, 'auto' = sandbox + auto-allow, 'prompt' = sandbox + ask permission
+  sandbox: {
+    mode: process.env.YODA_SANDBOX || 'auto',
+  },
+
   // Misc
   workspace: process.env.YODA_WORKSPACE || process.cwd(),
   stateDir: process.env.YODA_STATE_DIR || './state',

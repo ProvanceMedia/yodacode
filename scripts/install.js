@@ -104,6 +104,47 @@ async function preflight() {
   } else {
     warn('systemd not available (manual startup required)');
   }
+  // Sandbox dependencies (bubblewrap + socat for Linux)
+  const isLinux = process.platform === 'linux';
+  if (isLinux) {
+    if (checkCommand('bwrap') && checkCommand('socat')) {
+      ok('Sandbox deps (bubblewrap + socat) installed');
+    } else {
+      console.log('  Installing sandbox dependencies (bubblewrap + socat)...');
+      try {
+        execSync('apt-get install -y bubblewrap socat', { stdio: 'pipe', timeout: 30000 });
+        ok('Sandbox deps installed');
+      } catch {
+        warn('Could not install bubblewrap/socat. Sandbox will be unavailable.');
+      }
+    }
+  }
+
+  // Sandbox runtime (@anthropic-ai/sandbox-runtime)
+  try {
+    execSync('node -e "require(\'@anthropic-ai/sandbox-runtime\')"', { stdio: 'pipe' });
+    ok('Sandbox runtime installed');
+  } catch {
+    console.log('  Installing sandbox runtime...');
+    try {
+      execSync('npm install -g @anthropic-ai/sandbox-runtime', { stdio: 'pipe', timeout: 30000 });
+      ok('Sandbox runtime installed');
+    } catch {
+      warn('Could not install sandbox runtime. Sandbox may not function.');
+    }
+  }
+
+  // Fix seccomp binary permissions (npm installs it without +x)
+  const seccompPaths = [
+    '/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/seccomp/x64/apply-seccomp',
+    '/usr/local/lib/node_modules/@anthropic-ai/claude-code/vendor/seccomp/x64/apply-seccomp',
+  ];
+  for (const p of seccompPaths) {
+    if (fs.existsSync(p)) {
+      try { fs.chmodSync(p, 0o755); ok('Seccomp binary permissions fixed'); } catch {}
+    }
+  }
+
   // Playwright
   try {
     execSync('node -e "require(\'playwright\')"', { stdio: 'pipe', cwd: WORKSPACE });
