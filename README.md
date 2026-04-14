@@ -24,11 +24,13 @@ YodaCode is a self-hosted personal AI agent that:
 
 While you *can* manually edit files, write cron scripts, and configure integrations, **you usually don't need to.** YodaCode has full access to its own workspace and knows its own directory structure. Just ask it:
 
-- *"Set up a cron that checks my inbox every 30 minutes"* - it writes the script, creates the systemd timer, and enables it.
 - *"Remember that I prefer bullet points over paragraphs"* - it appends to its own MEMORY.md under the right section.
-- *"Add HubSpot integration"* - it adds the env var to `.env`, updates `refresh-capabilities.py`, and starts using it.
 - *"Change your name to Jarvis"* - it edits IDENTITY.md and CLAUDE.md.
-- *"Write a script that checks our Stripe balance daily"* - it creates the script in `bin/`, creates the cron in `cron-tasks/`, and wires up the systemd timer.
+- *"Write a cron that checks my inbox every 30 minutes"* - it writes the script in `cron-tasks/`, then tells you the one `systemctl` command to enable it.
+- *"Write a script that checks our Stripe balance daily"* - it creates the script in `bin/`, builds the cron wrapper, and gives you the systemd commands.
+- *"Add HubSpot integration"* - it tells you what to add to `.env`, updates `refresh-capabilities.py` with the new service, and starts using it once you restart.
+
+Note: with sandbox enabled (the default), the agent **cannot** edit `.env` or install systemd services directly — those are protected. It writes the files it can, then tells you the manual step. This is by design: the agent builds everything, you flip the switch.
 
 The agent knows where every file goes, what format to use, and how to wire things up - because the conventions are documented in its own persona file (CLAUDE.md). This is the whole point: **talk to it like a colleague, not a config file.**
 
