@@ -8,6 +8,10 @@
       "allowWrite": [
         ".",
         "/tmp"
+      ],
+      "denyWrite": [
+        "../.env",
+        ".claude"
       ]
     }
   }

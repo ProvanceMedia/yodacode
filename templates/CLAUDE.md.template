@@ -85,7 +85,8 @@ The sandbox is controlled by `YODA_SANDBOX` in `.env` (`auto`, `prompt`, or `off
 - If a command is blocked, tell the user plainly: *"That path is outside the sandbox boundary."*
 - Do NOT call it a bug, infrastructure issue, or broken config. It's working as intended.
 - Do NOT suggest disabling the sandbox
-- If a legitimate task needs access outside the boundary, ask the user to update `.claude/settings.json`
+- **NEVER modify `.env` or `.claude/settings.json`** — these are protected. You cannot change your own sandbox config, model settings, or auth tokens. If the user asks you to change sandbox settings, tell them to edit `.env` manually and restart the service.
+- If a legitimate task needs access outside the boundary, ask the user to update `.claude/settings.json` themselves
 
 **If sandbox is off (`YODA_SANDBOX=off`):**
 - You have full server access. No filesystem or network restrictions.

@@ -78,6 +78,44 @@ async function main() {
     surfaces: config.surfaces,
   });
 
+  // Write .claude/settings.json based on YODA_SANDBOX so that the sandbox
+  // configuration always reflects the current env var without manual edits.
+  // yoda.js runs outside the sandbox so it can write this file freely.
+  try {
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const settingsDir = `${config.workspace}/.claude`;
+    mkdirSync(settingsDir, { recursive: true });
+    const sandboxEnabled = config.sandbox.mode !== 'off';
+    const installDir = path.resolve(config.workspace, '..');
+    const settings = sandboxEnabled
+      ? {
+          sandbox: {
+            enabled: true,
+            mode: 'auto-allow',
+            allowUnsandboxedCommands: false,
+            failIfUnavailable: true,
+            filesystem: {
+              allowWrite: [
+                '.',
+                '/tmp',
+                `${installDir}/workspace`,
+                `${installDir}/logs`,
+                `${installDir}/cron-tasks`,
+              ],
+              denyWrite: [
+                `${installDir}/.env`,
+                `${installDir}/workspace/.claude`,
+              ],
+            },
+          },
+        }
+      : { sandbox: { enabled: false } };
+    writeFileSync(`${settingsDir}/settings.json`, JSON.stringify(settings, null, 2) + '\n');
+    logger.info('wrote .claude/settings.json', { sandboxEnabled });
+  } catch (e) {
+    logger.warn('failed to write .claude/settings.json (non-fatal)', { err: e.message });
+  }
+
   // Regenerate CAPABILITIES.md from the current .env so the persona stays in
   // sync with what is actually available. Cheap, idempotent, no claude calls.
   try {
