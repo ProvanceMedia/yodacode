@@ -83,10 +83,11 @@ async function main() {
   // yoda.js runs outside the sandbox so it can write this file freely.
   try {
     const { writeFileSync, mkdirSync } = await import('node:fs');
+    const nodePath = await import('node:path');
     const settingsDir = `${config.workspace}/.claude`;
     mkdirSync(settingsDir, { recursive: true });
     const sandboxEnabled = config.sandbox.mode !== 'off';
-    const installDir = path.resolve(config.workspace, '..');
+    const installDir = nodePath.resolve(config.workspace, '..');
     const settings = sandboxEnabled
       ? {
           sandbox: {
@@ -101,6 +102,7 @@ async function main() {
                 `${installDir}/workspace`,
                 `${installDir}/logs`,
                 `${installDir}/cron-tasks`,
+                `${installDir}/pollers`,
               ],
               denyWrite: [
                 `${installDir}/.env`,
