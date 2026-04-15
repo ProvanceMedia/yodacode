@@ -22,6 +22,13 @@ let web;
 let sm;
 let botUserId = null;
 
+// Thread-sticky model overrides: conversationId ("channel:threadTs") → model id.
+// When a user invokes /opus, /sonnet, or /haiku, the override is pinned to that
+// thread so every follow-up message in the same thread keeps using the chosen
+// model. In-memory only — resets on yoda restart, which is fine for short-lived
+// threads.
+const threadModelOverrides = new Map();
+
 // Conversation info cache so we know if a channel is an IM
 const convInfoCache = new Map();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -128,20 +135,25 @@ async function normalize(event) {
   // The thread root is what we use for queueing + threading replies.
   // For top-level messages, the message itself becomes the thread root.
   const threadTs = event.thread_ts || event.ts;
+  const conversationId = `${event.channel}:${threadTs}`;
+
+  // If this thread was started with /opus, /sonnet, /haiku — inherit that model.
+  const modelOverride = threadModelOverrides.get(conversationId);
 
   return {
     surface: 'slack',
     userId: event.user,
-    conversationId: `${event.channel}:${threadTs}`,
+    conversationId,
     messageId: event.ts,
     text,
     files,                         // ← passes file metadata through
     isDirect: isIm,
     isMention,
+    modelOverride,
     replyTarget: {
       channel: event.channel,
       threadTs,
-      conversationId: `${event.channel}:${threadTs}`,
+      conversationId,
       isIm,
       convName: convInfo?.name || (isIm ? `im:${convInfo?.user || '?'}` : event.channel),
     },
@@ -183,6 +195,78 @@ const slackSurface = {
     // and detect mentions ourselves so the routing is in one place.
     sm.on('app_mention', async ({ ack }) => { try { await ack(); } catch (_) {} });
 
+    // Slash commands — let the user pick a specific model for a one-off reply.
+    // Registered in Slack app config: /opus, /sonnet, /haiku. Each takes the
+    // user's question as its argument. Ack fast, post a public echo that
+    // becomes the thread root, then dispatch through the normal pipeline with
+    // modelOverride set.
+    const SLASH_MODELS = {
+      '/opus': { model: 'claude-opus-4-6', label: 'opus' },
+      '/sonnet': { model: 'claude-sonnet-4-6', label: 'sonnet' },
+      '/haiku': { model: 'claude-haiku-4-5', label: 'haiku' },
+    };
+    sm.on('slash_commands', async ({ body, ack }) => {
+      try { await ack(); } catch (_) {}
+      try {
+        const spec = SLASH_MODELS[body.command];
+        if (!spec) return;
+        const text = (body.text || '').trim();
+        if (!text) {
+          try {
+            await web.chat.postEphemeral({
+              channel: body.channel_id,
+              user: body.user_id,
+              text: `Usage: \`${body.command} <your question>\``,
+            });
+          } catch (e) {
+            logger.warn('slack: postEphemeral failed', { err: e.message });
+          }
+          return;
+        }
+        // Post the echo as thread root so the reply lands in a thread and
+        // subsequent messages continue naturally.
+        const root = await web.chat.postMessage({
+          channel: body.channel_id,
+          text: `<@${body.user_id}> asked (_${spec.label}_): ${text}`,
+        });
+        const rootTs = root.ts;
+        const conversationId = `${body.channel_id}:${rootTs}`;
+        // Pin this model to the thread so follow-up messages keep using it.
+        threadModelOverrides.set(conversationId, spec.model);
+        const convInfo = await getConvInfo(body.channel_id);
+        const isIm = !!(convInfo && convInfo.is_im);
+        const normalised = {
+          surface: 'slack',
+          userId: body.user_id,
+          conversationId,
+          messageId: rootTs,
+          text,
+          files: [],
+          isDirect: isIm,
+          isMention: true,
+          isSlashCommand: true,
+          modelOverride: spec.model,
+          replyTarget: {
+            channel: body.channel_id,
+            threadTs: rootTs,
+            conversationId: `${body.channel_id}:${rootTs}`,
+            isIm,
+            convName: convInfo?.name || body.channel_name || body.channel_id,
+          },
+          raw: {
+            ts: rootTs,
+            thread_ts: rootTs,
+            channel: body.channel_id,
+            user: body.user_id,
+            text,
+          },
+        };
+        await onIncomingMessage(normalised);
+      } catch (e) {
+        logger.error('slack: slash_commands handler error', { err: e.message });
+      }
+    });
+
     await discoverBotUserId();
     await sm.start();
     logger.info('slack: ready', { botUserId });
@@ -196,6 +280,12 @@ const slackSurface = {
     // event is the normalised shape
     const channel = event.replyTarget.channel;
     const text = event.text;
+
+    // 0. Slash commands — explicit user invocation. Same allowlist as DMs.
+    if (event.isSlashCommand) {
+      if (config.policy.dmOpen) return true;
+      return config.policy.dmAuthorizedUsers.has(event.userId);
+    }
 
     // 1. DMs — authorised user list (or open DMs)
     if (event.isDirect) {
@@ -219,6 +309,19 @@ const slackSurface = {
   },
 
   async fetchContext(event) {
+    // Slash commands have no prior conversation — synthesise a one-message
+    // context from the command text so the prompt stays clean (no bot echo
+    // leaking into the transcript).
+    if (event.isSlashCommand) {
+      return {
+        messages: [{ user: event.userId, ts: event.messageId, text: event.text }],
+        replyTargetTs: event.messageId,
+        convName: event.replyTarget.convName,
+        isIm: event.replyTarget.isIm,
+        attachments: [],
+      };
+    }
+
     const { channel, threadTs, isIm, convName } = event.replyTarget;
     const inExistingThread = !!event.raw.thread_ts;
 

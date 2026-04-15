@@ -82,7 +82,9 @@ async function processReply(event, surface) {
   // throttled (Anthropic 529), automatically retry with the next model in
   // YODA_CLAUDE_FALLBACK_MODELS. User-initiated stops, timeouts, and
   // non-throttle errors do NOT trigger a fallback (they're not transient).
-  const modelChain = [config.claude.model || null, ...config.claude.fallbackModels];
+  const modelChain = event.modelOverride
+    ? [event.modelOverride, ...config.claude.fallbackModels]
+    : [config.claude.model || null, ...config.claude.fallbackModels];
   let result = null;
   let modelUsed = null;
   for (let i = 0; i < modelChain.length; i++) {

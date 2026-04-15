@@ -11,6 +11,19 @@ features:
     home_tab_enabled: false
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
+  slash_commands:
+    - command: /opus
+      description: Ask YodaCode using Claude Opus (thread-sticky)
+      usage_hint: your question
+      should_escape: false
+    - command: /sonnet
+      description: Ask YodaCode using Claude Sonnet (thread-sticky)
+      usage_hint: your question
+      should_escape: false
+    - command: /haiku
+      description: Ask YodaCode using Claude Haiku (thread-sticky)
+      usage_hint: your question
+      should_escape: false
 
 oauth_config:
   scopes:
@@ -19,6 +32,7 @@ oauth_config:
       - channels:history
       - channels:read
       - chat:write
+      - commands
       - groups:history
       - groups:read
       - im:history

@@ -97,6 +97,7 @@ The wizard walks you through:
 | **Memory system** | Proactive memory with 4 typed categories + daily consolidation cron |
 | **Cron tasks** | Scheduled `claude -p` jobs under systemd timers with per-cron model selection |
 | **Model fallback** | Sonnet → Haiku (configurable chain). Fail-fast on 529. |
+| **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` — pick a model per thread. Thread-sticky: follow-up replies keep using the chosen model. |
 | **Extended thinking** | `--thinking enabled` for better reasoning (uses more quota per turn) |
 | **Browser automation** | Playwright for JS-rendered pages, Google Maps verification |
 | **Subagents** | `Task` tool for parallel work and context protection |
