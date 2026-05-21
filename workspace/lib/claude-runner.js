@@ -122,9 +122,15 @@ export async function runClaude({
       try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
     }, config.claude.timeoutMs);
 
-    // Pipe stderr to logger at debug level
+    // Buffer stderr — emit at debug for normal runs, escalate to warn on
+    // non-zero exit so the user actually sees why claude died (auth errors,
+    // missing OAuth token, etc.) without needing to flip YODA_LOG_LEVEL=debug.
+    const stderrBuf = [];
+    const STDERR_BUF_MAX = 8192;
     claude.stderr.on('data', (chunk) => {
-      logger.debug('claude stderr', { surface, line: chunk.toString().trim() });
+      const line = chunk.toString();
+      logger.debug('claude stderr', { surface, line: line.trim() });
+      if (stderrBuf.join('').length < STDERR_BUF_MAX) stderrBuf.push(line);
     });
 
     // Run the translator over claude's stdout. Status updates and the final
@@ -215,7 +221,18 @@ export async function runClaude({
         } else if (finalResult) {
           resolve(finalResult);
         } else {
-          resolve({ ok: code === 0, error: code !== 0 ? `claude exit ${code}` : undefined });
+          // Non-zero exit with no result from the translator — surface the
+          // buffered stderr at warn level so the user can see WHY claude died.
+          if (code !== 0) {
+            const stderr = stderrBuf.join('').trim();
+            logger.warn('claude exited non-zero', {
+              surface, conversationId, code, stderr: stderr || '(empty)',
+            });
+            const detail = stderr ? `: ${stderr.split('\n').slice(-3).join(' / ')}` : '';
+            resolve({ ok: false, error: `claude exit ${code}${detail}` });
+          } else {
+            resolve({ ok: true });
+          }
         }
       }, 100);
     });
