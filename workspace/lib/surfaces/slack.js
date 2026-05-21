@@ -358,28 +358,6 @@ const slackSurface = {
   },
 
   async postPlaceholder(replyTarget, text) {
-    // DMs use Slack's assistant.threads.setStatus shimmer for live updates,
-    // and post the final reply fresh. Skip the placeholder post for the
-    // "thinking…" case so we don't get a "_💭 thinking…_" artefact above
-    // the shimmer.
-    const isThinking = typeof text === 'string' && /^_(💭|.*thinking).*_$/i.test(text.trim());
-    logger.info('slack: postPlaceholder', {
-      isIm: replyTarget.isIm,
-      isThinking,
-      threadTs: replyTarget.threadTs,
-      threadTsType: typeof replyTarget.threadTs,
-      channel: replyTarget.channel,
-    });
-    if (replyTarget.isIm && isThinking) {
-      return {
-        surface: 'slack',
-        channel: replyTarget.channel,
-        ts: null,
-        threadTs: replyTarget.threadTs,
-        conversationId: replyTarget.conversationId,
-        shimmer: true,
-      };
-    }
     const r = await web.chat.postMessage({
       channel: replyTarget.channel,
       text,
@@ -394,56 +372,8 @@ const slackSurface = {
     };
   },
 
-  // Live status update during a tick. For DMs in shimmer mode, uses
-  // assistant.threads.setStatus (the typing-indicator shimmer). For channels
-  // and oversized cases, falls back to editing the placeholder message.
-  async setStatus(handle, text) {
-    if (!handle || !handle.shimmer) {
-      return this.updateMessage(handle, text);
-    }
-    try {
-      await web.assistant.threads.setStatus({
-        channel_id: handle.channel,
-        thread_ts: handle.threadTs,
-        status: typeof text === 'string' ? text.slice(0, 250) : '',
-      });
-    } catch (e) {
-      logger.debug('slack: assistant.threads.setStatus failed', { err: e.message });
-    }
-  },
-
   async updateMessage(handle, text) {
-    if (!handle || !handle.channel) return;
-
-    // Shimmer-mode handle (DM): clear the status and post the final reply
-    // as a fresh threaded message.
-    if (handle.shimmer) {
-      try {
-        await web.assistant.threads.setStatus({
-          channel_id: handle.channel,
-          thread_ts: handle.threadTs,
-          status: '',
-        });
-      } catch (_) {}
-      logger.info('slack: shimmer final', {
-        channel: handle.channel,
-        threadTs: handle.threadTs,
-        threadTsType: typeof handle.threadTs,
-        textLen: text?.length,
-      });
-      try {
-        await web.chat.postMessage({
-          channel: handle.channel,
-          thread_ts: handle.threadTs,
-          text,
-        });
-      } catch (e) {
-        logger.warn('slack: chat.postMessage (shimmer final) failed', { err: e.message });
-      }
-      return;
-    }
-
-    if (!handle.ts) return;
+    if (!handle || !handle.channel || !handle.ts) return;
     try {
       await web.chat.update({ channel: handle.channel, ts: handle.ts, text });
     } catch (e) {

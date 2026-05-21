@@ -291,14 +291,8 @@ async function setupSlack() {
   for (const line of manifest.split('\n')) console.log('  ' + line);
   console.log(divider);
   console.log('');
-  console.log('  3) Next → Create. Then "Install to Workspace" and authorise.\n');
-  console.log('  4) \x1b[1mIMPORTANT — turn OFF "Agents & AI Apps":\x1b[0m');
-  console.log('     Left sidebar → "Agents & AI Apps" → uncheck/disable the feature toggle.');
-  console.log('     The manifest declares the capability (needed for the assistant:write scope');
-  console.log('     and the typing-indicator shimmer), but enabling the full feature collapses');
-  console.log('     every DM into a single AI-assistant thread instead of normal threading.');
-  console.log('     We want the shimmer WITHOUT that UI mode.\n');
-  console.log('  5) Now grab TWO tokens from the new app page:\n');
+  console.log('  3) Next → Create. Then "Install to Workspace" and authorise.');
+  console.log('     Now grab TWO tokens from the new app page:\n');
   console.log('     a) \x1b[1mBot User OAuth Token\x1b[0m (starts xoxb-…)');
   console.log('        Left sidebar → "OAuth & Permissions" → top of the page.\n');
   console.log('     b) \x1b[1mApp-Level Token\x1b[0m (starts xapp-…)');
