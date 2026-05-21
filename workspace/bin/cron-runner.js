@@ -106,14 +106,24 @@ function deliverOutput(deliver, ctx, logPath) {
   }
 }
 
-function triggerReflection(taskName, prompt, output) {
+function triggerReflection(taskName, prompt, output, logPath) {
   // Librarian crons don't reflect on themselves.
-  if (taskName === 'memory-consolidate' || taskName === 'skill-review') return;
+  if (taskName === 'memory-consolidate' || taskName === 'skill-review') {
+    logLine(logPath, `reflection skipped (librarian task)`);
+    return;
+  }
   const skillOn = process.env.YODA_SKILL_REFLECTOR_ENABLED === '1';
   const memoryOn = process.env.YODA_MEMORY_REFLECTOR_ENABLED === '1';
-  if (!skillOn && !memoryOn) return;
+  if (!skillOn && !memoryOn) {
+    logLine(logPath, `reflection skipped (both reflectors disabled)`);
+    return;
+  }
   const helper = path.join(CRON_TASKS_DIR, 'lib', 'reflect-after.sh');
-  if (!existsSync(helper)) return;
+  if (!existsSync(helper)) {
+    logLine(logPath, `reflection skipped (helper not found at ${helper})`);
+    return;
+  }
+  logLine(logPath, `reflection triggered (skill=${skillOn} memory=${memoryOn})`);
   // bash -c invocation; the helper spawns its own detached children.
   const child = spawn('bash', [
     '-c',
@@ -224,8 +234,10 @@ function main() {
   }
 
   if (def.reflect) {
-    try { triggerReflection(def.name, prompt, output); }
+    try { triggerReflection(def.name, prompt, output, logPath); }
     catch (e) { logLine(logPath, `reflection trigger failed: ${e.message}`); }
+  } else {
+    logLine(logPath, `reflection skipped (reflect: false in yaml)`);
   }
 
   logLine(logPath, `${def.name} finished (exit ${res.status ?? 'null'})`);

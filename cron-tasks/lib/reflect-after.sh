@@ -23,17 +23,26 @@ _reflect_model() {
 }
 
 _reflect_spawn() {
-  # $1 = prompt
+  # $1 = prompt, $2 = kind label (skill|memory) for logging
   local prompt="$1"
+  local kind="${2:-reflect}"
   local model
   model=$(_reflect_model)
+  local log_dir="${YODA_LOG_DIR:-/opt/shared/projects/docker/yoda/logs}"
+  local log_file="${log_dir}/reflectors.log"
+  mkdir -p "$log_dir" 2>/dev/null
+  # Log child output so silent NO_SKILL/NO_MEMORY is observable.
   # setsid + bg + disown → fully detached from the parent cron shell.
-  setsid claude -p "$prompt" \
-    --output-format text \
-    --permission-mode acceptEdits \
-    --model "$model" \
-    --allowed-tools "Bash,Read,Write,Edit,Glob,Grep" \
-    > /dev/null 2>&1 < /dev/null &
+  (
+    echo "[$(date -Iseconds)] ${kind} reflector starting (task=${REFLECT_TASK_NAME:-?}, model=${model})"
+    setsid claude -p "$prompt" \
+      --output-format text \
+      --permission-mode acceptEdits \
+      --model "$model" \
+      --allowed-tools "Bash,Read,Write,Edit,Glob,Grep" \
+      < /dev/null
+    echo "[$(date -Iseconds)] ${kind} reflector finished"
+  ) >> "$log_file" 2>&1 &
   disown 2>/dev/null || true
 }
 
@@ -160,14 +169,15 @@ reflect_after_cron() {
   # OAuth/sub auth — never let an API key sneak in (mirror the runner).
   unset ANTHROPIC_API_KEY
 
+  REFLECT_TASK_NAME="$task_name"
   if [[ "${YODA_SKILL_REFLECTOR_ENABLED:-0}" == "1" ]]; then
     local skill_prompt
     skill_prompt=$(_reflect_skill_prompt "$task_name" "$cron_prompt" "$cron_output" "$today")
-    _reflect_spawn "$skill_prompt"
+    _reflect_spawn "$skill_prompt" "skill"
   fi
   if [[ "${YODA_MEMORY_REFLECTOR_ENABLED:-0}" == "1" ]]; then
     local memory_prompt
     memory_prompt=$(_reflect_memory_prompt "$task_name" "$cron_prompt" "$cron_output" "$today")
-    _reflect_spawn "$memory_prompt"
+    _reflect_spawn "$memory_prompt" "memory"
   fi
 }

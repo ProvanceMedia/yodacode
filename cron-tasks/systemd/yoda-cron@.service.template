@@ -11,3 +11,7 @@ ExecStart=/usr/bin/node {{INSTALL_DIR}}/workspace/bin/cron-runner.js %i
 StandardOutput=append:{{INSTALL_DIR}}/logs/%i.log
 StandardError=append:{{INSTALL_DIR}}/logs/%i.log
 TimeoutStartSec=7200
+# Critical: reflectors are detached children that need to survive past
+# the main process exit. Default KillMode=control-group would SIGTERM
+# the whole cgroup. KillMode=process only kills the main process.
+KillMode=process
