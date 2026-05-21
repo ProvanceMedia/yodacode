@@ -268,11 +268,33 @@ async function setupSlack() {
     return;
   }
 
-  console.log('  Create a Slack app with the right scopes pre-configured:');
-  console.log('  1. Go to https://api.slack.com/apps?new_app=1');
-  console.log('  2. Choose "From a manifest" and paste the contents of');
-  console.log(`     ${path.join(ROOT, 'scripts', 'slack-app-manifest.yaml')}`);
-  console.log('  3. Create → Install to Workspace → copy the tokens below.\n');
+  // Pull the bot name from .env (set by setupPersona which runs before us).
+  // Falls back to "Yoda" if persona wasn't run yet.
+  const botName = (readEnv(ENV_PATH).BOT_NAME || 'Yoda').replace(/[^A-Za-z0-9 ]/g, '').slice(0, 30) || 'Yoda';
+
+  // Render the manifest with the user's bot name substituted in.
+  const manifestPath = path.join(ROOT, 'scripts', 'slack-app-manifest.yaml');
+  const manifest = fs.readFileSync(manifestPath, 'utf8')
+    .replace(/YodaCode/g, botName)
+    .replace(/Personal Claude-Code-powered chat agent/, `${botName} — personal Claude-Code-powered agent`);
+
+  const divider = '  ' + '─'.repeat(70);
+  console.log('  Set up your Slack app in 3 steps:\n');
+  console.log('  1) Open this URL in your browser:');
+  console.log('     \x1b[36mhttps://api.slack.com/apps?new_app=1\x1b[0m');
+  console.log('  2) Choose \x1b[1m"From a manifest"\x1b[0m, pick your workspace, paste the YAML below');
+  console.log('     (full block — select from the top divider to the bottom one):\n');
+  console.log(divider);
+  for (const line of manifest.split('\n')) console.log('  ' + line);
+  console.log(divider);
+  console.log('');
+  console.log('  3) Click Create → Install to Workspace.');
+  console.log('     Then you need TWO tokens:\n');
+  console.log('     a) \x1b[1mBot User OAuth Token\x1b[0m (starts xoxb-…)');
+  console.log('        On the app page → "OAuth & Permissions" → top of the page.\n');
+  console.log('     b) \x1b[1mApp-Level Token\x1b[0m (starts xapp-…)');
+  console.log('        On the app page → "Basic Information" → scroll to "App-Level Tokens" →');
+  console.log('        Generate Token and Scopes → add the \x1b[1mconnections:write\x1b[0m scope → Generate.\n');
 
   const botToken = await askSecret('Bot User OAuth Token (xoxb-...)');
   const appToken = await askSecret('App-Level Token (xapp-...)');
@@ -400,8 +422,10 @@ async function main() {
   await preflight();
   await installDeps();
   await setupAuth();
-  await setupSlack();
+  // Persona first so the bot name + user name are baked into the Slack
+  // manifest and any later steps that reference them.
   await setupPersona();
+  await setupSlack();
   await setupDashboard();
   await setupSystemd();
 
