@@ -16,9 +16,10 @@ description: One-line human description (shown in skill output, not used at runt
 # NOT read by the runner at runtime. systemd OnCalendar syntax.
 on_calendar: "*-*-* 09:00 Europe/London"
 
-# Model. Empty = use YODA_CLAUDE_MODEL default. Specific models override.
-# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (default), claude-opus-4-7 (heavy)
-model: ""
+# Model. REQUIRED — every cron yaml must state its model explicitly so you
+# can see at a glance what it runs on. No implicit defaults.
+# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (workhorse), claude-opus-4-7 (heavy judgement)
+model: claude-sonnet-4-6
 
 # Tools claude is allowed to use. Pick the smallest set the task actually needs.
 allowed_tools: [Bash, Read, Write, Edit, WebFetch, Glob, Grep]

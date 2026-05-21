@@ -163,6 +163,10 @@ function main() {
     console.error(`${taskPath}: missing required field (name, prompt)`);
     process.exit(2);
   }
+  if (!def.model) {
+    console.error(`${taskPath}: missing required field 'model:' — every cron must name its model explicitly`);
+    process.exit(2);
+  }
 
   // Load .env (idempotent — won't override systemd EnvironmentFile)
   loadEnvFile(path.join(PROJECT_ROOT, '.env'));
@@ -205,7 +209,8 @@ function main() {
     '--permission-mode', def.permission_mode || 'acceptEdits',
     '--allowed-tools', tools,
   ];
-  if (def.model) args.push('--model', def.model);
+  // Every yaml must declare its model explicitly (validated above).
+  args.push('--model', def.model);
   if (def.thinking) args.push('--thinking', 'enabled');
 
   const timeoutMs = (def.timeout || 600) * 1000;
