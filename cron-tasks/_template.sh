@@ -55,4 +55,12 @@ OUT=$(claude -p "$PROMPT" \
   2>&1) || true
 
 echo "[$START] $OUT" >> "$LOG"
+
+# Closed-loop learning. Spawns the skill + memory reflectors in the
+# background with this cron's prompt + output, gated on
+# YODA_SKILL_REFLECTOR_ENABLED / YODA_MEMORY_REFLECTOR_ENABLED.
+# Safe no-op when the flags are off.
+. "$(dirname "$0")/lib/reflect-after.sh"
+reflect_after_cron "my-task" "$PROMPT" "$OUT"
+
 echo "[$(date -Iseconds)] my-task finished" >> "$LOG"

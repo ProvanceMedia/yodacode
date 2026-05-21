@@ -1,0 +1,13 @@
+[Unit]
+Description=Yoda cron task: %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{INSTALL_DIR}}/workspace
+EnvironmentFile=-{{INSTALL_DIR}}/.env
+ExecStart=/usr/bin/node {{INSTALL_DIR}}/workspace/bin/cron-runner.js %i
+StandardOutput=append:{{INSTALL_DIR}}/logs/%i.log
+StandardError=append:{{INSTALL_DIR}}/logs/%i.log
+TimeoutStartSec=900

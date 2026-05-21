@@ -35,3 +35,7 @@ workspace/CAPABILITIES.md
 workspace/.cache/
 workspace/.local/
 workspace/.pki/
+
+# Per-install generated systemd units (use gen-units.sh to regenerate)
+cron-tasks/systemd/yoda-cron@.service
+cron-tasks/systemd/yoda-cron@*.timer

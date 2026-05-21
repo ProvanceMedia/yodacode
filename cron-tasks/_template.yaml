@@ -1,0 +1,45 @@
+# Yoda cron task definition. Copy this file to <task-name>.yaml and edit.
+# The runner is workspace/bin/cron-runner.js — it reads this YAML, invokes
+# `claude -p`, optionally posts the output to Slack, and optionally fires
+# the skill + memory reflectors.
+
+# Required
+name: my-task                     # must match the filename (without .yaml)
+prompt: |
+  Plain-English task description for claude.
+  Multi-line OK. {{today}} and ${ENV_VAR} substitutions work.
+
+# Optional
+description: One-line human description (shown in skill output, not used at runtime).
+
+# Schedule. Used by gen-timers.sh to generate the systemd .timer file —
+# NOT read by the runner at runtime. systemd OnCalendar syntax.
+on_calendar: "*-*-* 09:00 Europe/London"
+
+# Model. Empty = use YODA_CLAUDE_MODEL default. Specific models override.
+# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (default), claude-opus-4-7 (heavy)
+model: ""
+
+# Tools claude is allowed to use. Pick the smallest set the task actually needs.
+allowed_tools: [Bash, Read, Write, Edit, WebFetch, Glob, Grep]
+
+# Hard timeout in seconds. Default 600.
+timeout: 600
+
+# Enable claude's extended thinking. Costs more quota per turn. Default false.
+thinking: false
+
+# Optional auto-delivery. If omitted, output just goes to the log.
+# deliver:
+#   surface: slack
+#   channel: C0AS4NZNH16
+#   # Optional format template. {{output}}, {{name}}, {{today}}, ${ENV_VAR} all work.
+#   # If omitted, raw output is posted.
+#   format: |
+#     *{{name}}* — {{today}}
+#
+#     {{output}}
+
+# Opt-in skill + memory reflection after a successful run.
+# Honours YODA_SKILL_REFLECTOR_ENABLED and YODA_MEMORY_REFLECTOR_ENABLED.
+reflect: true

@@ -102,7 +102,7 @@ The wizard walks you through:
 | **Memory self-generation** | Opt-in mirror reflector for durable FACTS (user-fact, feedback, project-state, reference) — appends to MEMORY.md or writes memory/<slug>.md |
 | **Loop guardrails** | Per-run tool tracker detects repeat failures, no-progress loops, and runaway iteration counts. iteration_cap kills the run with a clear Slack message. |
 | **Tool auto-discovery** | Add `@yoda-tool` manifest block to a script in `bin/` → it shows up in `CAPABILITIES.md` on next restart. No code edits. |
-| **Cron tasks** | Scheduled `claude -p` jobs under systemd timers with per-cron model selection |
+| **Cron tasks** | Declarative YAML task definitions executed by a shared runner — one file per task, no bash boilerplate. Per-task model selection, optional auto-delivery to Slack, optional reflection. |
 | **Model fallback** | Sonnet → Haiku (configurable chain). Fail-fast on 529. |
 | **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` — pick a model per thread. Thread-sticky: follow-up replies keep using the chosen model. |
 | **Extended thinking** | `--thinking enabled` for better reasoning (uses more quota per turn) |
@@ -153,16 +153,20 @@ YODA_SANDBOX=auto              # auto (recommended) or off
 
 ## Adding a cron task
 
+**Declarative YAML (recommended).** One file per task, no boilerplate:
+
 ```bash
-cp cron-tasks/_template.sh cron-tasks/my-task.sh
-chmod +x cron-tasks/my-task.sh
-# Edit the PROMPT and CRON_MODEL in the script
-# Then create systemd units from the templates in systemd/
+cp cron-tasks/_template.yaml cron-tasks/my-task.yaml
+# edit my-task.yaml: name, prompt, on_calendar, optional deliver block
+./cron-tasks/gen-units.sh my-task
+# follow the printed sudo commands to install + enable
 ```
 
-Or just ask your bot: *"Write a cron that does X every morning at 7am"* — it'll create the script and tell you the systemd commands to run.
+The shared runner (`workspace/bin/cron-runner.js`) handles env loading, claude invocation, optional Slack delivery, and skill/memory reflection. See [`cron-tasks/README.md`](cron-tasks/README.md) for the full schema and migration path from legacy `.sh` crons.
 
-See `cron-tasks/_template.sh` for the full pattern including per-cron model selection.
+Or just ask your bot: *"Write a cron that does X every morning at 7am"* — it'll create the YAML and tell you the install commands.
+
+Legacy `.sh` crons still work; see `cron-tasks/_template.sh` for that pattern.
 
 ## Adding a tool
 
