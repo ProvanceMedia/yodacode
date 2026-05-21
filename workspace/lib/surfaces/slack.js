@@ -363,6 +363,13 @@ const slackSurface = {
     // "thinking…" case so we don't get a "_💭 thinking…_" artefact above
     // the shimmer.
     const isThinking = typeof text === 'string' && /^_(💭|.*thinking).*_$/i.test(text.trim());
+    logger.info('slack: postPlaceholder', {
+      isIm: replyTarget.isIm,
+      isThinking,
+      threadTs: replyTarget.threadTs,
+      threadTsType: typeof replyTarget.threadTs,
+      channel: replyTarget.channel,
+    });
     if (replyTarget.isIm && isThinking) {
       return {
         surface: 'slack',
@@ -418,6 +425,12 @@ const slackSurface = {
           status: '',
         });
       } catch (_) {}
+      logger.info('slack: shimmer final', {
+        channel: handle.channel,
+        threadTs: handle.threadTs,
+        threadTsType: typeof handle.threadTs,
+        textLen: text?.length,
+      });
       try {
         await web.chat.postMessage({
           channel: handle.channel,
