@@ -41,8 +41,18 @@ if ! need_node; then
   current=$(command -v node >/dev/null && node -v || echo "not installed")
   echo -e "${YELLOW}Node 20+ required. Current: ${current}.${RESET}"
   if command -v apt-get >/dev/null 2>&1; then
-    read -r -p "Install Node 20 now via NodeSource (apt)? [y/N] " ans
-    if [[ "$ans" =~ ^[Yy]$ ]]; then
+    # Read from /dev/tty so the prompt works even if stdin was used by the
+    # shell (e.g. when the user pastes a multi-line command block).
+    if [[ -r /dev/tty ]]; then
+      read -r -p "Install Node 20 now via NodeSource (apt)? [Y/n] " ans </dev/tty
+    else
+      # No controlling tty (CI / piped) — assume yes, you ran install.sh
+      # for a reason.
+      ans="Y"
+      echo "No tty detected — auto-installing Node 20."
+    fi
+    # Empty = default Y
+    if [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]]; then
       if install_node_apt && need_node; then
         echo -e "${GREEN}Node $(node -v) installed.${RESET}"
       else
