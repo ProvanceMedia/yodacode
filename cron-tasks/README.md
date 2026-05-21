@@ -1,20 +1,15 @@
 # Yoda cron tasks
 
-Two ways to define a scheduled task:
+Scheduled tasks are defined as declarative YAML files. A shared runner
+([`workspace/bin/cron-runner.js`](../workspace/bin/cron-runner.js)) reads the YAML and handles env
+loading, claude invocation, model flag, logging, optional Slack delivery,
+and optional skill/memory reflection. One file = one task.
 
-1. **Declarative YAML** (`<task-name>.yaml`) — recommended.
-   The shared runner (`workspace/bin/cron-runner.js`) reads the YAML and handles
-   env loading, claude invocation, model flags, logging, optional Slack delivery,
-   and skill/memory reflection. One file = one task.
-2. **Shell script** (`<task-name>.sh`) — legacy.
-   Each script duplicates ~60 lines of boilerplate. Still works, kept for now
-   so existing systemd timers don't break during the migration.
-
-## Adding a task (the YAML way)
+## Adding a task
 
 ```bash
 cp _template.yaml my-task.yaml
-# edit my-task.yaml: name, prompt, on_calendar, allowed_tools, optional deliver block
+# edit my-task.yaml: name, prompt, model, on_calendar, optional deliver block
 ./gen-units.sh my-task
 # follow the printed sudo commands to install the .service + .timer and enable
 ```
@@ -23,19 +18,20 @@ That's it. The runner does the rest.
 
 ## YAML schema
 
-See `_template.yaml` for the full annotated example. Required fields:
+See [`_template.yaml`](_template.yaml) for the full annotated example. Required fields:
 
 - `name` — must match the filename (without `.yaml`)
 - `prompt` — multi-line task description (use YAML `|` literal block)
+- `model` — every cron yaml must name its model explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Common: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`.
 
 Optional:
 
 - `description` — human one-liner
 - `on_calendar` — systemd OnCalendar syntax. Used by `gen-units.sh` to build the .timer.
-- `model` — **required.** Every cron yaml must name its model explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Common: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`.
 - `allowed_tools` — list of Claude tool names. Default sensible.
 - `timeout` — seconds, default 600.
 - `thinking` — enable extended thinking, default false.
+- `pre_hook` — bash command(s) to run *before* claude (useful for jitter sleeps, queue topups). Default timeout 3600s, override with `pre_hook_timeout: <seconds>`.
 - `deliver` — optional auto-delivery block. If present, the runner posts the output:
   ```yaml
   deliver:
@@ -45,45 +41,36 @@ Optional:
   ```
 - `reflect` — opt-in skill + memory reflectors. Honours `YODA_SKILL_REFLECTOR_ENABLED` / `YODA_MEMORY_REFLECTOR_ENABLED`. Librarian tasks (`memory-consolidate`, `skill-review`) auto-skip reflection to avoid recursion.
 
-Substitution in prompts and format strings:
+Substitution in prompts and `deliver.format`:
 - `{{today}}` / `{{date}}` → ISO date
 - `{{name}}` → task name
 - `{{output}}` → claude's output (deliver.format only)
 - `${ENV_VAR}` → env var value
 
-## Migration from .sh to .yaml
+## Examples
 
-Existing `.sh` files still work. To migrate one:
+See [`examples/`](examples/) for two starter tasks:
 
-1. Write `<task>.yaml` alongside the existing `<task>.sh`. Extract the heredoc PROMPT into `prompt: |`.
-2. `./gen-units.sh <task>` generates the new timer.
-3. Switch systemd:
-   ```bash
-   sudo systemctl disable --now yoda-<task>.timer
-   sudo cp systemd/yoda-cron@.service systemd/yoda-cron@<task>.timer /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now yoda-cron@<task>.timer
-   ```
-4. Watch `logs/<task>.log` for one or two runs to confirm it works.
-5. Once confident, delete the old `<task>.sh`.
+- [`memory-consolidate.yaml`](examples/memory-consolidate.yaml) — nightly librarian over `MEMORY.md` (merge duplicates, promote large topics, prune stale entries)
+- [`skill-review.yaml`](examples/skill-review.yaml) — nightly review of `workspace/skills/` (dedup, promote frequent ones to Core, archive stale)
+
+Copy either into `cron-tasks/<name>.yaml`, tweak, and `gen-units.sh <name>` to wire up the timer.
 
 ## Layout
 
 ```
 cron-tasks/
-├── README.md                     ← this file
-├── _template.yaml                ← annotated template for new tasks
-├── _template.sh                  ← legacy bash template
-├── <task>.yaml                   ← declarative task definitions
-├── <task>.sh                     ← legacy bash crons (being migrated)
+├── README.md                          ← this file
+├── _template.yaml                     ← annotated template for new tasks
+├── <task>.yaml                        ← your task definitions
+├── examples/                          ← starter task YAMLs (memory-consolidate, skill-review)
 ├── lib/
-│   └── reflect-after.sh          ← shared helper (still used by legacy .sh crons)
+│   └── reflect-after.sh               ← reflector helper (called by the runner)
 ├── systemd/
-│   ├── yoda-cron@.service        ← one shared service template
-│   └── yoda-cron@<task>.timer    ← generated per task by gen-units.sh
-└── gen-units.sh                  ← generate timer files from YAML
+│   ├── yoda-cron@.service.template    ← shared service template (uses {{INSTALL_DIR}})
+│   ├── yoda-cron@.service             ← generated by gen-units.sh (gitignored)
+│   └── yoda-cron@<task>.timer         ← generated by gen-units.sh (gitignored)
+└── gen-units.sh                       ← generates the .service + per-task .timer from YAML
 ```
 
-## Why two formats?
-
-The YAML runner is the standard going forward. The `.sh` files exist only because migrating production crons is non-trivial — every `.sh` is battle-tested against real workflows, and swapping out the systemd timer mid-day is risky. As each `.sh` is migrated and proven, it's deleted.
+`gen-units.sh` substitutes `{{INSTALL_DIR}}` in the service template with the actual install directory (auto-detected from the script's own path). On a fresh install you don't need to do anything manual — just `./gen-units.sh <task>` and copy the generated files.

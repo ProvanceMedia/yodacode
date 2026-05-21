@@ -1,0 +1,59 @@
+name: memory-consolidate
+description: Daily librarian pass over MEMORY.md (merge duplicates, promote large topics, prune stale entries)
+on_calendar: "*-*-* 03:00 Europe/London"
+model: claude-sonnet-4-6
+allowed_tools: [Bash, Read, Write, Edit, Glob, Grep]
+timeout: 600
+# Librarian crons don't reflect on themselves (would recurse).
+reflect: false
+prompt: |
+  Memory consolidation cron run.
+
+  You are operating as a careful librarian on Yoda's own memory file at `./MEMORY.md` (which is `/opt/shared/projects/docker/yoda/workspace/MEMORY.md`). The file has already been backed up by the wrapper.
+
+  ## Your job
+
+  1. **Read `./MEMORY.md`** (the Yoda memory file, NOT the canonical production one).
+
+  2. **Tidy new entries.** Anything appended over the last day is likely informal ("Stu said remember…"). Rewrite them into the file's tight bullet style. Date-stamp with today (`{{today}}`). Place in the right section.
+
+  3. **Merge duplicates and supersede stale facts.** If two entries say overlapping things, merge into one richer entry. If a newer entry contradicts an older one, strike the older. Be **conservative** — when in doubt, KEEP information rather than delete it. Favour merging over deletion.
+
+  4. **Promote large topics to sub-files.** If any section has grown past ~30 lines and is a coherent standalone topic, extract it into `./memory/<slug>.md` (create the `memory/` directory if needed) and replace the original section in MEMORY.md with a one-line pointer like `- [<topic>](memory/<slug>.md) — <brief description>`.
+
+  5. **Verify load-bearing references (light touch).** For entries that name a file path, channel ID, or env var:
+     - File paths: only flag with `**Stale?**` if you can quickly check it does not exist via `ls`.
+     - Channel IDs and people: do NOT verify (too noisy). Trust them.
+     Do not auto-delete stale references — only flag them for Stu to review.
+
+  6. **Output the new MEMORY.md** by writing it back via the `Write` tool. Preserve the file's frontmatter / header section verbatim.
+
+  ## Hard rules
+
+  - **NEVER** edit any MEMORY.md outside `/opt/shared/projects/docker/yoda/workspace/`. You only touch `./MEMORY.md` and `./memory/*.md` (Yoda-local).
+  - **NEVER** delete an entry just because it looks redundant. Only delete if it is unambiguously superseded by a newer entry, OR a verbatim duplicate, OR contains a `**Stale?**` flag from a previous run that has now been confirmed gone.
+  - **Be conservative.** A small careful tidy beats a sweeping rewrite. If you're unsure, leave it.
+  - **Track your changes.** Keep a count of: entries merged, entries promoted to sub-files, entries flagged stale, lines before/after.
+
+  ## Step 7 — Post summary
+
+  After writing the file, post a brief summary to Stu's DM (`${STU_DM_CHANNEL}` if set, else `D0AR8C2P814`) via:
+
+      ./bin/slack-tools.sh post D0AR8C2P814 "<text>"
+
+  Format:
+
+      📚 Memory tidy {{today}}
+      - Lines: <before> → <after>
+      - Merged: N duplicates
+      - Promoted: <topic> → memory/<slug>.md (if any)
+      - Flagged stale: N entries (if any)
+      - Backup: .memory-backups/MEMORY-{{today}}.md
+
+  If absolutely nothing changed, post nothing (no spam) and just emit `CONSOLIDATE_NOOP`.
+
+  Otherwise emit one final line on stdout: `CONSOLIDATE_OK <merged> <promoted> <flagged>` or `CONSOLIDATE_ERR <reason>`.
+
+  After writing the new MEMORY.md, also run `python3 ./bin/memory-reindex.py` so the FTS5 search index reflects the changes immediately.
+
+  This is a CRON RUN. Run exactly one pass and stop.

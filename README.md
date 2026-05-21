@@ -162,11 +162,9 @@ cp cron-tasks/_template.yaml cron-tasks/my-task.yaml
 # follow the printed sudo commands to install + enable
 ```
 
-The shared runner (`workspace/bin/cron-runner.js`) handles env loading, claude invocation, optional Slack delivery, and skill/memory reflection. See [`cron-tasks/README.md`](cron-tasks/README.md) for the full schema and migration path from legacy `.sh` crons.
+The shared runner (`workspace/bin/cron-runner.js`) handles env loading, claude invocation, optional Slack delivery, and skill/memory reflection. See [`cron-tasks/README.md`](cron-tasks/README.md) for the full schema.
 
 Or just ask your bot: *"Write a cron that does X every morning at 7am"* — it'll create the YAML and tell you the install commands.
-
-Legacy `.sh` crons still work; see `cron-tasks/_template.sh` for that pattern.
 
 ## Adding a tool
 
