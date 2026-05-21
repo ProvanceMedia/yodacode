@@ -165,6 +165,26 @@ function main() {
 
   logLine(logPath, `${def.name} starting`);
 
+  // Optional pre_hook: bash command(s) run BEFORE the claude invocation.
+  // Useful for jitter sleeps, queue topups, anything the agent shouldn't
+  // wait on with its own turn quota. The hook runs in workspace/ with the
+  // same env as claude. Hook stdout/stderr go to the log.
+  if (def.pre_hook) {
+    logLine(logPath, `pre_hook running`);
+    const hook = spawnSync('bash', ['-c', def.pre_hook], {
+      cwd: WORKSPACE,
+      env: { ...process.env, ANTHROPIC_API_KEY: '' },
+      encoding: 'utf8',
+      timeout: (def.pre_hook_timeout || 3600) * 1000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    if (hook.stdout) logLine(logPath, `pre_hook stdout:\n${hook.stdout.trim()}`);
+    if (hook.stderr) logLine(logPath, `pre_hook stderr:\n${hook.stderr.trim()}`);
+    if (hook.status !== 0) {
+      logLine(logPath, `pre_hook exited ${hook.status} — continuing anyway`);
+    }
+  }
+
   const prompt = substitute(def.prompt, ctx);
   const tools = (def.allowed_tools || [
     'Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'Glob', 'Grep'

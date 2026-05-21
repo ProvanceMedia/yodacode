@@ -29,6 +29,13 @@ timeout: 600
 # Enable claude's extended thinking. Costs more quota per turn. Default false.
 thinking: false
 
+# Optional bash command(s) to run BEFORE invoking claude. Useful for jitter
+# sleeps, queue topups, anything that shouldn't burn agent turn quota.
+# Default timeout: 1 hour (override with pre_hook_timeout: <seconds>).
+# pre_hook: |
+#   sleep $((RANDOM % 1800 + 600))
+#   python3 bin/build-some-queue.py
+
 # Optional auto-delivery. If omitted, output just goes to the log.
 # deliver:
 #   surface: slack
