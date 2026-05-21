@@ -14,6 +14,9 @@
       "messages_tab_enabled": true,
       "messages_tab_read_only_enabled": false
     },
+    "assistant_view": {
+      "assistant_description": "Personal Claude-Code-powered chat agent"
+    },
     "slash_commands": [
       {
         "command": "/opus",

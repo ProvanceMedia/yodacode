@@ -278,7 +278,7 @@ async function setupSlack() {
   const manifestPath = path.join(ROOT, 'scripts', 'slack-app-manifest.json');
   const manifest = fs.readFileSync(manifestPath, 'utf8')
     .replace(/"YodaCode"/g, JSON.stringify(botName))
-    .replace(/"Personal Claude-Code-powered chat agent"/, JSON.stringify(`${botName} — personal Claude-Code-powered agent`));
+    .replace(/"Personal Claude-Code-powered chat agent"/g, JSON.stringify(`${botName} — personal Claude-Code-powered agent`));
 
   const divider = '  ' + '─'.repeat(70);
   console.log('  Set up your Slack app in 3 steps:\n');
