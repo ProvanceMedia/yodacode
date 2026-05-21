@@ -20,7 +20,10 @@ YodaCode is a self-hosted personal AI agent that:
 - **Connects to Slack** via Socket Mode (real-time, no polling)
 - **Connects to WhatsApp** via Baileys (optional, links to your existing account)
 - **Runs Claude Code** (`claude -p`) for every reply, with tool access to Read, Write, Edit, WebFetch, browser automation, subagents, and sandboxed Bash
-- **Remembers things** via a structured file-based memory system with daily consolidation
+- **Remembers things** via a structured file-based memory system with daily consolidation and SQLite FTS5 full-text search
+- **Learns reusable procedures** — an opt-in background reflector turns long conversations into `SKILL.md` files the agent then reuses
+- **Auto-discovers its own tools** — drop a `@yoda-tool` manifest on a script in `bin/`, restart, and the agent sees it in `CAPABILITIES.md`
+- **Loop guardrails** — repeat-failure detection, no-progress detection, and a hard iteration cap so a wedged tool can't burn 10 minutes silently
 - **Runs scheduled tasks** (cron jobs) via systemd timers
 - **Streams live status** — you see what the agent is doing in real time as the placeholder message updates
 - **Falls back automatically** — if the primary model (Sonnet) is throttled, tries the next model in the chain (Haiku)
@@ -94,7 +97,11 @@ The wizard walks you through:
 | **Multi-surface** | Slack + WhatsApp. Add more via `lib/surfaces/<name>.js`. |
 | **Live streaming** | Placeholder message updates in real-time as Claude works |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging) |
-| **Memory system** | Proactive memory with 4 typed categories + daily consolidation cron |
+| **Memory system** | Proactive memory with 4 typed categories + daily consolidation cron + SQLite FTS5 search across MEMORY.md, memory/, skills/, legacy-memory/ |
+| **Skill self-generation** | Opt-in background reflector after long ticks writes reusable `SKILL.md` files; nightly cron dedupes, promotes high-use ones to Core, archives stale ones |
+| **Memory self-generation** | Opt-in mirror reflector for durable FACTS (user-fact, feedback, project-state, reference) — appends to MEMORY.md or writes memory/<slug>.md |
+| **Loop guardrails** | Per-run tool tracker detects repeat failures, no-progress loops, and runaway iteration counts. iteration_cap kills the run with a clear Slack message. |
+| **Tool auto-discovery** | Add `@yoda-tool` manifest block to a script in `bin/` → it shows up in `CAPABILITIES.md` on next restart. No code edits. |
 | **Cron tasks** | Scheduled `claude -p` jobs under systemd timers with per-cron model selection |
 | **Model fallback** | Sonnet → Haiku (configurable chain). Fail-fast on 529. |
 | **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` — pick a model per thread. Thread-sticky: follow-up replies keep using the chosen model. |
@@ -103,7 +110,7 @@ The wizard walks you through:
 | **Subagents** | `Task` tool for parallel work and context protection |
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |
-| **Auto-capabilities** | `CAPABILITIES.md` auto-generated from `.env` so the agent never lies |
+| **Auto-capabilities** | `CAPABILITIES.md` auto-generated from `.env` + bin/ manifests so the agent never lies |
 | **Sandbox** | OS-level bubblewrap isolation. Bash writes restricted to workspace only. Agent cannot modify `.env` or disable its own sandbox. |
 
 ## Sandbox
@@ -157,9 +164,61 @@ Or just ask your bot: *"Write a cron that does X every morning at 7am"* — it'l
 
 See `cron-tasks/_template.sh` for the full pattern including per-cron model selection.
 
+## Adding a tool
+
+Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the top. On next restart, `refresh-capabilities.py` scans it and the agent sees it in `CAPABILITIES.md`. No code edits.
+
+```bash
+#!/usr/bin/env bash
+# @yoda-tool
+# name: hello.sh
+# summary: Say hello to a name.
+# tags: example
+# requires:                        # CSV of env keys the tool needs (or empty)
+# usage:
+#   hello.sh <name>
+# examples:
+#   ./bin/hello.sh world
+# @end
+
+echo "hello $1"
+```
+
+The `requires:` field cross-references against `.env`; if a required key is missing, the tool is marked `❌ missing $X` in the agent's capability listing so it knows not to try.
+
 ## Adding a surface
 
 Create `workspace/lib/surfaces/<name>.js` implementing the surface contract (see `lib/surface.js` for the interface). Then add `<name>` to `YODA_SURFACES` in `.env` and restart the service.
+
+## Closed-loop self-improvement (opt-in)
+
+Two background reflectors can run after any successful conversation that crosses a threshold (default: ≥30 seconds OR ≥5 tool calls). Both spawn a separate detached `claude -p` (Haiku by default — cheap), look at the just-completed transcript, and decide whether to persist anything:
+
+- **Skill reflector** → *"Did we discover a reusable PROCEDURE here?"* If yes, writes `workspace/skills/<slug>.md` with numbered steps + frontmatter and appends a pointer to `skills/INDEX.md` (which is `@-imported` into the agent's persona, so future conversations see it).
+- **Memory reflector** → *"Did we learn a durable FACT here?"* If yes, appends a dated bullet to `MEMORY.md` under the right section, or writes a new `memory/<slug>.md` for larger topics.
+
+Both fire-and-forget (never block the user-facing reply). After writing, each rebuilds the FTS5 index so the new entry is searchable on the very next conversation.
+
+A nightly `skill-review.sh` cron then dedupes near-identical skills, promotes ones with `use_count ≥ 3` in the last 30 days into a "Core" section of `INDEX.md`, and archives stale ones (>180 days unused) into `skills/archive/`.
+
+Both are off by default — opt in with:
+
+```bash
+YODA_SKILL_REFLECTOR_ENABLED=1
+YODA_MEMORY_REFLECTOR_ENABLED=1
+```
+
+Cost: one extra Haiku invocation per reflector per notable conversation. Cheap, but not free — start with the skill reflector and see how it goes before enabling memory too.
+
+## Loop guardrails
+
+Every Slack/WhatsApp tick is wrapped by a tool tracker that watches the `stream-json` event stream and detects three failure modes:
+
+- **`repeat_failure`** — same tool called with the same input errored ≥2× in a row → warning in the Slack placeholder ("⚠️ Bash failed 2× — may be stuck")
+- **`no_progress`** — same tool + same input + same output ≥3× in a row → warning ("⚠️ may be looping")
+- **`iteration_cap`** — total tool_use count exceeded the budget (`YODA_MAX_ITERATIONS_SLACK`, default 60) → SIGTERMs claude, replaces the placeholder with "🛑 Iteration cap hit"
+
+Per-run summary persisted to `state/tool-runs.json` (LRU-capped to 100) for post-mortem. Disable entirely with `YODA_GUARDRAIL_ENABLED=0` if you'd rather just rely on the 10-minute claude timeout.
 
 ## Important notes
 
