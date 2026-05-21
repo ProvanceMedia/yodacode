@@ -339,6 +339,14 @@ async function setupPersona() {
     DATE: new Date().toISOString().split('T')[0],
   };
 
+  // Persist persona choices to .env so later steps (Slack manifest,
+  // dashboard, etc.) and the running bot can read them.
+  mergeEnv(ENV_PATH, {
+    BOT_NAME: botName,
+    USER_NAME: userName,
+    TIMEZONE: timezone,
+  });
+
   // Generate persona files from templates
   for (const [tpl, out] of [
     ['CLAUDE.md.template', 'CLAUDE.md'],
