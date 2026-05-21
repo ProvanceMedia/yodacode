@@ -47,8 +47,10 @@ With sandbox enabled (the default), the agent **cannot** edit `.env`, install sy
 ```bash
 git clone https://github.com/ProvanceMedia/yodacode.git
 cd yodacode
-node scripts/install.js
+./install.sh
 ```
+
+`install.sh` checks for Node 20+ (offers to install it via NodeSource on Ubuntu / Debian if missing), then runs the setup wizard. If you already have Node 20+, you can skip the bootstrap and run `node scripts/install.js` directly.
 
 The wizard walks you through:
 1. Claude Code authentication (paste your `setup-token`)

@@ -2,8 +2,8 @@
 // YodaCode Setup Wizard — interactive TUI installer.
 //
 // Usage:
-//   npx yodacode install
-//   node scripts/install.js
+//   ./install.sh                       ← recommended (handles Node prereq)
+//   node scripts/install.js            ← if you already have Node 20+
 //   node scripts/install.js --reconfigure slack
 //   node scripts/install.js --add whatsapp
 //   node scripts/install.js --fresh
@@ -14,6 +14,23 @@ import { execSync } from 'node:child_process';
 import readline from 'node:readline';
 import { printBanner } from './setup/banner.js';
 import { readEnv, mergeEnv } from './setup/env.js';
+
+// Node version check. Must be ≥ 20 for the workspace runtime.
+const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
+if (nodeMajor < 20) {
+  process.stderr.write(
+    `\n❌ YodaCode requires Node 20 or newer. You have ${process.version}.\n\n` +
+    `Install Node 20 (pick one):\n\n` +
+    `  # NodeSource (Debian/Ubuntu, root or with sudo):\n` +
+    `  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -\n` +
+    `  sudo apt-get install -y nodejs\n\n` +
+    `  # nvm (any Linux/macOS):\n` +
+    `  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash\n` +
+    `  source ~/.bashrc && nvm install 20\n\n` +
+    `Then re-run:  ./install.sh\n\n`
+  );
+  process.exit(1);
+}
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const ENV_PATH = path.join(ROOT, '.env');
