@@ -105,7 +105,9 @@ async function processReply(event, surface) {
       placeholder,
       prompt,
       model: model || undefined,
-      onStatus: (text) => surface.updateMessage(placeholder, text),
+      onStatus: (text) => (surface.setStatus
+        ? surface.setStatus(placeholder, text)
+        : surface.updateMessage(placeholder, text)),
       onFinal: (text) => surface.updateMessage(placeholder, text),
     });
     if (result.ok) break;
