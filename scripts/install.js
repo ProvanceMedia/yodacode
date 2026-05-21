@@ -99,19 +99,49 @@ function checkCommand(cmd) {
 
 async function preflight() {
   heading('Pre-flight checks');
-  const checks = [
+  // Hard prereqs (we don't install these — user must already have them)
+  const hardChecks = [
     ['node', 'Node.js'],
     ['npm', 'npm'],
     ['python3', 'Python 3'],
-    ['claude', 'Claude Code'],
   ];
-  let allGood = true;
-  for (const [cmd, name] of checks) {
+  const missingHard = [];
+  for (const [cmd, name] of hardChecks) {
     if (checkCommand(cmd)) {
       const ver = execSync(`${cmd} --version 2>&1`, { encoding: 'utf8' }).trim().split('\n')[0];
       ok(`${name} ${ver}`);
     } else {
       fail(`${name} not found`);
+      missingHard.push(name);
+    }
+  }
+  let allGood = missingHard.length === 0;
+
+  // Claude Code — auto-offer install (it's just an npm package)
+  if (checkCommand('claude')) {
+    const ver = execSync('claude --version 2>&1', { encoding: 'utf8' }).trim().split('\n')[0];
+    ok(`Claude Code ${ver}`);
+  } else {
+    fail('Claude Code not found');
+    const ans = (await ask('Install Claude Code now via npm? [Y/n]', 'y')).toLowerCase();
+    if (ans !== 'n') {
+      console.log('  Installing Claude Code (this can take ~30s)...');
+      try {
+        execSync('npm install -g @anthropic-ai/claude-code', { stdio: 'inherit' });
+        if (checkCommand('claude')) {
+          const ver = execSync('claude --version 2>&1', { encoding: 'utf8' }).trim().split('\n')[0];
+          ok(`Claude Code ${ver}`);
+        } else {
+          warn('Install ran but `claude` is still not on PATH. Check $PATH and node global bin.');
+          allGood = false;
+        }
+      } catch (e) {
+        warn(`Auto-install failed: ${e.message}`);
+        console.log('  Try manually:  sudo npm install -g @anthropic-ai/claude-code');
+        allGood = false;
+      }
+    } else {
+      console.log('  Skipped. Install manually:  npm install -g @anthropic-ai/claude-code');
       allGood = false;
     }
   }
@@ -176,7 +206,10 @@ async function preflight() {
     }
   }
   if (!allGood) {
-    fail('Missing required tools. Install them and re-run.');
+    fail('Pre-flight failed. Fix the items above and re-run:  ./install.sh');
+    if (missingHard.includes('Node.js')) console.log('    → Install Node 20+ via NodeSource or nvm');
+    if (missingHard.includes('npm')) console.log('    → npm ships with Node — your Node install may be broken');
+    if (missingHard.includes('Python 3')) console.log('    → sudo apt-get install -y python3');
     process.exit(1);
   }
 }
