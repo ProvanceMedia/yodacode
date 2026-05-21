@@ -358,17 +358,28 @@ const slackSurface = {
   },
 
   async postPlaceholder(replyTarget, text) {
-    const shimmerEnabled = process.env.YODA_SLACK_SHIMMER === '1';
     const isThinking = typeof text === 'string' && /^_(💭|.*thinking).*_$/i.test(text.trim());
-    if (shimmerEnabled && replyTarget.isIm && isThinking) {
-      return {
-        surface: 'slack',
-        channel: replyTarget.channel,
-        ts: null,
-        threadTs: replyTarget.threadTs,
-        conversationId: replyTarget.conversationId,
-        shimmer: true,
-      };
+    // DMs: try the typing-indicator shimmer (assistant.threads.setStatus).
+    // If the app doesn't have the assistant:write scope, that call fails
+    // and we fall back to posting a normal placeholder.
+    if (replyTarget.isIm && isThinking) {
+      try {
+        await web.assistant.threads.setStatus({
+          channel_id: replyTarget.channel,
+          thread_ts: replyTarget.threadTs,
+          status: 'thinking…',
+        });
+        return {
+          surface: 'slack',
+          channel: replyTarget.channel,
+          ts: null,
+          threadTs: replyTarget.threadTs,
+          conversationId: replyTarget.conversationId,
+          shimmer: true,
+        };
+      } catch (e) {
+        logger.debug('slack: shimmer unavailable, using placeholder', { err: e.message });
+      }
     }
     const r = await web.chat.postMessage({
       channel: replyTarget.channel,
