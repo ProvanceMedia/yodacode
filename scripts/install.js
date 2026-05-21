@@ -405,17 +405,37 @@ async function setupSystemd() {
   execSync('systemctl enable --now yodacode.service');
   ok('yodacode.service enabled and started');
 
-  // Wait and verify
+  // Wait and verify. is-active exits non-zero for inactive/failed, so we need
+  // to handle that without swallowing the diagnostic.
   await new Promise((r) => setTimeout(r, 4000));
+  let status = 'unknown';
   try {
-    const status = execSync('systemctl is-active yodacode', { encoding: 'utf8' }).trim();
-    if (status === 'active') {
-      ok('Service is running');
-    } else {
-      warn(`Service status: ${status}`);
+    status = execSync('systemctl is-active yodacode.service', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch (e) {
+    // is-active returns non-zero for non-active states but still prints the
+    // state on stdout. Grab it.
+    status = (e.stdout || '').toString().trim() || 'failed';
+  }
+  if (status === 'active') {
+    ok('Service is running');
+  } else {
+    fail(`Service is ${status} — bot will not respond until this is fixed.`);
+    console.log('  Last 25 log lines:\n');
+    try {
+      const log = execSync('journalctl -u yodacode.service -n 25 --no-pager', { encoding: 'utf8' });
+      for (const line of log.split('\n')) console.log('    ' + line);
+    } catch (_) {
+      console.log('    (couldn\'t read journalctl — run it manually)');
     }
-  } catch {
-    warn('Could not verify service status');
+    console.log('\n  Common causes:');
+    console.log('    • `claude` command not on systemd\'s PATH → service env is minimal');
+    console.log('    • Slack tokens wrong or app not installed to workspace');
+    console.log('    • CLAUDE_CODE_OAUTH_TOKEN missing or expired');
+    console.log('    • Bot user IDs (YODA_DM_AUTHORIZED_USERS) wrong\n');
+    console.log('  Useful commands:');
+    console.log('    systemctl status yodacode.service');
+    console.log('    journalctl -u yodacode.service -f');
+    console.log('    sudo -u root env | grep -E "PATH|CLAUDE"\n');
   }
 }
 

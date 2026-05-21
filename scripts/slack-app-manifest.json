@@ -48,6 +48,9 @@
         "im:history",
         "im:read",
         "im:write",
+        "mpim:history",
+        "mpim:read",
+        "mpim:write",
         "users:read",
         "reactions:read",
         "reactions:write",
@@ -62,7 +65,8 @@
         "app_mention",
         "message.channels",
         "message.groups",
-        "message.im"
+        "message.im",
+        "message.mpim"
       ]
     },
     "interactivity": {

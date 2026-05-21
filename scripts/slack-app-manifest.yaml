@@ -38,6 +38,9 @@ oauth_config:
       - im:history
       - im:read
       - im:write
+      - mpim:history
+      - mpim:read
+      - mpim:write
       - users:read
       - reactions:read
       - reactions:write
@@ -51,6 +54,7 @@ settings:
       - message.channels
       - message.groups
       - message.im
+      - message.mpim
   interactivity:
     is_enabled: false
   socket_mode_enabled: true
