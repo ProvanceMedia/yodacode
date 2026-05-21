@@ -81,11 +81,9 @@ export async function runClaude({
       '--thinking', 'enabled',
     ];
     if (model) args.push('--model', model);
-    if (config.sandbox.mode === 'auto') {
-      args.push('--sandbox', 'auto-allow');
-    } else if (config.sandbox.mode === 'prompt') {
-      args.push('--sandbox', 'permissions');
-    }
+    // Sandbox is configured via .claude/settings.json (written by yoda.js
+    // at startup based on YODA_SANDBOX). Newer claude CLI no longer accepts
+    // a --sandbox flag.
 
     const claude = spawn(
       config.claude.bin,
