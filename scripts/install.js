@@ -401,6 +401,10 @@ async function setupSystemd() {
   const template = fs.readFileSync(path.join(ROOT, 'systemd', 'yodacode.service.template'), 'utf8');
   const service = template.replaceAll('{{INSTALL_DIR}}', ROOT);
   fs.writeFileSync(servicePath, service);
+  // systemd's StandardOutput=append: doesn't auto-create the parent dir, so
+  // ensure it exists. Same for state/ which the agent writes to on startup.
+  fs.mkdirSync(path.join(ROOT, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(WORKSPACE, 'state'), { recursive: true });
   execSync('systemctl daemon-reload');
   execSync('systemctl enable --now yodacode.service');
   ok('yodacode.service enabled and started');
