@@ -23,6 +23,9 @@ workspace/legacy-crons/
 workspace/legacy-scripts/
 workspace/LEGACY_MEMORY.md
 
+# Skill archive (user-specific history, recoverable via skill-review cron)
+workspace/skills/archive/
+
 # Auto-generated
 workspace/CAPABILITIES.md
 

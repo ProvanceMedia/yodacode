@@ -2,20 +2,33 @@
 """
 Yoda capability auto-generator.
 
-Reads ../.env, classifies each key against a known map of services,
-and writes ./CAPABILITIES.md as a structured reference of what
-Yoda can actually do right now. Run on every loop.sh startup
-so the file stays in sync with reality.
+Two sources of truth → one CAPABILITIES.md:
+
+1. `@yoda-tool` manifests scanned from `workspace/bin/*` — describes the
+   CLI tools Yoda can invoke via Bash.
+2. SERVICE_MAP × `.env` — describes which raw HTTP APIs are usable
+   right now based on which env vars are present.
+
+Run on every yoda startup so the file stays in sync with reality.
+Adding a new tool: drop a manifest block at the top of the script (see
+`browser-tools.sh` for the format). No code edit needed.
 """
 
 import os
+import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ROOT = workspace/ (one level up from bin/ where this script lives)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BIN = os.path.join(ROOT, "bin")
 ENV = os.path.join(ROOT, "..", ".env")
 OUT = os.path.join(ROOT, "CAPABILITIES.md")
+
+# Files in workspace/bin/ that are NOT user-facing tools (helpers, generators).
+SKIP_TOOLS = {
+    "refresh-capabilities.py",
+}
 
 # (env key → service group, friendly name, base URL, auth header pattern, notes)
 SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
@@ -85,6 +98,127 @@ SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
 }
 
 
+# ───────────────────────── manifest scanner ─────────────────────────
+
+MANIFEST_KEYS = {"name", "summary", "tags", "requires", "usage", "examples"}
+COMMENT_PREFIX = re.compile(r"^\s*(#|//|--)\s?")
+KEY_LINE = re.compile(r"^(\w+):\s*(.*)$")
+
+
+def strip_comment(line: str) -> str:
+    return COMMENT_PREFIX.sub("", line.rstrip("\n"))
+
+
+def parse_manifest(filepath: str) -> dict | None:
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            lines = [f.readline() for _ in range(120)]
+    except OSError:
+        return None
+    in_block = False
+    body: list[str] = []
+    for raw in lines:
+        stripped = strip_comment(raw)
+        if "@yoda-tool" in stripped:
+            in_block = True
+            continue
+        if "@end" in stripped and in_block:
+            in_block = False
+            break
+        if in_block:
+            body.append(stripped)
+    if not body:
+        return None
+    manifest: dict = {}
+    current: str | None = None
+    for line in body:
+        m = KEY_LINE.match(line) if not line.startswith((" ", "\t")) else None
+        if m and m.group(1) in MANIFEST_KEYS:
+            key, value = m.group(1), m.group(2).strip()
+            manifest[key] = value if value else []
+            current = key
+        elif current is not None and line.strip():
+            existing = manifest.get(current)
+            if isinstance(existing, list):
+                existing.append(line.lstrip())
+            elif existing:
+                manifest[current] = [existing, line.lstrip()]
+            else:
+                manifest[current] = [line.lstrip()]
+    for k in ("tags", "requires"):
+        v = manifest.get(k)
+        if isinstance(v, str):
+            manifest[k] = [t.strip() for t in v.split(",") if t.strip()]
+        elif v is None:
+            manifest[k] = []
+    if "name" not in manifest or "summary" not in manifest:
+        return None
+    return manifest
+
+
+def scan_tools(bin_dir: str) -> list[dict]:
+    tools: list[dict] = []
+    if not os.path.isdir(bin_dir):
+        return tools
+    for entry in sorted(os.listdir(bin_dir)):
+        if entry in SKIP_TOOLS:
+            continue
+        path = os.path.join(bin_dir, entry)
+        if not os.path.isfile(path):
+            continue
+        manifest = parse_manifest(path)
+        if manifest:
+            manifest["_filename"] = entry
+            tools.append(manifest)
+    return tools
+
+
+def render_tools_section(tools: list[dict], present_keys: set[str]) -> list[str]:
+    if not tools:
+        return []
+    out = ["## Yoda CLI tools (`workspace/bin/`)", ""]
+    out.append("Auto-discovered from `@yoda-tool` manifest blocks in each script. To add a new tool: drop one in `workspace/bin/` with a manifest block at the top — it shows up here on the next yoda restart.")
+    out.append("")
+    groups: dict[str, list[dict]] = {}
+    for t in tools:
+        tag = (t.get("tags") or ["misc"])[0]
+        groups.setdefault(tag, []).append(t)
+    for tag in sorted(groups):
+        out.append(f"### {tag}")
+        out.append("")
+        for t in groups[tag]:
+            name = t["name"]
+            summary = t["summary"]
+            requires = t.get("requires", [])
+            missing = [k for k in requires if k not in present_keys]
+            if not requires or not missing:
+                head = f"- ✅ **`{name}`** — {summary}"
+            else:
+                missing_str = ", ".join("`$" + k + "`" for k in missing)
+                head = f"- ❌ **`{name}`** *(missing {missing_str})* — {summary}"
+            out.append(head)
+            usage = t.get("usage")
+            if isinstance(usage, list) and usage:
+                out.append("  ```")
+                for line in usage:
+                    out.append(f"  {line.rstrip()}")
+                out.append("  ```")
+            elif isinstance(usage, str) and usage:
+                out.append(f"  `{usage}`")
+            examples = t.get("examples")
+            if isinstance(examples, list) and examples:
+                out.append("  *Examples:*")
+                for ex in examples:
+                    out.append(f"  - `{ex.rstrip()}`")
+            elif isinstance(examples, str) and examples:
+                out.append(f"  *Example:* `{examples}`")
+        out.append("")
+    return out
+
+
+# ───────────────────────── env scanner ─────────────────────────
+
+
 def parse_env(path: str) -> set[str]:
     keys = set()
     if not os.path.exists(path):
@@ -101,6 +235,7 @@ def parse_env(path: str) -> set[str]:
 
 def main() -> int:
     present = parse_env(ENV)
+    tools = scan_tools(BIN)
 
     # Group services by category for output
     groups: dict[str, list[tuple[str, str, str, str, str]]] = {}
@@ -112,12 +247,12 @@ def main() -> int:
         else:
             uncategorised.append(k)
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     out = []
     out.append("# CAPABILITIES.md — Yoda")
     out.append("")
-    out.append(f"*Auto-generated from `../.env` on {today}. Re-runs on every loop start via `refresh-capabilities.py`. Do not hand-edit — change the script's SERVICE_MAP instead.*")
+    out.append(f"*Auto-generated on {today}. Two sources: `@yoda-tool` manifests in `workspace/bin/*`, and `SERVICE_MAP` × `../.env`. Re-runs on every yoda startup via `refresh-capabilities.py`. Do not hand-edit.*")
     out.append("")
     out.append("This is the **source of truth** for what Yoda can do right now. If a service is listed here, you have the credentials and you should use them when relevant. If a service is NOT listed here, you do not have access — say so honestly.")
     out.append("")
@@ -144,9 +279,15 @@ def main() -> int:
     else:
         out.append("- **Fallback:** none configured")
     out.append("")
-    out.append("**This is your real model fallback chain.** If a user asks what you'll fall back to, this is the answer — NOT Groq. Groq is only available as a direct curl target via `$GROQ_API_KEY` for completion calls when you explicitly want it; the `Role: Fallback model` line in the imported production-Codi `TOOLS.md` is OpenClaw-specific and does NOT describe Yoda. Yoda's automatic fallback is whatever is in `YODA_CLAUDE_FALLBACK_MODELS`.")
+    out.append("**This is your real model fallback chain.** If a user asks what you'll fall back to, this is the answer — NOT Groq. Groq is only available as a direct curl target via `$GROQ_API_KEY` for completion calls when you explicitly want it. Yoda's automatic fallback is whatever is in `YODA_CLAUDE_FALLBACK_MODELS`.")
     out.append("")
 
+    out.extend(render_tools_section(tools, present))
+
+    out.append("## Services by env var")
+    out.append("")
+    out.append("Raw HTTP APIs available via curl. Auth headers and base URLs documented here so you don't have to grep TOOLS.md.")
+    out.append("")
     for cat in ["AI", "Google", "Business", "CRM", "Money", "Infra", "Content", "Commerce", "Personal", "Slack", "Auth"]:
         if cat not in groups:
             continue
@@ -164,7 +305,7 @@ def main() -> int:
     if uncategorised:
         out.append("## Uncategorised env vars")
         out.append("")
-        out.append("These keys are present in `.env` but not in `refresh-capabilities.py`'s service map. They may still be usable — check `TOOLS.md` or ask Stu before claiming they don't work.")
+        out.append("These keys are present in `.env` but not in `refresh-capabilities.py`'s `SERVICE_MAP`. They may still be usable — check `TOOLS.md` before claiming they don't work.")
         out.append("")
         for k in uncategorised:
             out.append(f"- `${k}`")
@@ -174,13 +315,13 @@ def main() -> int:
     out.append("")
     out.append("## Honesty rules")
     out.append("")
-    out.append("- **If a service is listed here, you have it.** Don't claim you can't do something that's in this file.")
-    out.append("- **If a service is NOT listed here, you don't have it.** Don't pretend you do. Say so honestly and offer the closest alternative.")
-    out.append('- **If you discover a new env var that should be here**, run `python3 refresh-capabilities.py` (the loop does this automatically on restart) and tell Stu so he can add it to the SERVICE_MAP if it is not there.')
-    out.append("- **If a service IS listed here but actually fails**, the credentials may be stale or the upstream may be down. Report the actual error rather than claiming you don't have access.")
+    out.append("- **If a tool or service is listed here, you have it.** Don't claim you can't do something that's in this file.")
+    out.append("- **If a tool/service is NOT listed here, you don't have it.** Don't pretend you do. Say so honestly and offer the closest alternative.")
+    out.append("- **If you discover a new env var or want to register a new tool**, add a `@yoda-tool` manifest block to the script in `workspace/bin/` (or add the env key to `SERVICE_MAP` in `refresh-capabilities.py`). The yoda startup will regenerate this file.")
+    out.append("- **If a service IS listed but actually fails**, the credentials may be stale or the upstream may be down. Report the actual error rather than claiming you don't have access.")
 
     open(OUT, "w").write("\n".join(out) + "\n")
-    print(f"wrote {OUT} — {sum(len(g) for g in groups.values())} known services + {len(uncategorised)} uncategorised")
+    print(f"wrote {OUT} — {len(tools)} tools + {sum(len(g) for g in groups.values())} known services + {len(uncategorised)} uncategorised")
     return 0
 
 

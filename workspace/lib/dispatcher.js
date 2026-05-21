@@ -18,6 +18,8 @@ import { queue } from './queue.js';
 import { runClaude } from './claude-runner.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { maybeReflect } from './skill-reflector.js';
+import { maybeReflectMemory } from './memory-reflector.js';
 
 /**
  * @param {object} event Normalised event (see lib/surface.js for shape)
@@ -87,6 +89,7 @@ async function processReply(event, surface) {
     : [config.claude.model || null, ...config.claude.fallbackModels];
   let result = null;
   let modelUsed = null;
+  const tickStartMs = Date.now();
   for (let i = 0; i < modelChain.length; i++) {
     const model = modelChain[i];
     modelUsed = model || '(default)';
@@ -138,9 +141,33 @@ async function processReply(event, surface) {
       await surface.updateMessage(placeholder,
         `⏱️ Timed out after ${Math.round(config.claude.timeoutMs / 1000)}s of work. Probably stuck on a slow API call or running too many tool calls. Try a more focused request.`);
     } catch (_) {}
+  } else if (result.killed && result.error === 'iteration_cap') {
+    try {
+      await surface.updateMessage(placeholder,
+        result.guardrailMessage || '🛑 Iteration cap hit — claude was looping.');
+    } catch (_) {}
   } else if (result.killed && result.error === 'killed') {
     // User-initiated stop — the stop-handler already updated the placeholder
     // to "🛑 Stopped by user", nothing more to do.
+  }
+
+  // Skill + memory self-generation. Fire-and-forget background reflections
+  // after a successful tick. Skills capture reusable PROCEDURES, memory
+  // captures durable FACTS — they look at the same transcript but produce
+  // different artefacts. Both opt-in via env vars. Never blocks the response.
+  if (result.ok && result.finalText) {
+    const reflectionArgs = {
+      surface: event.surface,
+      conversationId: event.conversationId,
+      userText: event.text || '',
+      replyText: result.finalText,
+      tracker: result.tracker,
+      durationMs: Date.now() - tickStartMs,
+    };
+    try { maybeReflect(reflectionArgs); }
+    catch (e) { logger.warn('skill-reflector dispatch failed', { err: e.message }); }
+    try { maybeReflectMemory(reflectionArgs); }
+    catch (e) { logger.warn('memory-reflector dispatch failed', { err: e.message }); }
   }
 }
 

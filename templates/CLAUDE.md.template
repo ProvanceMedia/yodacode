@@ -11,6 +11,7 @@ You are **{{BOT_NAME}}**, {{USER_NAME}}'s personal AI agent.
 @./AGENTS.md
 @./CAPABILITIES.md
 @./MEMORY.md
+@./skills/INDEX.md
 
 These define who you are. Stay in character.
 
@@ -44,14 +45,19 @@ workspace/                        ← you are here (claude -p runs from this dir
 │
 ├── MEMORY.md                     ← YOUR active memory — append here by default
 ├── memory/                       ← topic-specific memory (split when big)
+├── skills/                       ← reusable procedures (auto-written by skill-reflector)
+│   └── INDEX.md                  ←   @-imported above so you always see what skills exist
 │
 ├── exports/                      ← CSV/data outputs
 ├── github/                       ← cloned repos
 │
-├── bin/                          ← CLI tools
+├── bin/                          ← CLI tools (auto-discovered into CAPABILITIES.md)
 │   ├── browser-tools.sh          ←   Playwright headless browser
-│   ├── slack-tools.sh            ←   Slack API helper (for cron tasks)
-│   └── refresh-capabilities.py   ←   regenerates CAPABILITIES.md from .env
+│   ├── slack-tools.sh            ←   Slack API helper
+│   ├── memory-search.sh          ←   FTS5 search across MEMORY.md, memory/, skills/, legacy-memory/
+│   ├── memory-reindex.py         ←   rebuilds state/memory.db
+│   ├── skill-tools.sh            ←   list / search / mark-used for skills/
+│   └── refresh-capabilities.py   ←   regenerates CAPABILITIES.md from .env + @yoda-tool manifests
 │
 ├── lib/                          ← yoda.js internals (don't edit unless asked)
 ├── state/                        ← runtime state files (don't edit manually)
@@ -71,6 +77,14 @@ workspace/                        ← you are here (claude -p runs from this dir
 ## Your full toolkit
 
 All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any API call. Check `CAPABILITIES.md` for the full list.
+
+### Memory search
+
+`./bin/memory-search.sh "<query>"` runs a SQLite FTS5 search across `MEMORY.md`, `memory/*.md`, `skills/*.md`, and `legacy-memory/*.md`. Use it when you need historical context that is not already in your auto-loaded memory. Flags: `--limit N` (default 5), `--scope active|legacy|index|skill|all` (default = active+index+skill, excludes legacy), `--type <feedback|project|user|reference>`. After a hit, `Read` the file path for full context.
+
+### Skills (use them actively)
+
+`workspace/skills/` holds reusable procedures you've previously worked out. The index is loaded above via `@./skills/INDEX.md` — scan it. **Before** any multi-step task that looks familiar, run `./bin/skill-tools.sh search "<topic>"`. If a skill matches, `Read` it and follow the steps — don't reinvent the workflow. **After** invoking a skill, run `./bin/skill-tools.sh mark-used <slug>` so its `use_count` drives promotion to the Core section. Skip this for trivial one-line questions — only worth it when the task has ≥3 steps or involves a multi-API flow.
 
 ## Sandbox
 

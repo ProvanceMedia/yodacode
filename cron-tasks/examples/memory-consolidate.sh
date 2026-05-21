@@ -8,7 +8,7 @@
 
 set -uo pipefail
 
-# Model for this cron (leave empty to use default, e.g. claude-haiku-4-5, claude-opus-4-6)
+# Model for this cron (leave empty to use default, e.g. claude-haiku-4-5, claude-opus-4-7)
 CRON_MODEL="${CRON_MODEL:-}"
 
 cd "$(dirname "$0")/../workspace"
@@ -99,4 +99,8 @@ OUT=$(claude -p "$PROMPT" \
   2>&1) || true
 
 echo "[$START] $OUT" >> "$LOG"
+
+# Rebuild FTS5 memory index so memory-search.sh picks up any moved/merged content.
+python3 ./bin/memory-reindex.py >> "$LOG" 2>&1 || echo "[$(date -Iseconds)] memory-reindex failed" >> "$LOG"
+
 echo "[$(date -Iseconds)] memory-consolidate finished" >> "$LOG"

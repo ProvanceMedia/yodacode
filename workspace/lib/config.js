@@ -91,6 +91,37 @@ export const config = {
     // CSV of fallback models tried in order if the primary returns a
     // throttled (529-style) failure. Empty = no fallback.
     fallbackModels: csv('YODA_CLAUDE_FALLBACK_MODELS', 'claude-haiku-4-5'),
+    // Tool-loop guardrails. Apply only to surface ticks (Slack/WhatsApp) that
+    // go through runClaude. Crons spawn `claude -p` directly and are bounded
+    // by their own timeouts.
+    maxIterations: parseInt(process.env.YODA_MAX_ITERATIONS_SLACK || '60', 10),
+    guardrailEnabled: process.env.YODA_GUARDRAIL_ENABLED !== '0',
+    guardrailRepeatThreshold: parseInt(process.env.YODA_GUARDRAIL_REPEAT_THRESHOLD || '2', 10),
+    guardrailNoProgressThreshold: parseInt(process.env.YODA_GUARDRAIL_NOPROGRESS_THRESHOLD || '3', 10),
+  },
+
+  // Skill self-generation. After a successful surface tick that crosses the
+  // duration/tool-count threshold, dispatcher spawns a background `claude -p`
+  // that decides whether to write a new skills/<slug>.md. Default OFF —
+  // opt-in via YODA_SKILL_REFLECTOR_ENABLED=1.
+  skills: {
+    reflectorEnabled: process.env.YODA_SKILL_REFLECTOR_ENABLED === '1',
+    minDurationMs: parseInt(process.env.YODA_SKILL_MIN_DURATION_MS || '30000', 10),
+    minToolCount: parseInt(process.env.YODA_SKILL_MIN_TOOL_COUNT || '5', 10),
+    reflectorModel: process.env.YODA_SKILL_REFLECTOR_MODEL || 'claude-haiku-4-5',
+    reflectorTimeoutMs: parseInt(process.env.YODA_SKILL_REFLECTOR_TIMEOUT_MS || '120000', 10),
+  },
+
+  // Memory self-generation. Mirror of the skill reflector but for durable
+  // FACTS (user-fact, feedback, project-state, reference) rather than
+  // reusable procedures. Default OFF — opt in via
+  // YODA_MEMORY_REFLECTOR_ENABLED=1.
+  memory: {
+    reflectorEnabled: process.env.YODA_MEMORY_REFLECTOR_ENABLED === '1',
+    minDurationMs: parseInt(process.env.YODA_MEMORY_MIN_DURATION_MS || '30000', 10),
+    minToolCount: parseInt(process.env.YODA_MEMORY_MIN_TOOL_COUNT || '5', 10),
+    reflectorModel: process.env.YODA_MEMORY_REFLECTOR_MODEL || 'claude-haiku-4-5',
+    reflectorTimeoutMs: parseInt(process.env.YODA_MEMORY_REFLECTOR_TIMEOUT_MS || '120000', 10),
   },
 
   // Conversation context window

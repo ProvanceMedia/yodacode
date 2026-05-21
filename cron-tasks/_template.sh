@@ -12,7 +12,7 @@
 
 set -uo pipefail
 
-# Model for this cron (leave empty to use default, e.g. claude-haiku-4-5, claude-opus-4-6)
+# Model for this cron (leave empty to use default, e.g. claude-haiku-4-5, claude-opus-4-7)
 CRON_MODEL="${CRON_MODEL:-}"
 
 cd "$(dirname "$0")/../workspace"

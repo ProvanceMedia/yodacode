@@ -16,6 +16,7 @@
 
 import readline from 'node:readline';
 import path from 'node:path';
+import { ToolTracker } from './tool-tracker.js';
 
 const THROTTLE_MS = 800;
 
@@ -28,9 +29,20 @@ const THROTTLE_MS = 800;
  * @param {(text: string) => Promise<void>} handlers.onFinal   Called once with final text
  * @param {number}   [handlers.maxRetries] Bail when Claude reports this many consecutive api_retry events
  * @param {() => void} [handlers.onMaxRetries] Called once when retry threshold is exceeded
- * @returns {Promise<{ ok: boolean, finalText: string, error?: string, throttled?: boolean }>}
+ * @param {number}   [handlers.maxIterations] Cap on total tool_use events (Infinity = off)
+ * @param {object}   [handlers.guardrails]   { enabled, repeatFailureThreshold, noProgressThreshold }
+ * @param {(g: object) => void} [handlers.onGuardrail] Called when a guardrail trips (warning OR cap)
+ * @returns {Promise<{ ok: boolean, finalText: string, error?: string, throttled?: boolean, tracker?: object }>}
  */
-export async function translateStream(stdin, { onStatus, onFinal, maxRetries = Infinity, onMaxRetries }) {
+export async function translateStream(stdin, {
+  onStatus,
+  onFinal,
+  maxRetries = Infinity,
+  onMaxRetries,
+  maxIterations = Infinity,
+  guardrails = { enabled: true, repeatFailureThreshold: 2, noProgressThreshold: 3 },
+  onGuardrail,
+}) {
   let lastUpdateAt = 0;
   let lastTextSent = '';
   const finalChunks = [];
@@ -55,6 +67,28 @@ export async function translateStream(stdin, { onStatus, onFinal, maxRetries = I
   };
 
   const rl = readline.createInterface({ input: stdin, crlfDelay: Infinity });
+
+  // Tool-loop guardrails. Warnings surface as transient status lines;
+  // iteration_cap is escalated to the runner via onGuardrail so it can SIGTERM.
+  const tracker = guardrails && guardrails.enabled !== false
+    ? new ToolTracker({
+        maxIterations,
+        repeatFailureThreshold: guardrails.repeatFailureThreshold ?? 2,
+        noProgressThreshold: guardrails.noProgressThreshold ?? 3,
+        onGuardrail: (g) => {
+          if (g.type === 'repeat_failure') {
+            send(`⚠️ ${g.tool} failed ${g.count}× in a row — may be stuck`, true);
+          } else if (g.type === 'no_progress') {
+            send(`⚠️ ${g.tool} no progress (${g.count}× identical) — may be looping`, true);
+          } else if (g.type === 'iteration_cap') {
+            send(`🛑 Iteration cap hit (${g.count}/${g.max})`, true);
+          }
+          if (onGuardrail) {
+            try { onGuardrail(g); } catch (_) {}
+          }
+        },
+      })
+    : null;
 
   // Send the initial "thinking" status immediately
   await send(currentStatus, true);
@@ -102,6 +136,7 @@ export async function translateStream(stdin, { onStatus, onFinal, maxRetries = I
               await send(currentStatus);
             }
           } else if (block.type === 'tool_use') {
+            if (tracker) tracker.recordUse(block.id, block.name, block.input);
             currentStatus = describeToolUse(block.name, block.input || {});
             await send(currentStatus);
           }
@@ -110,8 +145,16 @@ export async function translateStream(stdin, { onStatus, onFinal, maxRetries = I
       }
 
       case 'user':
-        // tool_result event — append a tick to current status to indicate
-        // the tool returned. The next event will overwrite this.
+        // tool_result event(s) — parse for guardrail tracking, then append a
+        // tick to current status to indicate the tool returned.
+        if (tracker) {
+          const blocks = ev.message?.content || [];
+          for (const b of blocks) {
+            if (b.type === 'tool_result') {
+              tracker.recordResult(b.tool_use_id, !!b.is_error, b.content);
+            }
+          }
+        }
         await send(`${currentStatus} ✓`);
         break;
 
@@ -157,7 +200,13 @@ export async function translateStream(stdin, { onStatus, onFinal, maxRetries = I
     // Final update failure is logged by the caller
   }
 
-  return { ok: !errorText, finalText: final, error: errorText || undefined, throttled };
+  return {
+    ok: !errorText,
+    finalText: final,
+    error: errorText || undefined,
+    throttled,
+    tracker: tracker ? tracker.summary() : null,
+  };
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────

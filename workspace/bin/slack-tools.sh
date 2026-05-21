@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# Yoda Slack helper (multi-channel).
-#
-# Sub-commands:
-#   whoami                       — print bot user id
-#   list                         — print conversations (channels + IMs) bot is in (JSON)
-#   fetch                        — print new messages across ALL conversations the bot
-#                                   is in, since per-channel last-seen.json. Output is a
-#                                   JSON object: {"conversations":[{"channel":..,"is_im":..,
-#                                   "messages":[...]}, ...]}
-#   post <channel> <text>        — post text as a top-level message in <channel>.
-#                                   Returns Slack JSON; the new message ts is in `ts` field.
-#   update <channel> <ts> <text> — edit an existing message you own (chat.update)
-#   react <channel> <ts> <emoji> — add an emoji reaction (no leading colon)
-#   unreact <channel> <ts> <emoji> — remove your emoji reaction
-#   reply <channel> <thread_ts> <text> — post text as a reply in a thread
-#   thread <channel> <thread_ts> — print full thread history (JSON)
-#   mark <channel> <ts>          — write ts as last-seen for <channel>
+# @yoda-tool
+# name: slack-tools.sh
+# summary: Slack API helper — fetch, post, react, thread, mark. Multi-channel via per-channel last-seen state.
+# tags: slack, messaging
+# requires: SLACK_BOT_TOKEN
+# usage:
+#   slack-tools.sh whoami                              — print bot user id
+#   slack-tools.sh list                                — list conversations bot is in
+#   slack-tools.sh fetch                               — print new messages since last-seen
+#   slack-tools.sh post <channel> <text>               — post a top-level message
+#   slack-tools.sh update <channel> <ts> <text>        — edit a message you own
+#   slack-tools.sh react <channel> <ts> <emoji>        — add an emoji reaction
+#   slack-tools.sh unreact <channel> <ts> <emoji>      — remove an emoji reaction
+#   slack-tools.sh reply <channel> <thread_ts> <text>  — post a thread reply
+#   slack-tools.sh thread <channel> <thread_ts>        — print full thread history
+#   slack-tools.sh mark <channel> <ts>                 — write last-seen for a channel
+# examples:
+#   ./bin/slack-tools.sh post C0AS4NZNH16 "hello"
+#   ./bin/slack-tools.sh react C0AS4NZNH16 1234.5678 thumbsup
+# @end
 #
 # Reads SLACK_BOT_TOKEN from env. State file: ./state/last-seen.json
 # (a JSON object mapping channel_id -> ts).

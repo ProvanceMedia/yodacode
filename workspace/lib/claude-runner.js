@@ -13,6 +13,8 @@ import { logger } from './logger.js';
 import { translateStream } from './stream-translator.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
+const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
+const TOOL_RUNS_MAX_ENTRIES = 100;
 
 mkdirSync(config.stateDir, { recursive: true });
 if (!existsSync(TICKS_FILE)) writeFileSync(TICKS_FILE, '{}');
@@ -26,6 +28,25 @@ function loadTicks() {
 }
 function saveTicks(t) {
   writeFileSync(TICKS_FILE, JSON.stringify(t, null, 2));
+}
+
+function appendToolRuns(conversationId, surface, summary) {
+  let data = {};
+  try {
+    if (existsSync(TOOL_RUNS_FILE)) data = JSON.parse(readFileSync(TOOL_RUNS_FILE, 'utf8'));
+  } catch (_) { data = {}; }
+  const key = `${conversationId}@${Date.now()}`;
+  data[key] = { surface, ts: Date.now(), ...summary };
+  const keys = Object.keys(data);
+  if (keys.length > TOOL_RUNS_MAX_ENTRIES) {
+    const drop = keys.length - TOOL_RUNS_MAX_ENTRIES;
+    for (let i = 0; i < drop; i++) delete data[keys[i]];
+  }
+  try {
+    writeFileSync(TOOL_RUNS_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    logger.warn('tool-runs persist failed', { err: e.message });
+  }
 }
 
 /**
@@ -65,9 +86,6 @@ export async function runClaude({
     } else if (config.sandbox.mode === 'prompt') {
       args.push('--sandbox', 'permissions');
     }
-    // (end sandbox)
-    ];
-    if (model) args.push('--model', model);
 
     const claude = spawn(
       config.claude.bin,
@@ -94,6 +112,7 @@ export async function runClaude({
     let killed = false;
     let timedOut = false;
     let finalResult = null;
+    let iterationCap = null;  // populated when guardrail trips
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -132,8 +151,27 @@ export async function runClaude({
         killed = true;
         try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
       },
+      maxIterations: config.claude.maxIterations,
+      guardrails: {
+        enabled: config.claude.guardrailEnabled,
+        repeatFailureThreshold: config.claude.guardrailRepeatThreshold,
+        noProgressThreshold: config.claude.guardrailNoProgressThreshold,
+      },
+      onGuardrail: (g) => {
+        if (g.type === 'iteration_cap') {
+          iterationCap = g;
+          logger.warn('iteration cap hit, killing', {
+            surface, conversationId, count: g.count, max: g.max,
+          });
+          killed = true;
+          try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
+        } else {
+          logger.info('guardrail tripped', { surface, conversationId, ...g });
+        }
+      },
     }).then((res) => {
       finalResult = res;
+      if (res?.tracker) appendToolRuns(conversationId, surface, res.tracker);
     }).catch((e) => {
       logger.error('translator error', { err: e.message });
       finalResult = { ok: false, error: e.message };
@@ -156,7 +194,14 @@ export async function runClaude({
       // Wait a tiny moment for the translator to finish processing buffered
       // output, then resolve.
       setTimeout(() => {
-        if (timedOut) {
+        if (iterationCap) {
+          resolve({
+            ok: false,
+            error: 'iteration_cap',
+            killed: true,
+            guardrailMessage: `🛑 Iteration cap hit (${iterationCap.count}/${iterationCap.max}) — claude was looping. See logs/yoda.log and state/tool-runs.json.`,
+          });
+        } else if (timedOut) {
           resolve({ ok: false, error: 'timeout', killed: true });
         } else if (killed) {
           // killed could be either user-stop OR fail-fast on throttle.

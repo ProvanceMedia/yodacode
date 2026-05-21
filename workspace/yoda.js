@@ -148,6 +148,16 @@ async function main() {
     logger.warn('refresh-capabilities failed (non-fatal)', { err: e.message });
   }
 
+  // Rebuild the FTS5 memory index so memory-search.sh has fresh data.
+  // Idempotent: skips work if no source file is newer than the DB.
+  try {
+    const { execSync } = await import('node:child_process');
+    execSync('python3 ./bin/memory-reindex.py', { cwd: config.workspace, stdio: 'pipe' });
+    logger.info('refreshed memory index');
+  } catch (e) {
+    logger.warn('memory-reindex failed (non-fatal)', { err: e.message });
+  }
+
   if (!config.surfaces.length) {
     logger.error('no surfaces configured (set YODA_SURFACES env var)');
     process.exit(2);
