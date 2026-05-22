@@ -597,7 +597,6 @@ function cmdHelp() {
     '    tools [<name> on|off]  Show or toggle reflectors / guardrails',
     '    usage                  Token + cost summary (today / 7d / 30d / all time)',
     '    update                 git pull, install new deps, restart the service',
-    '    release <kind>         Cut a release (kind = patch | minor | major)',
     '    status                 Show what is currently configured (.env summary)',
     '    version                Print the installed version',
     '    help                   Print this message',
@@ -783,7 +782,28 @@ function bumpVersion(v, kind) {
   return `${maj}.${min}.${pat}`;
 }
 
+// Maintainer-only — refuse to run unless this clone's `origin` points to
+// the canonical upstream repo. Forks and end-user installs aren't expected
+// to cut releases; they'd be pushing to someone else's repo. Override by
+// setting YODACODE_RELEASE_REPO to a substring of their own origin URL.
+const CANONICAL_RELEASE_REPO = process.env.YODACODE_RELEASE_REPO || 'ProvanceMedia/yodacode';
+
 async function cmdRelease() {
+  // Gate: confirm we're in the canonical repo.
+  let origin = '';
+  try {
+    origin = execSync('git remote get-url origin', { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch (_) {
+    fail('Not a git repo or no `origin` remote — release is maintainer-only.');
+    rl.close(); process.exit(1);
+  }
+  if (!origin.includes(CANONICAL_RELEASE_REPO)) {
+    fail('`yodacode release` is a maintainer-only command.');
+    console.log(`  This clone's origin is ${origin}`);
+    console.log(`  Expected to contain: ${CANONICAL_RELEASE_REPO}`);
+    rl.close(); process.exit(1);
+  }
+
   const kind = positional[1];
   if (!['patch', 'minor', 'major'].includes(kind)) {
     fail(`Usage: yodacode release <patch|minor|major>`);
