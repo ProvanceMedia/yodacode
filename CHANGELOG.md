@@ -3,6 +3,15 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.0 — 2026-05-22
+
+- release: --yes flag + sync-probe /dev/tty so piped input works
+- release: don't require unpushed commits — only check 'commits since last tag'
+- Add yodacode release <patch|minor|major>
+- Make yodacode update tolerant of per-install drift
+- Always persist ~/.local/bin on PATH + self-heal wrapper on update
+- Add yodacode model/tools/usage subcommands + per-run usage tracking
+
 ## v0.1.0 — initial public version
 
 First tagged release. Highlights:
