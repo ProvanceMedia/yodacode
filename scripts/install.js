@@ -463,7 +463,12 @@ async function setupSystemd() {
 
   const servicePath = '/etc/systemd/system/yodacode.service';
   const template = fs.readFileSync(path.join(ROOT, 'systemd', 'yodacode.service.template'), 'utf8');
-  const service = template.replaceAll('{{INSTALL_DIR}}', ROOT);
+  // process.execPath is the actual node binary running this script. With
+  // the bundled installer, that's ~/.yodacode/node/bin/node — and systemd
+  // won't find it via PATH, so we have to hard-code the absolute path.
+  const service = template
+    .replaceAll('{{INSTALL_DIR}}', ROOT)
+    .replaceAll('{{NODE_BIN}}', process.execPath);
   fs.writeFileSync(servicePath, service);
   // systemd's StandardOutput=append: doesn't auto-create the parent dir, so
   // ensure it exists. Same for state/ which the agent writes to on startup.

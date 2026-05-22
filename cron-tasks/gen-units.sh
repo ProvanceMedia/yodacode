@@ -38,10 +38,16 @@ DESC=$(grep -E '^description:' "$YAML" | head -1 | sed -E 's/^description:\s*//;
 
 mkdir -p "$DIR/systemd"
 
-# Materialise the concrete .service from the template (substitute {{INSTALL_DIR}}).
+# Materialise the concrete .service from the template. Substitute the
+# install dir and the absolute node binary path so systemd can find it
+# (PATH is minimal under systemd, and the bundled installer puts node
+# in ~/.yodacode/node/bin/, not /usr/bin/).
+NODE_BIN="$(command -v node || echo /usr/bin/node)"
 if [[ -f "$SERVICE_TEMPLATE" ]]; then
-  sed "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" "$SERVICE_TEMPLATE" > "$SERVICE"
-  echo "wrote $SERVICE (substituted INSTALL_DIR=$INSTALL_DIR)"
+  sed -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+      -e "s|{{NODE_BIN}}|$NODE_BIN|g" \
+      "$SERVICE_TEMPLATE" > "$SERVICE"
+  echo "wrote $SERVICE (INSTALL_DIR=$INSTALL_DIR, NODE_BIN=$NODE_BIN)"
 fi
 
 cat > "$TIMER" <<EOF

@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory={{INSTALL_DIR}}/workspace
 EnvironmentFile={{INSTALL_DIR}}/.env
 Environment=ANTHROPIC_API_KEY=
-ExecStart=/usr/bin/node {{INSTALL_DIR}}/workspace/yoda.js
+ExecStart={{NODE_BIN}} {{INSTALL_DIR}}/workspace/yoda.js
 Restart=always
 RestartSec=5
 StandardOutput=append:{{INSTALL_DIR}}/logs/yoda.log
