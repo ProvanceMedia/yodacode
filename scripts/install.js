@@ -556,6 +556,7 @@ function cmdHelp() {
     '    tools [<name> on|off]  Show or toggle reflectors / guardrails',
     '    usage                  Token + cost summary (today / 7d / 30d / all time)',
     '    update                 git pull, install new deps, restart the service',
+    '    release <kind>         Cut a release (kind = patch | minor | major)',
     '    status                 Show what is currently configured (.env summary)',
     '    version                Print the installed version',
     '    help                   Print this message',
@@ -727,6 +728,127 @@ async function cmdUpdate() {
   const tagChange = beforeTag && afterTag && beforeTag !== afterTag ? ` (${beforeTag} → ${afterTag})` : '';
   const verChange = beforeVer !== afterVer ? ` (v${beforeVer} → v${afterVer})` : ` (v${afterVer})`;
   ok(`Updated${verChange}${tagChange} — now at ${after.slice(0, 7)}`);
+  rl.close();
+}
+
+function bumpVersion(v, kind) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
+  if (!m) throw new Error(`Cannot parse version "${v}"`);
+  let [, maj, min, pat] = m.map((x, i) => i === 0 ? x : parseInt(x, 10));
+  if (kind === 'major') { maj++; min = 0; pat = 0; }
+  else if (kind === 'minor') { min++; pat = 0; }
+  else if (kind === 'patch') { pat++; }
+  else throw new Error(`Unknown bump kind: ${kind} (use patch|minor|major)`);
+  return `${maj}.${min}.${pat}`;
+}
+
+async function cmdRelease() {
+  const kind = positional[1];
+  if (!['patch', 'minor', 'major'].includes(kind)) {
+    fail(`Usage: yodacode release <patch|minor|major>`);
+    console.log('  patch  — bug fixes / internal refactors');
+    console.log('  minor  — new feature, backwards-compatible');
+    console.log('  major  — breaking change');
+    rl.close();
+    process.exit(1);
+  }
+
+  heading('Releasing YodaCode');
+
+  // Must be in a git repo, clean, on main, in sync with origin.
+  try {
+    const dirty = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (dirty) {
+      fail('Working tree is dirty — commit or stash before releasing.');
+      for (const line of dirty.split('\n').slice(0, 10)) console.log(`    ${line}`);
+      rl.close(); process.exit(1);
+    }
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (branch !== 'main') {
+      fail(`Not on main (on ${branch}). Release from main.`);
+      rl.close(); process.exit(1);
+    }
+    execSync('git fetch --quiet', { cwd: ROOT, stdio: 'pipe' });
+    const ahead = execSync('git rev-list --count @{upstream}..HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+    const behind = execSync('git rev-list --count HEAD..@{upstream}', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (behind !== '0') {
+      fail(`Behind origin/main by ${behind} commit(s). Pull first.`);
+      rl.close(); process.exit(1);
+    }
+    if (ahead === '0') {
+      fail('No commits to release (HEAD == origin/main and no unpushed work either).');
+      rl.close(); process.exit(0);
+    }
+  } catch (e) {
+    fail(`Pre-flight failed: ${e.message}`);
+    rl.close(); process.exit(1);
+  }
+
+  const currentVer = readVersion();
+  const newVer = bumpVersion(currentVer, kind);
+  const lastTag = currentGitTag();
+  const range = lastTag ? `${lastTag}..HEAD` : 'HEAD';
+
+  // Gather commits since last tag, skipping merge commits and prior releases
+  const log = execSync(`git log --no-merges --format=%s ${range}`, { cwd: ROOT, encoding: 'utf8' })
+    .split('\n').map((s) => s.trim()).filter(Boolean)
+    .filter((s) => !/^Release v\d/i.test(s));
+
+  if (!log.length) {
+    fail(`No commits since ${lastTag || 'repo start'} — nothing to release.`);
+    rl.close(); process.exit(0);
+  }
+
+  console.log(`  ${currentVer} → ${newVer}  (${kind})`);
+  console.log(`  ${log.length} commit(s) since ${lastTag || 'repo start'}:`);
+  for (const line of log.slice(0, 20)) console.log(`    • ${line}`);
+  if (log.length > 20) console.log(`    … and ${log.length - 20} more`);
+  console.log('');
+
+  const ans = (await ask(`Cut release v${newVer}? [y/N]`, 'n')).toLowerCase();
+  if (ans !== 'y') { console.log('  Aborted.'); rl.close(); return; }
+
+  // Bump package.json
+  const pkgPath = path.join(ROOT, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  pkg.version = newVer;
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  ok(`Bumped package.json → ${newVer}`);
+
+  // Prepend CHANGELOG entry
+  const changelogPath = path.join(ROOT, 'CHANGELOG.md');
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = `## v${newVer} — ${today}\n\n` +
+    log.map((s) => `- ${s}`).join('\n') + '\n\n';
+  let existing = '';
+  try { existing = fs.readFileSync(changelogPath, 'utf8'); } catch (_) {}
+  // Insert after the top-of-file preamble (everything up to the first "## " heading)
+  const firstHeading = existing.search(/^## /m);
+  const newChangelog = firstHeading === -1
+    ? (existing ? existing.trimEnd() + '\n\n' : '# Changelog\n\n') + entry
+    : existing.slice(0, firstHeading) + entry + existing.slice(firstHeading);
+  fs.writeFileSync(changelogPath, newChangelog);
+  ok(`Updated CHANGELOG.md`);
+
+  // Commit + tag + push
+  execSync(`git add package.json CHANGELOG.md`, { cwd: ROOT, stdio: 'pipe' });
+  execSync(`git commit -m "Release v${newVer}"`, { cwd: ROOT, stdio: 'pipe' });
+  execSync(`git tag -a v${newVer} -m "v${newVer}"`, { cwd: ROOT, stdio: 'pipe' });
+  ok(`Committed and tagged v${newVer}`);
+
+  const push = (await ask('Push to origin now? [Y/n]', 'y')).toLowerCase();
+  if (push !== 'n') {
+    try {
+      execSync('git push origin main --follow-tags', { cwd: ROOT, stdio: 'inherit' });
+      ok(`Pushed v${newVer} to origin`);
+    } catch (e) {
+      fail(`Push failed: ${e.message}`);
+      console.log('  Retry manually:  git push origin main --follow-tags');
+    }
+  } else {
+    console.log('  Skipped push. Run later:  git push origin main --follow-tags');
+  }
+
   rl.close();
 }
 
@@ -917,6 +1039,7 @@ async function main() {
   if (subcommand === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v')) return cmdVersion();
   if (subcommand === 'status') return cmdStatus();
   if (subcommand === 'update') return cmdUpdate();
+  if (subcommand === 'release') return cmdRelease();
   if (subcommand === 'model') return cmdModel();
   if (subcommand === 'tools') return cmdTools();
   if (subcommand === 'usage') return cmdUsage();
