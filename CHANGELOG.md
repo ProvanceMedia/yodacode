@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.1 — 2026-05-22
+
+- install.sh: persist PATH before need_node check, not after
+
 ## v0.2.0 — 2026-05-22
 
 - release: --yes flag + sync-probe /dev/tty so piped input works
