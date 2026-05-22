@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.6 — 2026-05-22
+
+- install: pin CLAUDE_BIN to the absolute claude path in .env
+
 ## v0.2.5 — 2026-05-22
 
 - systemd: prepend ~/.local/bin to PATH so the unit can find claude
