@@ -8,6 +8,10 @@ Type=simple
 WorkingDirectory={{INSTALL_DIR}}/workspace
 EnvironmentFile={{INSTALL_DIR}}/.env
 Environment=ANTHROPIC_API_KEY=
+# Systemd's default PATH (/usr/bin:/bin) doesn't include the user-local
+# bin where Claude Code installs (~/.local/bin/claude), so the agent
+# would crash with `spawn claude ENOENT`. Prepend it explicitly.
+Environment=PATH={{LOCAL_BIN}}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart={{NODE_BIN}} {{INSTALL_DIR}}/workspace/yoda.js
 Restart=always
 RestartSec=5

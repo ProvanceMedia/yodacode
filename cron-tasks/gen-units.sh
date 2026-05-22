@@ -43,11 +43,13 @@ mkdir -p "$DIR/systemd"
 # (PATH is minimal under systemd, and the bundled installer puts node
 # in ~/.yodacode/node/bin/, not /usr/bin/).
 NODE_BIN="$(command -v node || echo /usr/bin/node)"
+LOCAL_BIN="${HOME:-/root}/.local/bin"
 if [[ -f "$SERVICE_TEMPLATE" ]]; then
   sed -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
       -e "s|{{NODE_BIN}}|$NODE_BIN|g" \
+      -e "s|{{LOCAL_BIN}}|$LOCAL_BIN|g" \
       "$SERVICE_TEMPLATE" > "$SERVICE"
-  echo "wrote $SERVICE (INSTALL_DIR=$INSTALL_DIR, NODE_BIN=$NODE_BIN)"
+  echo "wrote $SERVICE (INSTALL_DIR=$INSTALL_DIR, NODE_BIN=$NODE_BIN, LOCAL_BIN=$LOCAL_BIN)"
 fi
 
 cat > "$TIMER" <<EOF

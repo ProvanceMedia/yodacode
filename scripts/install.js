@@ -468,7 +468,8 @@ async function setupSystemd() {
   // won't find it via PATH, so we have to hard-code the absolute path.
   const service = template
     .replaceAll('{{INSTALL_DIR}}', ROOT)
-    .replaceAll('{{NODE_BIN}}', process.execPath);
+    .replaceAll('{{NODE_BIN}}', process.execPath)
+    .replaceAll('{{LOCAL_BIN}}', path.join(process.env.HOME || '/root', '.local', 'bin'));
   fs.writeFileSync(servicePath, service);
   // systemd's StandardOutput=append: doesn't auto-create the parent dir, so
   // ensure it exists. Same for state/ which the agent writes to on startup.
