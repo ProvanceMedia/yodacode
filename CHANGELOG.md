@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.10 — 2026-05-22
+
+- release: hide from help + gate to the canonical upstream repo
+
 ## v0.2.9 — 2026-05-22
 
 - install: print 'source ~/.bashrc' hint when bashrc was just touched
