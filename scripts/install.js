@@ -409,9 +409,14 @@ async function setupSlack() {
 
 async function setupPersona() {
   heading('Persona');
-  const userName = await ask('What should the bot call you?', 'User');
-  const botName = await ask('Bot display name?', 'Yoda');
-  const timezone = await ask('Your timezone?', 'UTC');
+  const existing = readEnv(ENV_PATH);
+  if (existing.BOT_NAME && existing.USER_NAME && !isFresh && reconfigure !== 'persona') {
+    ok(`Persona already configured (${existing.BOT_NAME} for ${existing.USER_NAME})`);
+    return;
+  }
+  const userName = await ask('What should the bot call you?', existing.USER_NAME || 'User');
+  const botName = await ask('Bot display name?', existing.BOT_NAME || 'Yoda');
+  const timezone = await ask('Your timezone?', existing.TIMEZONE || 'UTC');
 
   const vars = {
     BOT_NAME: botName,
@@ -458,11 +463,16 @@ async function setupPersona() {
 
 async function setupDashboard() {
   heading('Web dashboard');
+  const existing = readEnv(ENV_PATH);
+  if (existing.YODA_UI_PORT && !isFresh && reconfigure !== 'dashboard') {
+    ok(`Dashboard already configured (port ${existing.YODA_UI_PORT})`);
+    return;
+  }
   const enable = await ask('Enable web dashboard? [Y/n]', 'Y');
   if (enable.toLowerCase() === 'n') return;
 
-  const port = await ask('Dashboard port?', '7890');
-  const pass = await ask('Dashboard password (blank = no auth)?', '');
+  const port = await ask('Dashboard port?', existing.YODA_UI_PORT || '7890');
+  const pass = await ask('Dashboard password (blank = no auth)?', existing.YODA_UI_PASS || '');
 
   mergeEnv(ENV_PATH, {
     YODA_UI_PORT: port,
