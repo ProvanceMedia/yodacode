@@ -549,6 +549,9 @@ function cmdHelp() {
     '                             dashboard  Web dashboard enable / port / basic auth',
     '                             systemd    systemd service install + enable',
     '    add <surface>          Add a new chat surface (e.g. whatsapp)',
+    '    model [<name>]         Show or set the primary Claude model',
+    '    tools [<name> on|off]  Show or toggle reflectors / guardrails',
+    '    usage                  Token + cost summary (today / 7d / 30d / all time)',
     '    update                 git pull, install new deps, restart the service',
     '    status                 Show what is currently configured (.env summary)',
     '    version                Print the installed version',
@@ -653,6 +656,142 @@ async function cmdUpdate() {
   rl.close();
 }
 
+async function cmdModel() {
+  const env = readEnv(ENV_PATH);
+  const arg = positional[1];
+  if (!arg) {
+    heading('Model');
+    console.log(`  Primary:   ${env.YODA_CLAUDE_MODEL || '(default — Claude Code picks)'}`);
+    console.log(`  Fallback:  ${env.YODA_CLAUDE_FALLBACK_MODELS || 'claude-haiku-4-5'}`);
+    console.log('\n  Set:  yodacode model <name>     e.g. claude-sonnet-4-6 / claude-opus-4-7 / claude-haiku-4-5');
+    console.log('  Reset: yodacode model default');
+    rl.close();
+    return;
+  }
+  const value = arg === 'default' ? '' : arg;
+  mergeEnv(ENV_PATH, { YODA_CLAUDE_MODEL: value });
+  ok(value ? `Primary model set to ${value}` : 'Primary model reset to default');
+  // Restart if running
+  if (checkCommand('systemctl')) {
+    try {
+      execSync('systemctl is-active yodacode.service', { stdio: 'pipe' });
+      execSync('systemctl restart yodacode.service', { stdio: 'pipe' });
+      ok('Service restarted');
+    } catch (_) {}
+  }
+  rl.close();
+}
+
+async function cmdTools() {
+  const env = readEnv(ENV_PATH);
+  const toggles = [
+    ['YODA_SKILL_REFLECTOR_ENABLED',  'skill-reflector',  'Skill self-generation after notable conversations'],
+    ['YODA_MEMORY_REFLECTOR_ENABLED', 'memory-reflector', 'Memory self-generation after notable conversations'],
+    ['YODA_GUARDRAIL_ENABLED',        'guardrails',       'Repeat-failure / no-progress / iteration-cap detection (default on)'],
+  ];
+
+  const name = positional[1];
+  const state = positional[2];
+
+  if (!name) {
+    heading('Tools');
+    for (const [key, label, desc] of toggles) {
+      const raw = env[key];
+      const on = key === 'YODA_GUARDRAIL_ENABLED' ? raw !== '0' : raw === '1';
+      console.log(`  ${on ? '✓' : '✗'} ${label.padEnd(20)} ${desc}`);
+    }
+    console.log('\n  Toggle:  yodacode tools <name> on|off');
+    console.log('  Names:   skill-reflector | memory-reflector | guardrails');
+    rl.close();
+    return;
+  }
+
+  const match = toggles.find(([, label]) => label === name);
+  if (!match) {
+    fail(`Unknown tool: ${name}. Try one of: ${toggles.map(([, l]) => l).join(', ')}`);
+    rl.close();
+    process.exit(1);
+  }
+  if (state !== 'on' && state !== 'off') {
+    fail(`Need on|off, got: ${state || '(nothing)'}`);
+    rl.close();
+    process.exit(1);
+  }
+  const [key, label] = match;
+  const newVal = state === 'on' ? '1' : '0';
+  mergeEnv(ENV_PATH, { [key]: newVal });
+  ok(`${label} → ${state}`);
+  if (checkCommand('systemctl')) {
+    try {
+      execSync('systemctl is-active yodacode.service', { stdio: 'pipe' });
+      execSync('systemctl restart yodacode.service', { stdio: 'pipe' });
+      ok('Service restarted');
+    } catch (_) {}
+  }
+  rl.close();
+}
+
+// Per-model pricing in USD per 1M tokens (input / output). Approximate;
+// shown only to give users a feel for what's burning their quota.
+const MODEL_PRICING = {
+  'claude-haiku-4-5':   { in: 1.0,  out: 5.0  },
+  'claude-sonnet-4-6':  { in: 3.0,  out: 15.0 },
+  'claude-opus-4-7':    { in: 15.0, out: 75.0 },
+};
+
+function costOf(model, inputTok, outputTok) {
+  const m = model && MODEL_PRICING[model];
+  if (!m) return null;
+  return (inputTok / 1e6) * m.in + (outputTok / 1e6) * m.out;
+}
+
+async function cmdUsage() {
+  heading('Usage');
+  const usagePath = path.join(WORKSPACE, 'state', 'usage.jsonl');
+  if (!fs.existsSync(usagePath)) {
+    console.log('  No usage recorded yet. The bot writes entries on each successful claude run.');
+    rl.close();
+    return;
+  }
+  const lines = fs.readFileSync(usagePath, 'utf8').split('\n').filter(Boolean);
+  const entries = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  if (!entries.length) { console.log('  No usage recorded yet.'); rl.close(); return; }
+
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const buckets = {
+    today: { entries: [], cutoff: now - day },
+    'last 7d':  { entries: [], cutoff: now - 7 * day },
+    'last 30d': { entries: [], cutoff: now - 30 * day },
+    'all time': { entries: [], cutoff: 0 },
+  };
+  for (const e of entries) {
+    const ts = new Date(e.ts).getTime();
+    for (const b of Object.values(buckets)) {
+      if (ts >= b.cutoff) b.entries.push(e);
+    }
+  }
+  const fmt = (n) => n.toLocaleString();
+  for (const [name, b] of Object.entries(buckets)) {
+    if (!b.entries.length && name !== 'today') continue;
+    let inTok = 0, outTok = 0, cost = 0;
+    const byModel = {};
+    for (const e of b.entries) {
+      inTok += e.input_tokens; outTok += e.output_tokens;
+      const c = costOf(e.model, e.input_tokens, e.output_tokens);
+      if (c) cost += c;
+      byModel[e.model] = (byModel[e.model] || 0) + 1;
+    }
+    const modelStr = Object.entries(byModel).sort((a,b) => b[1]-a[1])
+      .map(([m,n]) => `${m.replace('claude-','')}×${n}`).join(', ');
+    console.log(`  ${name.padEnd(10)} ${b.entries.length.toString().padStart(5)} calls  in=${fmt(inTok).padStart(10)} out=${fmt(outTok).padStart(8)}  ~$${cost.toFixed(2)}`);
+    if (modelStr) console.log(`             ${modelStr}`);
+  }
+  console.log('\n  Note: $ figures are approximate API-rate estimates. On a Max sub, actual cost is bundled in your subscription / new $200 claude-p credit.');
+  console.log('  Raw log: state/usage.jsonl');
+  rl.close();
+}
+
 async function cmdStatus() {
   heading('YodaCode status');
   const env = readEnv(ENV_PATH);
@@ -704,6 +843,9 @@ async function main() {
   if (subcommand === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v')) return cmdVersion();
   if (subcommand === 'status') return cmdStatus();
   if (subcommand === 'update') return cmdUpdate();
+  if (subcommand === 'model') return cmdModel();
+  if (subcommand === 'tools') return cmdTools();
+  if (subcommand === 'usage') return cmdUsage();
   // 'setup' (default), 'add', or anything else → run the wizard with the
   // current isFresh / reconfigure / addSurface flags applied.
   return runWizard();

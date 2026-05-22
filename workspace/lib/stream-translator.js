@@ -51,6 +51,7 @@ export async function translateStream(stdin, {
   let currentStatus = '💭 thinking…';
   let retryCount = 0;
   let throttled = false;
+  let usage = null;
 
   const send = async (text, force = false) => {
     if (text === lastTextSent && !force) return;
@@ -164,6 +165,16 @@ export async function translateStream(stdin, {
         } else {
           finalText = (ev.result || '').trim();
         }
+        // Token usage — claude -p emits these on the result event.
+        if (ev.usage) {
+          usage = {
+            input_tokens: ev.usage.input_tokens || 0,
+            output_tokens: ev.usage.output_tokens || 0,
+            cache_creation_input_tokens: ev.usage.cache_creation_input_tokens || 0,
+            cache_read_input_tokens: ev.usage.cache_read_input_tokens || 0,
+            model: ev.model || null,
+          };
+        }
         // The result event marks the end of the stream
         rl.close();
         break;
@@ -206,6 +217,7 @@ export async function translateStream(stdin, {
     error: errorText || undefined,
     throttled,
     tracker: tracker ? tracker.summary() : null,
+    usage,
   };
 }
 

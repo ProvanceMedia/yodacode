@@ -6,6 +6,7 @@
 // kill the right process when "stop" comes in for a given conversation.
 
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
@@ -15,6 +16,7 @@ import { translateStream } from './stream-translator.js';
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
 const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
 const TOOL_RUNS_MAX_ENTRIES = 100;
+const USAGE_FILE = path.join(config.stateDir, 'usage.jsonl');
 
 mkdirSync(config.stateDir, { recursive: true });
 if (!existsSync(TICKS_FILE)) writeFileSync(TICKS_FILE, '{}');
@@ -28,6 +30,25 @@ function loadTicks() {
 }
 function saveTicks(t) {
   writeFileSync(TICKS_FILE, JSON.stringify(t, null, 2));
+}
+
+function appendUsage(surface, model, usage) {
+  if (!usage) return;
+  try {
+    const entry = {
+      ts: new Date().toISOString(),
+      surface,
+      model: model || usage.model || 'default',
+      input_tokens: usage.input_tokens || 0,
+      output_tokens: usage.output_tokens || 0,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+      cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+    };
+    // JSONL append (cheap, no need to load + rewrite the file)
+    fs.appendFileSync(USAGE_FILE, JSON.stringify(entry) + '\n');
+  } catch (e) {
+    logger.warn('usage persist failed', { err: e.message });
+  }
 }
 
 function appendToolRuns(conversationId, surface, summary) {
@@ -176,6 +197,7 @@ export async function runClaude({
     }).then((res) => {
       finalResult = res;
       if (res?.tracker) appendToolRuns(conversationId, surface, res.tracker);
+      if (res?.usage) appendUsage(surface, model, res.usage);
     }).catch((e) => {
       logger.error('translator error', { err: e.message });
       finalResult = { ok: false, error: e.message };
