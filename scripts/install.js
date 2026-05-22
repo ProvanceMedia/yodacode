@@ -1071,18 +1071,9 @@ async function runWizard() {
   console.log(`    ${WORKSPACE}/CLAUDE.md`);
   console.log('');
 
-  // If the user's current shell doesn't have ~/.local/bin on PATH, the
-  // `yodacode` wrapper that install.sh just dropped won't be on PATH yet.
-  // install.sh wrote a line to ~/.bashrc, but child processes can't mutate
-  // the parent shell — they need to source it (or open a new shell).
-  const localBin = path.join(process.env.HOME || '/root', '.local', 'bin');
-  const pathDirs = (process.env.PATH || '').split(':');
-  if (!pathDirs.includes(localBin)) {
-    console.log('  ⚠  The `yodacode` command isn\'t on your current shell\'s PATH yet.');
-    console.log('     Run this once (in this terminal) to pick it up:');
-    console.log('       source ~/.bashrc      # or open a new terminal');
-    console.log('');
-  }
+  // (install.sh handles the "PATH was just added" hint — it can compare
+  // against the parent shell's PATH, which we cannot from inside this
+  // child process.)
 
   rl.close();
 }

@@ -121,6 +121,17 @@ EOF
   chmod +x "$LOCAL_BIN/yodacode"
 }
 
+# Note whether the parent shell already had ~/.local/bin on PATH. If
+# not, persist_local_bin_path is about to add it via ~/.bashrc — and
+# the user will need to source bashrc (or open a new shell) before the
+# `yodacode` wrapper resolves in their current shell. We tell them so
+# at the very end.
+PATH_WAS_MISSING=0
+case ":$PATH:" in
+  *":$LOCAL_BIN:"*) ;;
+  *) PATH_WAS_MISSING=1 ;;
+esac
+
 if ! need_node; then
   current=$(command -v node >/dev/null && node -v || echo "not installed")
   echo -e "${YELLOW}Node 20+ required. Current: ${current}.${RESET}"
@@ -131,4 +142,21 @@ install_yodacode_wrapper
 persist_local_bin_path
 
 echo -e "${GREEN}Node $(node -v) — good.${RESET}"
-exec node scripts/install.js "$@"
+# Don't exec — we want to print a final hint after the wizard returns.
+node scripts/install.js "$@"
+WIZARD_EXIT=$?
+
+if [[ "$PATH_WAS_MISSING" == "1" ]]; then
+  echo ""
+  echo -e "${YELLOW}┌─ One more thing ─────────────────────────────────────────────┐${RESET}"
+  echo -e "${YELLOW}│${RESET} ${LOCAL_BIN} was just added to your PATH in ~/.bashrc."
+  echo -e "${YELLOW}│${RESET} This shell doesn't know about it yet. Run this once:"
+  echo ""
+  echo -e "${YELLOW}│${RESET}     ${GREEN}source ~/.bashrc${RESET}"
+  echo ""
+  echo -e "${YELLOW}│${RESET} Then 'yodacode help' will work. New terminals get this"
+  echo -e "${YELLOW}│${RESET} automatically.${RESET}"
+  echo -e "${YELLOW}└──────────────────────────────────────────────────────────────┘${RESET}"
+fi
+
+exit $WIZARD_EXIT
