@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.7 — 2026-05-22
+
+- wizard: skip persona + dashboard prompts when already configured
+
 ## v0.2.6 — 2026-05-22
 
 - install: pin CLAUDE_BIN to the absolute claude path in .env
