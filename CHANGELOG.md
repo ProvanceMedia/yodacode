@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.9 — 2026-05-22
+
+- install: print 'source ~/.bashrc' hint when bashrc was just touched
+
 ## v0.2.8 — 2026-05-22
 
 - wizard: warn at end if ~/.local/bin isn't on the current shell's PATH
