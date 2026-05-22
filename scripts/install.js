@@ -77,14 +77,19 @@ function getReadline() {
     _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return _rl;
   }
+  // stdin is piped or redirected. Try /dev/tty so prompts still reach a
+  // human user (curl|bash case). Synchronously probe with openSync — if
+  // the container has no controlling tty, this throws immediately and we
+  // fall back to reading the pipe (CI / printf | node ... case).
   if (fs.existsSync('/dev/tty')) {
     try {
+      fs.closeSync(fs.openSync('/dev/tty', 'r'));
       const ttyIn = fs.createReadStream('/dev/tty');
       const ttyOut = fs.createWriteStream('/dev/tty');
-      ttyIn.on('error', () => {}); // swallow async open errors
+      ttyIn.on('error', () => {});
       _rl = readline.createInterface({ input: ttyIn, output: ttyOut });
       return _rl;
-    } catch (_) { /* fall through */ }
+    } catch (_) { /* fall through to stdin */ }
   }
   _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return _rl;
@@ -803,7 +808,8 @@ async function cmdRelease() {
   if (log.length > 20) console.log(`    … and ${log.length - 20} more`);
   console.log('');
 
-  const ans = (await ask(`Cut release v${newVer}? [y/N]`, 'n')).toLowerCase();
+  const autoYes = rawArgs.includes('--yes') || rawArgs.includes('-y');
+  const ans = autoYes ? 'y' : (await ask(`Cut release v${newVer}? [y/N]`, 'n')).toLowerCase();
   if (ans !== 'y') { console.log('  Aborted.'); rl.close(); return; }
 
   // Bump package.json
@@ -834,7 +840,7 @@ async function cmdRelease() {
   execSync(`git tag -a v${newVer} -m "v${newVer}"`, { cwd: ROOT, stdio: 'pipe' });
   ok(`Committed and tagged v${newVer}`);
 
-  const push = (await ask('Push to origin now? [Y/n]', 'y')).toLowerCase();
+  const push = autoYes ? 'y' : (await ask('Push to origin now? [Y/n]', 'y')).toLowerCase();
   if (push !== 'n') {
     try {
       execSync('git push origin main --follow-tags', { cwd: ROOT, stdio: 'inherit' });
