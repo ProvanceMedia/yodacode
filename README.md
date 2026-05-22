@@ -50,7 +50,15 @@ cd yodacode
 ./install.sh
 ```
 
-`install.sh` checks for Node 20+ (offers to install it via NodeSource on Ubuntu / Debian if missing), then runs the setup wizard. If you already have Node 20+, you can skip the bootstrap and run `node scripts/install.js` directly.
+`install.sh` installs Node 22 LTS into `~/.yodacode/node/` (no sudo needed) if a suitable Node isn't already on PATH, then runs the setup wizard. It also drops a `yodacode` command into `~/.local/bin/` so you can manage the install from anywhere afterwards:
+
+```bash
+yodacode                    # full wizard
+yodacode setup <step>       # re-run one step (auth, slack, persona, dashboard, systemd)
+yodacode update             # git pull, install new deps, restart the service
+yodacode status             # show what's currently configured
+yodacode help               # list all commands
+```
 
 The wizard walks you through:
 1. Claude Code authentication (paste your `setup-token`)

@@ -37,14 +37,72 @@ const ENV_PATH = path.join(ROOT, '.env');
 const WORKSPACE = path.join(ROOT, 'workspace');
 const TEMPLATES = path.join(ROOT, 'templates');
 
-const args = process.argv.slice(2);
-const isFresh = args.includes('--fresh');
-const reconfigure = args.find((a, i) => args[i - 1] === '--reconfigure') || null;
-const addSurface = args.find((a, i) => args[i - 1] === '--add') || null;
+// ─── CLI arg parsing ───────────────────────────────────────────────────────
+//
+// Supports two interchangeable shapes:
+//   1. Sub-commands (preferred):
+//        yodacode                       → full wizard
+//        yodacode setup                 → full wizard
+//        yodacode setup <step>          → re-run one step (auth, slack, persona, dashboard, systemd)
+//        yodacode add <surface>         → add a new surface (e.g. whatsapp)
+//        yodacode status                → print current install state
+//   2. Legacy flags (kept for backward compat):
+//        --fresh, --reconfigure <step>, --add <surface>
+
+const rawArgs = process.argv.slice(2);
+let isFresh = rawArgs.includes('--fresh');
+let reconfigure = rawArgs.find((a, i) => rawArgs[i - 1] === '--reconfigure') || null;
+let addSurface = rawArgs.find((a, i) => rawArgs[i - 1] === '--add') || null;
+let subcommand = 'setup';
+
+// Filter out flag-style args; what's left is positional.
+const positional = rawArgs.filter((a, i) => {
+  if (a.startsWith('--')) return false;
+  if (i > 0 && (rawArgs[i - 1] === '--reconfigure' || rawArgs[i - 1] === '--add')) return false;
+  return true;
+});
+if (positional[0]) subcommand = positional[0];
+if (subcommand === 'setup' && positional[1]) reconfigure = positional[1];
+if (subcommand === 'add' && positional[1]) addSurface = positional[1];
+
+// ─── Readline ──────────────────────────────────────────────────────────────
+//
+// If we're being piped (curl | bash → stdin is the pipe, not a terminal),
+// read from /dev/tty instead so prompts actually reach the user.
+
+let _rl = null;
+function getReadline() {
+  if (_rl) return _rl;
+  if (process.stdin.isTTY) {
+    _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return _rl;
+  }
+  if (fs.existsSync('/dev/tty')) {
+    try {
+      const ttyIn = fs.createReadStream('/dev/tty');
+      const ttyOut = fs.createWriteStream('/dev/tty');
+      ttyIn.on('error', () => {}); // swallow async open errors
+      _rl = readline.createInterface({ input: ttyIn, output: ttyOut });
+      return _rl;
+    } catch (_) { /* fall through */ }
+  }
+  _rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return _rl;
+}
+// Backwards-compat shim so existing `rl.question(...)` / `rl.close()` calls work.
+// `close()` is a no-op if no readline was ever opened, so commands that don't
+// prompt (help, version, status) never trigger a /dev/tty open.
+const rl = new Proxy({}, {
+  get(_, prop) {
+    if (prop === 'close' && !_rl) return () => {};
+    const inst = getReadline();
+    const v = inst[prop];
+    return typeof v === 'function' ? v.bind(inst) : v;
+  },
+});
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 function ask(question, defaultVal = '') {
   return new Promise((resolve) => {
     const suffix = defaultVal ? ` (${defaultVal})` : '';
@@ -447,9 +505,173 @@ async function installDeps() {
 
 // ─── Main ──────────────────────────────────────────────────────────────────
 
-async function main() {
-  printBanner();
+function readVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
+function currentGitTag() {
+  try {
+    return execSync('git describe --tags --abbrev=0', { cwd: ROOT, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function cmdVersion() {
+  const pkgVer = readVersion();
+  const tag = currentGitTag();
+  const sha = (() => {
+    try { return execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim(); }
+    catch { return null; }
+  })();
+  console.log(`yodacode v${pkgVer}${tag ? ` (${tag})` : ''}${sha ? ` [${sha}]` : ''}`);
+  rl.close();
+}
+
+function cmdHelp() {
+  const lines = [
+    '',
+    '  YodaCode CLI',
+    '',
+    '  Usage: yodacode [command] [args]',
+    '',
+    '  Commands:',
+    '    setup                  Run the full setup wizard (default if no command given)',
+    '    setup <step>           Re-run one step:',
+    '                             auth       Claude Code OAuth token',
+    '                             persona    Bot name, user name, timezone',
+    '                             slack      Slack app + tokens',
+    '                             dashboard  Web dashboard enable / port / basic auth',
+    '                             systemd    systemd service install + enable',
+    '    add <surface>          Add a new chat surface (e.g. whatsapp)',
+    '    update                 git pull, install new deps, restart the service',
+    '    status                 Show what is currently configured (.env summary)',
+    '    version                Print the installed version',
+    '    help                   Print this message',
+    '',
+    '  Legacy flags (still supported):',
+    '    --fresh                Re-run the wizard even if config already exists',
+    '    --reconfigure <step>   Same as `setup <step>`',
+    '    --add <surface>        Same as `add <surface>`',
+    '',
+    '  Manage the running service:',
+    '    systemctl status yodacode',
+    '    journalctl -u yodacode -f',
+    '',
+  ];
+  console.log(lines.join('\n'));
+  rl.close();
+}
+
+async function cmdUpdate() {
+  heading('Updating YodaCode');
+
+  // Reject if there are uncommitted local changes — don't want to clobber
+  // user edits to workspace files (persona, .env was created during install).
+  try {
+    const dirty = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (dirty) {
+      fail('Local changes detected — refusing to update.');
+      console.log('  Uncommitted changes in:');
+      for (const line of dirty.split('\n').slice(0, 10)) console.log(`    ${line}`);
+      console.log('\n  Either commit/stash them, or pull manually:  git pull --rebase');
+      rl.close();
+      process.exit(1);
+    }
+  } catch (e) {
+    fail(`Not a git repo or git unavailable: ${e.message}`);
+    rl.close();
+    process.exit(1);
+  }
+
+  const before = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+  const beforeTag = currentGitTag();
+  const beforeVer = readVersion();
+
+  console.log(`  Current: v${beforeVer}${beforeTag ? ` (${beforeTag})` : ''}`);
+  console.log('  Fetching…');
+  try { execSync('git fetch --quiet', { cwd: ROOT, stdio: 'inherit' }); }
+  catch (e) { fail(`git fetch failed: ${e.message}`); rl.close(); process.exit(1); }
+
+  const behind = execSync('git rev-list --count HEAD..@{upstream}', { cwd: ROOT, encoding: 'utf8' }).trim();
+  if (behind === '0') {
+    ok('Already up to date.');
+    rl.close();
+    return;
+  }
+
+  console.log(`  ${behind} new commit(s):`);
+  const log = execSync('git log --oneline HEAD..@{upstream}', { cwd: ROOT, encoding: 'utf8' });
+  for (const line of log.split('\n').filter(Boolean).slice(0, 15)) console.log(`    ${line}`);
+  console.log('');
+
+  const ans = (await ask('Pull and restart now? [Y/n]', 'y')).toLowerCase();
+  if (ans === 'n') { console.log('  Skipped.'); rl.close(); return; }
+
+  console.log('  Pulling…');
+  try { execSync('git pull --ff-only --quiet', { cwd: ROOT, stdio: 'inherit' }); }
+  catch (e) { fail(`git pull failed: ${e.message}`); rl.close(); process.exit(1); }
+
+  // npm install only if workspace/package.json changed
+  const after = execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+  let pkgChanged = false;
+  try {
+    const diff = execSync(`git diff --name-only ${before} ${after}`, { cwd: ROOT, encoding: 'utf8' });
+    pkgChanged = diff.split('\n').some((f) => f === 'workspace/package.json' || f === 'package.json');
+  } catch (_) {}
+
+  if (pkgChanged) {
+    console.log('  Dependencies changed — running npm install…');
+    try { execSync('npm install --silent', { cwd: WORKSPACE, stdio: 'inherit' }); ok('Deps updated'); }
+    catch (e) { warn(`npm install failed: ${e.message} (continuing)`); }
+  } else {
+    ok('No dependency changes');
+  }
+
+  // Restart the service if systemd is installed and the unit exists
+  if (checkCommand('systemctl')) {
+    try {
+      execSync('systemctl is-active yodacode.service', { stdio: 'pipe' });
+      console.log('  Restarting yodacode.service…');
+      execSync('systemctl restart yodacode.service', { stdio: 'pipe' });
+      ok('Service restarted');
+    } catch (_) {
+      warn('yodacode.service not running — start it manually if needed.');
+    }
+  }
+
+  const afterTag = currentGitTag();
+  const afterVer = readVersion();
+  const tagChange = beforeTag && afterTag && beforeTag !== afterTag ? ` (${beforeTag} → ${afterTag})` : '';
+  const verChange = beforeVer !== afterVer ? ` (v${beforeVer} → v${afterVer})` : ` (v${afterVer})`;
+  ok(`Updated${verChange}${tagChange} — now at ${after.slice(0, 7)}`);
+  rl.close();
+}
+
+async function cmdStatus() {
+  heading('YodaCode status');
+  const env = readEnv(ENV_PATH);
+  const lines = [
+    ['Install dir',  ROOT],
+    ['Workspace',    WORKSPACE],
+    ['Bot name',     env.BOT_NAME || '(unset)'],
+    ['Surfaces',     env.YODA_SURFACES || '(unset)'],
+    ['Sandbox',      env.YODA_SANDBOX || 'off (default)'],
+    ['Auth token',   env.CLAUDE_CODE_OAUTH_TOKEN ? '✓ set' : '✗ missing'],
+    ['Slack bot',    env.SLACK_BOT_TOKEN ? '✓ set' : '✗ missing'],
+    ['Slack app',    env.SLACK_APP_TOKEN ? '✓ set' : '✗ missing'],
+  ];
+  for (const [k, v] of lines) console.log(`  ${k.padEnd(14)} ${v}`);
+  rl.close();
+}
+
+async function runWizard() {
+  printBanner();
   await preflight();
   await installDeps();
   await setupAuth();
@@ -465,14 +687,26 @@ async function main() {
   console.log('    Slack: DM your bot in your workspace');
   console.log('');
   console.log('  Manage:');
-  console.log('    systemctl status yodacode');
-  console.log('    journalctl -u yodacode -f');
+  console.log('    yodacode status              → show what is configured');
+  console.log('    yodacode setup <step>        → re-run one step (auth/slack/persona/dashboard/systemd)');
+  console.log('    systemctl status yodacode    → service health');
+  console.log('    journalctl -u yodacode -f    → live logs');
   console.log('');
   console.log('  Edit your bot\'s persona:');
   console.log(`    ${WORKSPACE}/CLAUDE.md`);
   console.log('');
 
   rl.close();
+}
+
+async function main() {
+  if (subcommand === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) return cmdHelp();
+  if (subcommand === 'version' || rawArgs.includes('--version') || rawArgs.includes('-v')) return cmdVersion();
+  if (subcommand === 'status') return cmdStatus();
+  if (subcommand === 'update') return cmdUpdate();
+  // 'setup' (default), 'add', or anything else → run the wizard with the
+  // current isFresh / reconfigure / addSurface flags applied.
+  return runWizard();
 }
 
 main().catch((e) => {
