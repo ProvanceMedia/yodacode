@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.5 — 2026-05-22
+
+- systemd: prepend ~/.local/bin to PATH so the unit can find claude
+
 ## v0.2.4 — 2026-05-22
 
 - systemd: substitute the actual node binary path, not /usr/bin/node
