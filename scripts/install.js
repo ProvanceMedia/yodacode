@@ -769,16 +769,14 @@ async function cmdRelease() {
       rl.close(); process.exit(1);
     }
     execSync('git fetch --quiet', { cwd: ROOT, stdio: 'pipe' });
-    const ahead = execSync('git rev-list --count @{upstream}..HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
     const behind = execSync('git rev-list --count HEAD..@{upstream}', { cwd: ROOT, encoding: 'utf8' }).trim();
     if (behind !== '0') {
       fail(`Behind origin/main by ${behind} commit(s). Pull first.`);
       rl.close(); process.exit(1);
     }
-    if (ahead === '0') {
-      fail('No commits to release (HEAD == origin/main and no unpushed work either).');
-      rl.close(); process.exit(0);
-    }
+    // We don't require commits to be unpushed — releasing from already-pushed
+    // commits is fine. The actual "is there anything to release" guard is the
+    // "commits since last tag" check below.
   } catch (e) {
     fail(`Pre-flight failed: ${e.message}`);
     rl.close(); process.exit(1);
