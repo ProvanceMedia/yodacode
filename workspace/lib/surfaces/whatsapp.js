@@ -3,7 +3,7 @@
 // First-run flow:
 //   1. yoda.service starts; this surface has no saved auth state
 //   2. Baileys generates a QR code, we render it as ASCII to the log
-//   3. Stu opens WhatsApp → Settings → Linked Devices → Link a Device → scan
+//   3. Open WhatsApp → Settings → Linked Devices → Link a Device → scan
 //   4. Baileys writes session creds to ./state/whatsapp-auth/
 //   5. Subsequent restarts reuse the saved session
 //

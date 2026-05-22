@@ -133,10 +133,10 @@ export const config = {
   // Sandbox — uses Claude Code's built-in bubblewrap/Seatbelt sandbox.
   // When enabled, bash commands run with filesystem + network isolation.
   sandbox: {
-    // 'off' = no sandbox (default — same as prod yoda, makes cron install +
-    //   any sudo/systemctl work end-to-end without manual handoffs).
-    // 'auto' = sandbox + auto-allow (bubblewrap; restricts agent's
-    //   filesystem and network. Trips on D-Bus / systemctl / sudo.)
+    // 'off' = no sandbox (default — lets the agent install systemd units,
+    //   sudo, talk to D-Bus, etc. end-to-end without manual handoffs).
+    // 'auto' = bubblewrap sandbox + auto-allow (restricts filesystem +
+    //   network; blocks systemctl/D-Bus/sudo so multi-step ops fail).
     // 'prompt' = sandbox + prompt on each violation.
     mode: process.env.YODA_SANDBOX || 'off',
     // CSV of domains the agent is allowed to reach when sandboxed.

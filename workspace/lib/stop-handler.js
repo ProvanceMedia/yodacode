@@ -19,7 +19,7 @@ export async function tryHandleStop(event) {
   if (!isStopMessage(event)) return false;
 
   // First try to find a tick for the same conversation. If none, fall back
-  // to any in-flight tick from the same surface (e.g. Stu typed "stop" at
+  // to any in-flight tick from the same surface (e.g. user typed "stop" at
   // the top level while a threaded reply is in flight).
   let tick = findTick(event.conversationId);
   if (!tick) {

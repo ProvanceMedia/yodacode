@@ -11,7 +11,7 @@
 //   "⚡ Slack post"
 //   "🌐 curl api.hubapi.com"
 //   "📖 reading SOUL.md"
-//   "✍️ Found 3 contacts named Stuart Dixon..."
+//   "✍️ Final reply preview…"
 // Final text is the assistant's last text block (or the result.result field).
 
 import readline from 'node:readline';

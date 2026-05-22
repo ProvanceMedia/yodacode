@@ -3,7 +3,7 @@
 // a durable FACT emerged worth appending to MEMORY.md (or memory/<slug>.md).
 //
 // Mirrors lib/skill-reflector.js but with a different prompt: skills capture
-// reusable PROCEDURES, memory captures durable FACTS (about Stu, the team,
+// reusable PROCEDURES, memory captures durable FACTS (about the user,
 // projects, references, feedback rules).
 //
 // After the child writes, kick off an FTS5 reindex so the new fact is
@@ -20,22 +20,22 @@ function buildPrompt({ surface, conversationId, userText, replyText, tracker, du
   const today = new Date().toISOString().slice(0, 10);
   const toolCount = tracker?.useCount || 0;
 
-  return `You are the memory librarian for Yoda, Stu's personal AI agent.
+  return `You are the memory librarian for a personal AI agent.
 
 A conversation just completed (${Math.round(durationMs / 1000)}s, ${toolCount} tool calls).
 
 USER REQUEST:
 ${userText || '(empty)'}
 
-YODA REPLIED:
+REPLY:
 ${replyText || '(empty)'}
 
 ## Your decision
 
 Did this conversation reveal a *durable fact* worth saving to MEMORY.md or memory/? Look for one of these categories:
 
-- **user-fact**: A new fact about Stu, the team (Tex / Jasper / Scott / Stefan / Josy), or a customer/contact
-- **feedback**: Stu corrected your approach, OR confirmed a non-obvious approach worked. Include the WHY.
+- **user-fact**: A new fact about the user, their team, or a customer/contact
+- **feedback**: The user corrected your approach, OR confirmed a non-obvious approach worked. Include the WHY.
 - **project-state**: A decision, deadline, milestone, or change in ongoing work. Convert relative dates ("next Tuesday") to absolute (use today: ${today}).
 - **reference**: A new external resource (channel, dashboard, URL, file path) and its purpose.
 
@@ -44,7 +44,7 @@ Did this conversation reveal a *durable fact* worth saving to MEMORY.md or memor
 - Chitchat, one-off lookups, transient task state
 - Anything already in MEMORY.md or memory/ (run \`./bin/memory-search.sh "<keywords>"\` to check)
 - Code patterns, file paths, anything derivable by reading the codebase
-- Trivial timestamps ("Stu said hi at 11am")
+- Trivial timestamps
 - The conversation revealed pain or unresolved failure
 
 Be conservative. Better to skip than write noise.
@@ -55,7 +55,7 @@ Be conservative. Better to skip than write noise.
 
 2. **Append to MEMORY.md** under the right section per the rules already in CLAUDE.md/AGENTS.md:
    - feedback → \`## Feedback\` → relevant \`###\` subsection (or create one)
-   - user-fact / reference / project-state → \`## About Yoda\` (or a new \`##\` section if it really doesn't fit)
+   - user-fact / reference / project-state → \`## About\` (or a new \`##\` section if it really doesn't fit)
 
 3. **Format**: \`- **${today}** <the fact>\`. For feedback include inline \`**Why:**\` and \`**How to apply:**\`. ≤ 3 sentences.
 

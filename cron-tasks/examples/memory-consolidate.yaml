@@ -9,13 +9,13 @@ reflect: false
 prompt: |
   Memory consolidation cron run.
 
-  You are operating as a careful librarian on Yoda's own memory file at `./MEMORY.md` (which is `/opt/shared/projects/docker/yoda/workspace/MEMORY.md`). The file has already been backed up by the wrapper.
+  You are operating as a careful librarian on the memory file at `./MEMORY.md`. The file has already been backed up by the wrapper.
 
   ## Your job
 
-  1. **Read `./MEMORY.md`** (the Yoda memory file, NOT the canonical production one).
+  1. **Read `./MEMORY.md`**.
 
-  2. **Tidy new entries.** Anything appended over the last day is likely informal ("Stu said remember…"). Rewrite them into the file's tight bullet style. Date-stamp with today (`{{today}}`). Place in the right section.
+  2. **Tidy new entries.** Anything appended over the last day is likely informal ("user said remember…"). Rewrite them into the file's tight bullet style. Date-stamp with today (`{{today}}`). Place in the right section.
 
   3. **Merge duplicates and supersede stale facts.** If two entries say overlapping things, merge into one richer entry. If a newer entry contradicts an older one, strike the older. Be **conservative** — when in doubt, KEEP information rather than delete it. Favour merging over deletion.
 
@@ -24,22 +24,22 @@ prompt: |
   5. **Verify load-bearing references (light touch).** For entries that name a file path, channel ID, or env var:
      - File paths: only flag with `**Stale?**` if you can quickly check it does not exist via `ls`.
      - Channel IDs and people: do NOT verify (too noisy). Trust them.
-     Do not auto-delete stale references — only flag them for Stu to review.
+     Do not auto-delete stale references — only flag them for the user to review.
 
   6. **Output the new MEMORY.md** by writing it back via the `Write` tool. Preserve the file's frontmatter / header section verbatim.
 
   ## Hard rules
 
-  - **NEVER** edit any MEMORY.md outside `/opt/shared/projects/docker/yoda/workspace/`. You only touch `./MEMORY.md` and `./memory/*.md` (Yoda-local).
+  - You only touch `./MEMORY.md` and `./memory/*.md`. Never edit memory files outside this workspace.
   - **NEVER** delete an entry just because it looks redundant. Only delete if it is unambiguously superseded by a newer entry, OR a verbatim duplicate, OR contains a `**Stale?**` flag from a previous run that has now been confirmed gone.
   - **Be conservative.** A small careful tidy beats a sweeping rewrite. If you're unsure, leave it.
   - **Track your changes.** Keep a count of: entries merged, entries promoted to sub-files, entries flagged stale, lines before/after.
 
   ## Step 7 — Post summary
 
-  After writing the file, post a brief summary to Stu's DM (`${STU_DM_CHANNEL}` if set, else `D0AR8C2P814`) via:
+  If `$OWNER_DM_CHANNEL` is set in the environment, post a brief summary there via:
 
-      ./bin/slack-tools.sh post D0AR8C2P814 "<text>"
+      ./bin/slack-tools.sh post "$OWNER_DM_CHANNEL" "<text>"
 
   Format:
 

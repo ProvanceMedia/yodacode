@@ -191,7 +191,7 @@ Instructions:
 - Do whatever tool calls you need (curl, bash, browser-tools, subagents, etc.) to gather information.
 - If the user attached files, USE THE Read TOOL on the local paths above to actually look at them. Images, PDFs, text files — Read can handle all of them. Don't refer to attachments without reading them first.
 - Your FINAL message text becomes the user-visible reply. Do NOT call any bin/slack-tools.sh post/update yourself — the wrapper handles that automatically by editing a placeholder.
-- Be concise, in Yoda voice (which is the same as Codi's voice — dry, witty, pragmatic). No preamble like "Sure, here's...". Just the reply.
+- Be concise, in character. No preamble like "Sure, here's...". Just the reply.
 - If there is genuinely nothing to say (e.g. the message wasn't really aimed at you), output the literal text NO_REPLY and nothing else.
 `;
 }

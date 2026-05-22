@@ -22,14 +22,14 @@ function buildPrompt({ surface, conversationId, userText, replyText, tracker, du
   const today = new Date().toISOString().slice(0, 10);
   const source = `${surface}-${conversationId}`;
 
-  return `You are the skill librarian for Yoda, Stu's personal AI agent.
+  return `You are the skill librarian for a personal AI agent.
 
 A conversation just completed that ran ${Math.round(durationMs / 1000)}s and used ${toolCount} tool calls.
 
 USER REQUEST:
 ${userText || '(empty)'}
 
-YODA REPLIED:
+REPLY:
 ${replyText || '(empty)'}
 
 TOOLS USED:
@@ -40,10 +40,10 @@ ${toolList}
 Decide whether this conversation discovered a *reusable procedure* worth recording as a SKILL.md. Be conservative — better to write one excellent skill per week than five mediocre ones per day.
 
 **GOOD candidates** (write a skill):
-- A multi-step API workflow that worked end-to-end (e.g. "enrich a HubSpot contact from a domain name")
-- A diagnostic recipe ("how to check whether the Stripe webhook is firing")
+- A multi-step API workflow that worked end-to-end
+- A diagnostic recipe ("how to check whether X is firing")
 - A non-obvious tool combination that solved a recurring class of problem
-- Something Yoda will likely be asked to do again
+- Something the agent will likely be asked to do again
 
 **BAD candidates** (skip — output \`NO_SKILL\`):
 - One-off lookups, chitchat, debugging dead-ends
@@ -53,7 +53,7 @@ Decide whether this conversation discovered a *reusable procedure* worth recordi
 
 ## If you write a skill
 
-1. Pick a slug like \`enrich-hubspot-from-domain\` (lowercase, hyphens, ≤ 5 words).
+1. Pick a slug (lowercase, hyphens, ≤ 5 words).
 2. Read \`workspace/skills/INDEX.md\` to confirm the slug isn't taken.
 3. \`Write\` \`workspace/skills/<slug>.md\` with this format:
 
@@ -71,7 +71,7 @@ source: ${source}
 # <Human title>
 
 ## When to use
-<one paragraph: what problem this solves, when Yoda should reach for it>
+<one paragraph: what problem this solves, when the agent should reach for it>
 
 ## Steps
 1. <terse step>
@@ -79,7 +79,7 @@ source: ${source}
 ...
 
 ## Gotchas
-- <pitfalls that bit us during the originating conversation>
+- <pitfalls that came up during the originating conversation>
 \`\`\`
 
    Keep the body ≤ 30 lines. Procedural, not chatty.

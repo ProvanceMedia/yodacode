@@ -62,7 +62,7 @@ SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
     "STARLING_TOKEN":   ("Money", "Starling Bank","https://api.starlingbank.com/api/v2", "Authorization: Bearer $STARLING_TOKEN", "Endpoints: /accounts, /feed/account/{uid}/category/{uid}?changesSince={ISO}, /accounts/{uid}/balance"),
 
     # ─── Infrastructure ────────────────────────────────────────────────
-    "DO_PROD_TOKEN":    ("Infra", "DigitalOcean (prod)", "https://api.digitalocean.com/v2", "Authorization: Bearer $DO_PROD_TOKEN", "⚠️ ALWAYS ask Stu before ANY write action. Read-only lookups fine."),
+    "DO_PROD_TOKEN":    ("Infra", "DigitalOcean (prod)", "https://api.digitalocean.com/v2", "Authorization: Bearer $DO_PROD_TOKEN", "⚠️ ALWAYS ask before ANY write action. Read-only lookups fine."),
     "DO_TEST_TOKEN":    ("Infra", "DigitalOcean (test)", "https://api.digitalocean.com/v2", "Authorization: Bearer $DO_TEST_TOKEN", "Test account."),
     "DO_BILLING_TOKEN": ("Infra", "DigitalOcean (billing)", "https://api.digitalocean.com/v2", "Authorization: Bearer $DO_BILLING_TOKEN", ""),
     "TAILSCALE_API_KEY":("Infra", "Tailscale",   "https://api.tailscale.com/api/v2", "Basic auth: $TAILSCALE_API_KEY: (colon, no password)", "/tailnet/-/devices, /tailnet/-/status. Key expires every 90 days."),
@@ -71,10 +71,10 @@ SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
     "BACKBLAZE_API_KEY":("Infra", "Backblaze B2 (key)",    "(see B2 docs)",       "$BACKBLAZE_KEY_ID + $BACKBLAZE_API_KEY", ""),
 
     # ─── Content / Marketing ───────────────────────────────────────────
-    "SANITY_TOKEN":            ("Content", "Sanity CMS",      "https://m158eta3.api.sanity.io/v2024-01-01/data", "Authorization: Bearer $SANITY_TOKEN", "Project m158eta3, dataset production. /query/production for reads, /mutate/production for writes."),
+    "SANITY_TOKEN":            ("Content", "Sanity CMS",      "https://<project>.api.sanity.io/v2024-01-01/data", "Authorization: Bearer $SANITY_TOKEN", "Replace <project> with your Sanity project id. /query/production for reads, /mutate/production for writes."),
     "SE_RANKING_DATA_API_KEY": ("Content", "SE Ranking (data)","https://api.seranking.com/v1",   "$SE_RANKING_DATA_API_KEY", "Data API. Use web_fetch — curl hangs."),
     "SE_RANKING_PROJECT_TOKEN":("Content", "SE Ranking (project)","https://api4.seranking.com",  "$SE_RANKING_PROJECT_TOKEN", "Project API, free tier."),
-    "MAKE_API_KEY":            ("Content", "Make.com",        "(per-scenario webhooks)",        "$MAKE_API_KEY",                  "Letter workflow webhook: hook.eu1.make.com/m3ftsa7cftrgfk1173s9wbg8b2ngsnfw"),
+    "MAKE_API_KEY":            ("Content", "Make.com",        "(per-scenario webhooks)",        "$MAKE_API_KEY",                  "Automation platform. Webhook URLs are per-scenario."),
     "BRAVE_API_KEY":           ("Content", "Brave Search",    "https://api.search.brave.com/res/v1", "X-Subscription-Token: $BRAVE_API_KEY", "Web search alternative."),
     "BRAVE_SEARCH_API_KEY":    ("Content", "Brave Search (alt key)","",                          "X-Subscription-Token: $BRAVE_SEARCH_API_KEY", ""),
     "COMPANIES_HOUSE_API_KEY": ("Content", "Companies House", "https://api.company-information.service.gov.uk", "Basic auth: $COMPANIES_HOUSE_API_KEY:", "UK company filings/officers/registered addresses."),
@@ -88,13 +88,13 @@ SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
     "RING_REFRESH_TOKEN":   ("Personal", "Ring (doorbell/cameras)", "(via ring-client-api)", "OAuth refresh", "Personal smart home."),
 
     # ─── Slack (own app) ───────────────────────────────────────────────
-    "SLACK_BOT_TOKEN":  ("Slack",  "Slack bot token",  "(via bin/slack-tools.sh)", "internal", "Yoda's own Slack app — use ./bin/slack-tools.sh, not direct curl."),
+    "SLACK_BOT_TOKEN":  ("Slack",  "Slack bot token",  "(via bin/slack-tools.sh)", "internal", "Use ./bin/slack-tools.sh, not direct curl."),
     "SLACK_APP_TOKEN":  ("Slack",  "Slack app token",  "", "internal", "Socket mode connection. Not used directly."),
     "SLACK_SIGNING_SECRET": ("Slack", "Slack signing secret", "", "", "Webhook verification. Not used in socket mode."),
-    "SLACK_TEST_CHANNEL_ID":("Slack","Test channel ID","", "", "#yoda-test channel id."),
+    "SLACK_TEST_CHANNEL_ID":("Slack","Test channel ID","", "", "Test channel id (optional)."),
 
-    # ─── Yoda own ─────────────────────────────────────────────────
-    "CLAUDE_CODE_OAUTH_TOKEN": ("Auth", "Claude Code OAuth", "(internal)", "internal", "Stu's Max sub OAuth token. NEVER expose. Routes Yoda's own claude -p calls to the sub instead of API billing."),
+    # ─── Auth ──────────────────────────────────────────────────────
+    "CLAUDE_CODE_OAUTH_TOKEN": ("Auth", "Claude Code OAuth", "(internal)", "internal", "Claude Code Max-sub OAuth token. NEVER expose. Routes `claude -p` calls to the subscription instead of API billing."),
 }
 
 
@@ -260,13 +260,13 @@ def main() -> int:
     out.append("")
     out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, Glob, Grep** — full local FS and HTTP access via the standard tool list")
     out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — for parallel work and context-protected research")
-    out.append("- ✅ **File-based memory** — read both canonical Codi MEMORY.md and own MEMORY.md every tick; write only to own")
+    out.append("- ✅ **File-based memory** — `MEMORY.md` is auto-loaded each tick; topic files in `memory/` are searched on demand via `memory-search.sh`")
     out.append("- ✅ **Slack I/O** — via `./slack-tools.sh` (handled automatically by the loop wrapper for interactive replies)")
     out.append("- ✅ **Live status streaming** — `claude --output-format stream-json` piped through `lib/stream-translator.js` updates the placeholder in real time")
     out.append("- ✅ **SSH to your-server** — via `ssh -F .ssh/config your-server`")
     out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `maps`, `street-view`, `script`). Use for JS-rendered pages, Google Maps address verification, and any flow needing real DOM rendering. Screenshots are saved to `/tmp/yoda-*.png` and you can `Read` them to visually analyse the image.")
     out.append("- ❌ **No native MCP servers** (browser, slack, hubspot plugins) — replicate via raw HTTP curls or `./bin/browser-tools.sh`")
-    out.append("- ❌ **No `image_generate`, `image`, `pdf`, `web_search`, `tts` tools** — those were OpenClaw plugin tools. Use OpenAI APIs via curl instead.")
+    out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — use OpenAI/other APIs via curl when needed.")
     out.append("")
     primary = os.environ.get("YODA_CLAUDE_MODEL") or "claude-sonnet-4-6 (Claude Code default)"
     fallbacks_csv = os.environ.get("YODA_CLAUDE_FALLBACK_MODELS") or "claude-haiku-4-5"
