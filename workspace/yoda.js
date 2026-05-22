@@ -105,10 +105,12 @@ async function main() {
                 `${installDir}/pollers`,
                 // Let the agent install its own cron systemd units end-to-end:
                 // write .service + .timer files into /etc/systemd/system, then
-                // talk to PID 1 via /run/systemd's D-Bus socket for
-                // daemon-reload + enable --now.
+                // talk to PID 1 via D-Bus for daemon-reload + enable --now.
+                // /run/systemd = sd-bus private socket. /run/dbus = system bus
+                // (Ubuntu's systemctl routes through here).
                 '/etc/systemd/system',
                 '/run/systemd',
+                '/run/dbus',
               ],
               denyWrite: [
                 `${installDir}/.env`,
