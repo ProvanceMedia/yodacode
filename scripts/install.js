@@ -259,7 +259,10 @@ async function preflight() {
     const install = await ask('Install Playwright now? (~120MB) [y/N]', 'n');
     if (install.toLowerCase() === 'y') {
       console.log('  Installing Playwright...');
-      execSync('npm install playwright && npx playwright install chromium', { cwd: WORKSPACE, stdio: 'inherit' });
+      // --no-save: install into node_modules without modifying package.json,
+      // so the user's package.json doesn't drift from origin and block
+      // `yodacode update`. require('playwright') still resolves at runtime.
+      execSync('npm install --no-save playwright && npx playwright install chromium', { cwd: WORKSPACE, stdio: 'inherit' });
       ok('Playwright installed');
     }
   }
@@ -612,20 +615,30 @@ function ensureWrapperAndPath() {
 async function cmdUpdate() {
   heading('Updating YodaCode');
 
-  // Reject if there are uncommitted local changes — don't want to clobber
-  // user edits to workspace files (persona, .env was created during install).
+  // If there are local changes, auto-stash them, do the pull, then try to
+  // pop. This handles dynamic files (persona docs, regenerated settings,
+  // user crons) without making the user wrestle with `git stash` by hand.
+  let stashed = false;
   try {
     const dirty = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' }).trim();
     if (dirty) {
-      fail('Local changes detected — refusing to update.');
-      console.log('  Uncommitted changes in:');
+      console.log('  Local changes detected — stashing them temporarily:');
       for (const line of dirty.split('\n').slice(0, 10)) console.log(`    ${line}`);
-      console.log('\n  Either commit/stash them, or pull manually:  git pull --rebase');
-      rl.close();
-      process.exit(1);
+      // --include-untracked so persona docs and user cron yaml come along
+      const stashOut = execSync('git stash push --include-untracked -m "yodacode-update auto-stash"', {
+        cwd: ROOT, encoding: 'utf8',
+      });
+      if (/No local changes to save/i.test(stashOut)) {
+        // Only untracked files; nothing was actually stashed
+        stashed = false;
+      } else {
+        stashed = true;
+        ok('Stashed local changes (will restore after pull)');
+      }
     }
   } catch (e) {
-    fail(`Not a git repo or git unavailable: ${e.message}`);
+    fail(`Auto-stash failed: ${e.message}`);
+    console.log('\n  Either commit/stash them, or pull manually:  git pull --rebase');
     rl.close();
     process.exit(1);
   }
@@ -683,6 +696,18 @@ async function cmdUpdate() {
     for (const rc of w.pathAdded) ok(`Added ${w.localBin} to PATH in ${rc} — open a new shell.`);
   } else {
     warn(`Wrapper refresh skipped: ${w.reason}`);
+  }
+
+  // Restore stashed local changes. If git can't auto-merge, leave the
+  // stash in place and tell the user how to recover.
+  if (stashed) {
+    try {
+      execSync('git stash pop', { cwd: ROOT, stdio: 'pipe' });
+      ok('Restored local changes');
+    } catch (e) {
+      warn('Could not auto-restore local changes — your edits are saved in the stash.');
+      console.log('  Recover with:  git stash list   →   git stash pop');
+    }
   }
 
   // Restart the service if systemd is installed and the unit exists

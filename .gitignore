@@ -28,6 +28,24 @@ workspace/skills/archive/
 
 # Auto-generated
 workspace/CAPABILITIES.md
+# Per-install sandbox config — rewritten by yoda.js on every startup
+workspace/.claude/settings.json
+workspace/.claude/settings.local.json
+
+# Persona files — generated from templates/*.template on first install
+# and edited per-deploy. Templates stay tracked; the rendered files are local.
+workspace/CLAUDE.md
+workspace/IDENTITY.md
+workspace/MEMORY.md
+workspace/USER.md
+
+# User-created skills (skill-reflector writes here). INDEX.md is shipped.
+workspace/skills/*.md
+!workspace/skills/INDEX.md
+
+# User-defined cron tasks. _template.yaml + examples/ stay tracked.
+cron-tasks/*.yaml
+!cron-tasks/_template.yaml
 
 # Temp
 *.png
