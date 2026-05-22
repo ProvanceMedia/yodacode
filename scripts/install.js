@@ -289,13 +289,9 @@ async function setupSlack() {
   for (const line of manifest.split('\n')) console.log('  ' + line);
   console.log(divider);
   console.log('');
-  console.log('  3) Next → Create.');
-  console.log('  4) Left sidebar → \x1b[1mOAuth & Permissions\x1b[0m → scroll to "Bot Token Scopes"');
-  console.log('     → "Add an OAuth Scope" → search and add \x1b[1massistant:write\x1b[0m');
-  console.log('     (this gives you the typing-indicator shimmer in DMs).');
-  console.log('  5) Top of the same page → \x1b[1m"Install to Workspace"\x1b[0m → authorise.');
-  console.log('  6) Copy the \x1b[1mBot User OAuth Token\x1b[0m (xoxb-…) from the top of the same page.');
-  console.log('  7) Left sidebar → \x1b[1mBasic Information\x1b[0m → "App-Level Tokens" →');
+  console.log('  3) Next → Create → \x1b[1m"Install to Workspace"\x1b[0m → authorise.');
+  console.log('  4) Copy the \x1b[1mBot User OAuth Token\x1b[0m (xoxb-…) from "OAuth & Permissions".');
+  console.log('  5) Left sidebar → \x1b[1mBasic Information\x1b[0m → "App-Level Tokens" →');
   console.log('     "Generate Token and Scopes" → add \x1b[1mconnections:write\x1b[0m → Generate.');
   console.log('     Copy that \x1b[1mApp-Level Token\x1b[0m (xapp-…).\n');
 

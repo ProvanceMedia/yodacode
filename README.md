@@ -100,6 +100,7 @@ The wizard walks you through:
 | **Live streaming** | Placeholder message updates in real-time as Claude works |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging) |
 | **Memory system** | Proactive memory with 4 typed categories + daily consolidation cron + SQLite FTS5 search across MEMORY.md, memory/, skills/, legacy-memory/ |
+| **Memory search** | `./bin/memory-search.sh "<query>"` — FTS5 lookup so the agent retrieves only what it needs instead of loading every memory file into context |
 | **Skill self-generation** | Opt-in background reflector after long ticks writes reusable `SKILL.md` files; nightly cron dedupes, promotes high-use ones to Core, archives stale ones |
 | **Memory self-generation** | Opt-in mirror reflector for durable FACTS (user-fact, feedback, project-state, reference) — appends to MEMORY.md or writes memory/<slug>.md |
 | **Loop guardrails** | Per-run tool tracker detects repeat failures, no-progress loops, and runaway iteration counts. iteration_cap kills the run with a clear Slack message. |
@@ -117,26 +118,20 @@ The wizard walks you through:
 
 ## Sandbox
 
-YodaCode uses Claude Code's native **bubblewrap sandbox** (Linux) for OS-level isolation. When enabled:
+Default is `YODA_SANDBOX=off` — the agent has full host access (install systemd units end-to-end, sudo, talk to D-Bus, etc.). This is the practical default because the bubblewrap sandbox blocks systemctl, sudo, and most multi-step ops.
 
-- Bash commands can **only write** to: the workspace directory, `/tmp`, `logs/`, `cron-tasks/`, and `pollers/`
-- Writes to `/etc`, `/root`, `/home`, `/usr`, or anywhere else are **blocked at the kernel level**
-- **`.env` is protected** — the agent cannot modify its own config, auth tokens, or model settings
-- **`.claude/settings.json` is protected** — the agent cannot weaken or disable its own sandbox
-- Network access is **domain-filtered** through a proxy
-- The escape hatch is **disabled** (`allowUnsandboxedCommands: false`) — the agent cannot bypass the sandbox
-- If the sandbox can't start, commands **fail** rather than running without protection
-- `yoda.js` regenerates the sandbox config from `.env` on every startup — even if the settings file is somehow tampered with, the next restart resets it
+If you want the sandbox, set `YODA_SANDBOX=auto` in `.env`. When enabled:
 
-Sandbox is **enabled by default** (`YODA_SANDBOX=auto`). The installer handles all dependencies.
+- Bash commands can **only write** to: workspace, `/tmp`, `logs/`, `cron-tasks/`, `pollers/`
+- `.env` and `.claude/settings.json` are protected from the agent
+- Network is domain-filtered via a proxy
+- Cron self-install, sudo, and most system-level work will not function
 
 ```bash
 # .env options:
-YODA_SANDBOX=auto     # sandbox + auto-allow (recommended for headless agents)
-YODA_SANDBOX=off      # no sandbox (full server access — only if you fully trust the agent)
+YODA_SANDBOX=off      # default — full host access
+YODA_SANDBOX=auto     # bubblewrap sandbox + auto-allow (restricts writes + network)
 ```
-
-**Test it works:** Ask your bot *"Write the word 'hacked' to /etc/motd and show me the contents"* — it should report the path is outside the sandbox boundary.
 
 ## Configuration
 
@@ -150,7 +145,7 @@ SLACK_BOT_TOKEN=               # from your Slack app
 SLACK_APP_TOKEN=               # from your Slack app
 YODA_DM_AUTHORIZED_USERS=     # comma-separated Slack user IDs
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
-YODA_SANDBOX=auto              # auto (recommended) or off
+YODA_SANDBOX=off               # off (default) or auto
 ```
 
 ## Adding a cron task
@@ -223,6 +218,19 @@ Every Slack/WhatsApp tick is wrapped by a tool tracker that watches the `stream-
 - **`iteration_cap`** — total tool_use count exceeded the budget (`YODA_MAX_ITERATIONS_SLACK`, default 60) → SIGTERMs claude, replaces the placeholder with "🛑 Iteration cap hit"
 
 Per-run summary persisted to `state/tool-runs.json` (LRU-capped to 100) for post-mortem. Disable entirely with `YODA_GUARDRAIL_ENABLED=0` if you'd rather just rely on the 10-minute claude timeout.
+
+## Memory search
+
+`./bin/memory-search.sh "<query>"` runs a SQLite FTS5 full-text search over `MEMORY.md`, every file in `memory/`, every file in `skills/`, and (if present) `legacy-memory/`. The bot uses it to fetch just the relevant context for a given question instead of stuffing every memory file into every prompt.
+
+Flags:
+
+- `--limit N` (default 5)
+- `--scope active|legacy|index|skill|all` (default = active + index + skill; legacy excluded)
+- `--type <feedback|project|user|reference>` (filter by frontmatter)
+
+The index is rebuilt on every yoda startup and after the nightly `memory-consolidate` cron. Each search returns the matching file paths so the agent can `Read` them for full context.
+
 
 ## Important notes
 
