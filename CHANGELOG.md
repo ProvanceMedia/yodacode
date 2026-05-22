@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.3 — 2026-05-22
+
+- slack manifest: add assistant:write so fresh installs get the typing-indicator shimmer
+
 ## v0.2.2 — 2026-05-22
 
 - install: target ~/.local prefix for global npm installs so binaries land on PATH
