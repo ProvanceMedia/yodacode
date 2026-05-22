@@ -116,7 +116,14 @@ async function main() {
             ...(() => {
               const domains = new Set(config.sandbox.allowedDomains);
               // Always allow Slack (needed for slack-tools.sh in crons)
+              // Always allow Slack + Anthropic so the agent can talk to Slack
+              // and any spawned `claude -p` (e.g. cron tests, reflectors) can
+              // reach the API.
               domains.add('slack.com');
+              domains.add('files.slack.com');
+              domains.add('api.anthropic.com');
+              domains.add('statsig.anthropic.com');
+              domains.add('console.anthropic.com');
               // Auto-discover from CAPABILITIES.md base URLs
               try {
                 const caps = readFileSync(`${config.workspace}/CAPABILITIES.md`, 'utf8');
