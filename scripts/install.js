@@ -180,10 +180,27 @@ async function preflight() {
   }
   let allGood = missingHard.length === 0;
 
+  // Resolve `claude` to an absolute path and pin it in .env as CLAUDE_BIN.
+  // systemd's process PATH is unreliable (Ubuntu's PID-1 env can override
+  // our Environment=PATH= directive), so spawning `claude` by basename in
+  // the agent fails with ENOENT. By hard-coding the absolute path, the
+  // agent never has to do a PATH lookup.
+  const pinClaude = () => {
+    try {
+      const which = execSync('command -v claude', { encoding: 'utf8', shell: '/bin/sh' }).trim();
+      if (which && fs.existsSync(which)) {
+        mergeEnv(ENV_PATH, { CLAUDE_BIN: which });
+        return which;
+      }
+    } catch (_) {}
+    return null;
+  };
+
   // Claude Code — auto-offer install (it's just an npm package)
   if (checkCommand('claude')) {
     const ver = execSync('claude --version 2>&1', { encoding: 'utf8' }).trim().split('\n')[0];
     ok(`Claude Code ${ver}`);
+    pinClaude();
   } else {
     fail('Claude Code not found');
     const ans = (await ask('Install Claude Code now via npm? [Y/n]', 'y')).toLowerCase();
@@ -196,6 +213,7 @@ async function preflight() {
         if (checkCommand('claude')) {
           const ver = execSync('claude --version 2>&1', { encoding: 'utf8' }).trim().split('\n')[0];
           ok(`Claude Code ${ver}`);
+          pinClaude();
         } else {
           warn('Install ran but `claude` is still not on PATH. Check $PATH and node global bin.');
           allGood = false;
