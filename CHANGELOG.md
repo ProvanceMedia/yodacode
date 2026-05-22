@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.2 — 2026-05-22
+
+- install: target ~/.local prefix for global npm installs so binaries land on PATH
+
 ## v0.2.1 — 2026-05-22
 
 - install.sh: persist PATH before need_node check, not after
