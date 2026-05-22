@@ -81,6 +81,11 @@ install_node_local() {
   ln -sf "$NODE_DIR/bin/npm" "$LOCAL_BIN/npm"
   ln -sf "$NODE_DIR/bin/npx" "$LOCAL_BIN/npx"
 
+  # Put ~/.local/bin on PATH for the current shell before the need_node
+  # probe — otherwise command -v node won't see the symlink we just dropped
+  # and we'd bail with a misleading "node still not detected" error.
+  persist_local_bin_path
+
   if ! need_node; then
     echo -e "${RED}Install completed but node still not detected.${RESET}" >&2
     return 1
