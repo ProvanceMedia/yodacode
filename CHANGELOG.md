@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.8 — 2026-05-22
+
+- wizard: warn at end if ~/.local/bin isn't on the current shell's PATH
+
 ## v0.2.7 — 2026-05-22
 
 - wizard: skip persona + dashboard prompts when already configured
