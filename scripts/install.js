@@ -190,7 +190,9 @@ async function preflight() {
     if (ans !== 'n') {
       console.log('  Installing Claude Code (this can take ~30s)...');
       try {
-        execSync('npm install -g @anthropic-ai/claude-code', { stdio: 'inherit' });
+        // --prefix puts the bin in ~/.local/bin (already on PATH from
+        // install.sh) instead of ~/.yodacode/node/bin (which isn't).
+        execSync(`npm install -g --prefix="${process.env.HOME}/.local" @anthropic-ai/claude-code`, { stdio: 'inherit' });
         if (checkCommand('claude')) {
           const ver = execSync('claude --version 2>&1', { encoding: 'utf8' }).trim().split('\n')[0];
           ok(`Claude Code ${ver}`);
@@ -237,7 +239,7 @@ async function preflight() {
   } catch {
     console.log('  Installing sandbox runtime...');
     try {
-      execSync('npm install -g @anthropic-ai/sandbox-runtime', { stdio: 'pipe', timeout: 30000 });
+      execSync(`npm install -g --prefix="${process.env.HOME}/.local" @anthropic-ai/sandbox-runtime`, { stdio: 'pipe', timeout: 30000 });
       ok('Sandbox runtime installed');
     } catch {
       warn('Could not install sandbox runtime. Sandbox may not function.');
