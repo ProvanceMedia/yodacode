@@ -103,10 +103,12 @@ async function main() {
                 `${installDir}/logs`,
                 `${installDir}/cron-tasks`,
                 `${installDir}/pollers`,
-                // Let the agent install its own cron systemd units end-to-end
-                // (write the .service + .timer files; daemon-reload + enable
-                // go through D-Bus and aren't filesystem operations).
+                // Let the agent install its own cron systemd units end-to-end:
+                // write .service + .timer files into /etc/systemd/system, then
+                // talk to PID 1 via /run/systemd's D-Bus socket for
+                // daemon-reload + enable --now.
                 '/etc/systemd/system',
+                '/run/systemd',
               ],
               denyWrite: [
                 `${installDir}/.env`,
