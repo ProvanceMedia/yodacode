@@ -81,20 +81,27 @@ install_node_local() {
   ln -sf "$NODE_DIR/bin/npm" "$LOCAL_BIN/npm"
   ln -sf "$NODE_DIR/bin/npx" "$LOCAL_BIN/npx"
 
-  export PATH="$LOCAL_BIN:$PATH"
-
-  # Persist PATH for future shells
-  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    if [[ -f "$rc" ]] && ! grep -q 'YODACODE_PATH_ADDED' "$rc"; then
-      printf '\n# YODACODE_PATH_ADDED\nexport PATH="%s:$PATH"\n' "$LOCAL_BIN" >> "$rc"
-    fi
-  done
-
   if ! need_node; then
     echo -e "${RED}Install completed but node still not detected.${RESET}" >&2
     return 1
   fi
   echo -e "${GREEN}Node $(node -v) installed.${RESET}"
+}
+
+persist_local_bin_path() {
+  # Ensure ~/.local/bin is on PATH for current shell + future shells.
+  # Idempotent — uses a sentinel grep to avoid double-writes.
+  mkdir -p "$LOCAL_BIN"
+  case ":$PATH:" in
+    *":$LOCAL_BIN:"*) ;;
+    *) export PATH="$LOCAL_BIN:$PATH" ;;
+  esac
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    if [[ -f "$rc" ]] && ! grep -q 'YODACODE_PATH_ADDED' "$rc"; then
+      printf '\n# YODACODE_PATH_ADDED\nexport PATH="%s:$PATH"\n' "$LOCAL_BIN" >> "$rc"
+      echo -e "${YELLOW}Added ${LOCAL_BIN} to PATH in ${rc} — open a new shell or 'source ${rc}'.${RESET}"
+    fi
+  done
 }
 
 install_yodacode_wrapper() {
@@ -116,6 +123,7 @@ if ! need_node; then
 fi
 
 install_yodacode_wrapper
+persist_local_bin_path
 
 echo -e "${GREEN}Node $(node -v) — good.${RESET}"
 exec node scripts/install.js "$@"

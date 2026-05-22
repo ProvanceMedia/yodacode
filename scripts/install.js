@@ -571,6 +571,44 @@ function cmdHelp() {
   rl.close();
 }
 
+// Drop the `yodacode` wrapper into ~/.local/bin and ensure that dir is on
+// PATH (idempotent). Called from cmdUpdate so a stale install (one that
+// predates the wrapper) self-heals on `yodacode update` — or, if the user
+// can't run yodacode at all yet, on the next `./install.sh`.
+function ensureWrapperAndPath() {
+  const home = process.env.HOME || '';
+  if (!home) return { ok: false, reason: 'no $HOME' };
+  const localBin = path.join(home, '.local', 'bin');
+  const wrapperPath = path.join(localBin, 'yodacode');
+  const wrapperBody = `#!/usr/bin/env bash\nexec node "${ROOT}/scripts/install.js" "$@"\n`;
+  let wrapperWritten = false;
+  let pathAdded = [];
+  try {
+    fs.mkdirSync(localBin, { recursive: true });
+    // Rewrite if missing or content drifted (e.g. repo moved)
+    let current = '';
+    try { current = fs.readFileSync(wrapperPath, 'utf8'); } catch (_) {}
+    if (current !== wrapperBody) {
+      fs.writeFileSync(wrapperPath, wrapperBody);
+      fs.chmodSync(wrapperPath, 0o755);
+      wrapperWritten = true;
+    }
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+  for (const rc of ['.bashrc', '.zshrc']) {
+    const rcPath = path.join(home, rc);
+    if (!fs.existsSync(rcPath)) continue;
+    try {
+      const body = fs.readFileSync(rcPath, 'utf8');
+      if (body.includes('YODACODE_PATH_ADDED')) continue;
+      fs.appendFileSync(rcPath, `\n# YODACODE_PATH_ADDED\nexport PATH="${localBin}:$PATH"\n`);
+      pathAdded.push(rcPath);
+    } catch (_) {}
+  }
+  return { ok: true, wrapperWritten, pathAdded, wrapperPath, localBin };
+}
+
 async function cmdUpdate() {
   heading('Updating YodaCode');
 
@@ -634,6 +672,17 @@ async function cmdUpdate() {
     catch (e) { warn(`npm install failed: ${e.message} (continuing)`); }
   } else {
     ok('No dependency changes');
+  }
+
+  // Refresh the `yodacode` wrapper + PATH line. Idempotent — only writes
+  // when missing/drifted. Lets an install that predates the wrapper
+  // self-heal via `yodacode update` (or, the first time, via `./install.sh`).
+  const w = ensureWrapperAndPath();
+  if (w.ok) {
+    if (w.wrapperWritten) ok(`Wrapper installed at ${w.wrapperPath}`);
+    for (const rc of w.pathAdded) ok(`Added ${w.localBin} to PATH in ${rc} — open a new shell.`);
+  } else {
+    warn(`Wrapper refresh skipped: ${w.reason}`);
   }
 
   // Restart the service if systemd is installed and the unit exists
