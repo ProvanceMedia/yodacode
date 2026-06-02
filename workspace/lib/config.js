@@ -75,7 +75,7 @@ export const config = {
   claude: {
     bin: process.env.CLAUDE_BIN || 'claude',
     allowedTools: process.env.YODA_ALLOWED_TOOLS ||
-      'Bash,Read,Write,Edit,WebFetch,Glob,Grep,Task',
+      'Bash,Read,Write,Edit,WebFetch,WebSearch,Glob,Grep,Task',
     permissionMode: process.env.YODA_PERMISSION_MODE || 'acceptEdits',
     // Hard timeout per claude invocation (ms). Default 10 min — long enough
     // for legitimate multi-step enrichment / prospecting work that may

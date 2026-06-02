@@ -258,7 +258,7 @@ def main() -> int:
     out.append("")
     out.append("## Built-in (no env var needed)")
     out.append("")
-    out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, Glob, Grep** — full local FS and HTTP access via the standard tool list")
+    out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep** — full local FS, HTTP, and native web search via the standard tool list")
     out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — for parallel work and context-protected research")
     out.append("- ✅ **File-based memory** — `MEMORY.md` is auto-loaded each tick; topic files in `memory/` are searched on demand via `memory-search.sh`")
     out.append("- ✅ **Slack I/O** — via `./slack-tools.sh` (handled automatically by the loop wrapper for interactive replies)")

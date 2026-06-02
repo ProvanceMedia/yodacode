@@ -22,7 +22,7 @@ on_calendar: "*-*-* 09:00 Europe/London"
 model: claude-sonnet-4-6
 
 # Tools claude is allowed to use. Pick the smallest set the task actually needs.
-allowed_tools: [Bash, Read, Write, Edit, WebFetch, Glob, Grep]
+allowed_tools: [Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep]
 
 # Hard timeout in seconds. Default 600.
 timeout: 600

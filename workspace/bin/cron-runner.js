@@ -201,7 +201,7 @@ function main() {
 
   const prompt = substitute(def.prompt, ctx);
   const tools = (def.allowed_tools || [
-    'Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'Glob', 'Grep'
+    'Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Glob', 'Grep'
   ]).join(',');
   const args = [
     '-p', prompt,
