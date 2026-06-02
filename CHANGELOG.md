@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.11 — 2026-06-02
+
+- docs: add Server requirements section, note web search capability
+- Enable native WebSearch tool in default allowlists
+
 ## v0.2.10 — 2026-05-22
 
 - release: hide from help + gate to the canonical upstream repo
