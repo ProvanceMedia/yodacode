@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.2.12 — 2026-06-02
+
+- fix(runner): idle-watchdog timeout so long-but-active runs aren't killed
+- docs: fix README to state sandbox is off by default
+
 ## v0.2.11 — 2026-06-02
 
 - docs: add Server requirements section, note web search capability
