@@ -12,6 +12,19 @@ Personal Claude-Code-powered chat agent for Slack, WhatsApp, and beyond.
 Runs entirely on your **Claude Max subscription** — no API key billing.
 One command to install. DM your bot 3 minutes later.
 
+## Server requirements
+
+YodaCode runs as a persistent background service, so it needs an always-on Linux host — a cheap VPS, a cloud droplet, or a home server will do. A laptop that sleeps won't.
+
+- **OS** — Linux with `systemd`. Ubuntu/Debian-family is smoothest (the sandbox step uses `apt`). macOS works if you run it manually (`node workspace/yoda.js`); the one-command installer is Linux-only, and Windows isn't supported.
+- **Node.js 20+** — if it's missing, `install.sh` drops Node 22 LTS into `~/.yodacode/node/` for you, no sudo required.
+- **Claude subscription** — Max recommended (Pro works with tighter limits). This is the only "billing": the installer signs in with `claude setup-token`, so there's no Anthropic API key and no per-request charges. The Claude Code CLI itself is installed for you if it's not already on PATH.
+- **A Slack workspace** where you can add an app — the wizard creates it from a manifest in one click. WhatsApp is optional.
+- **Hardware** — modest. 1 vCPU and 1 GB RAM is enough for the agent itself (the Node process idles around 40 MB). Bump to ~2 GB RAM and ~2 GB free disk if you want the browser tools, which pull in headless Chromium (~400 MB).
+- **Network** — outbound HTTPS only. Slack runs over Socket Mode, so you don't open any inbound ports or expose the box to the internet.
+
+The wizard installs the heavier optional bits on demand: `bubblewrap` + `socat` for the Bash sandbox, and Playwright + Chromium for the browser tools. Skip them and the footprint stays tiny.
+
 ## What is this?
 
 YodaCode is a self-hosted personal AI agent that:
@@ -19,7 +32,7 @@ YodaCode is a self-hosted personal AI agent that:
 - **Lives on your server** as a Node.js process (systemd-managed)
 - **Connects to Slack** via Socket Mode (real-time, no polling)
 - **Connects to WhatsApp** via Baileys (optional, links to your existing account)
-- **Runs Claude Code** (`claude -p`) for every reply, with tool access to Read, Write, Edit, WebFetch, browser automation, subagents, and sandboxed Bash
+- **Runs Claude Code** (`claude -p`) for every reply, with tool access to Read, Write, Edit, WebFetch, web search, browser automation, subagents, and sandboxed Bash
 - **Remembers things** via a structured file-based memory system with daily consolidation and SQLite FTS5 full-text search
 - **Learns reusable procedures** — an opt-in background reflector turns long conversations into `SKILL.md` files the agent then reuses
 - **Auto-discovers its own tools** — drop a `@yoda-tool` manifest on a script in `bin/`, restart, and the agent sees it in `CAPABILITIES.md`
