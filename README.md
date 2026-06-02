@@ -32,7 +32,7 @@ YodaCode is a self-hosted personal AI agent that:
 - **Lives on your server** as a Node.js process (systemd-managed)
 - **Connects to Slack** via Socket Mode (real-time, no polling)
 - **Connects to WhatsApp** via Baileys (optional, links to your existing account)
-- **Runs Claude Code** (`claude -p`) for every reply, with tool access to Read, Write, Edit, WebFetch, web search, browser automation, subagents, and sandboxed Bash
+- **Runs Claude Code** (`claude -p`) for every reply, with tool access to Read, Write, Edit, WebFetch, web search, browser automation, subagents, and (optionally sandboxed) Bash
 - **Remembers things** via a structured file-based memory system with daily consolidation and SQLite FTS5 full-text search
 - **Learns reusable procedures** — an opt-in background reflector turns long conversations into `SKILL.md` files the agent then reuses
 - **Auto-discovers its own tools** — drop a `@yoda-tool` manifest on a script in `bin/`, restart, and the agent sees it in `CAPABILITIES.md`
@@ -40,7 +40,7 @@ YodaCode is a self-hosted personal AI agent that:
 - **Runs scheduled tasks** (cron jobs) via systemd timers
 - **Streams live status** — you see what the agent is doing in real time as the placeholder message updates
 - **Falls back automatically** — if the primary model (Sonnet) is throttled, tries the next model in the chain (Haiku)
-- **Sandboxed by default** — Bash commands are isolated via bubblewrap. The agent can only write to its own workspace, not the host system. It cannot modify its own config or disable its own sandbox.
+- **Optional Bash sandbox** — opt-in (`YODA_SANDBOX=off` by default). When enabled, Bash commands are isolated via bubblewrap: the agent can only write to its own workspace, not the host system, and cannot modify its own config or disable its own sandbox.
 - **Includes a web dashboard** for status, cron management, log streaming, and file editing
 
 ## You don't need to be technical
@@ -53,7 +53,7 @@ While you *can* manually edit files, write cron scripts, and configure integrati
 - *"Write a script that checks our Stripe balance daily"* — it creates the script in `bin/`, builds the cron wrapper, and gives you the systemd commands.
 - *"Add HubSpot integration"* — it tells you what to add to `.env`, updates `refresh-capabilities.py` with the new service, and starts using it once you restart.
 
-With sandbox enabled (the default), the agent **cannot** edit `.env`, install systemd services, or modify its own sandbox config — those are protected. It writes the files it can, then tells you the manual step. This is by design: **the agent builds everything, you flip the switch.**
+By default (`YODA_SANDBOX=off`) the agent has full host access, so it can usually carry these out end-to-end. With the sandbox enabled, it **cannot** edit `.env`, install systemd services, or modify its own sandbox config — those are protected, so it writes the files it can and tells you the one manual step. Either way: **the agent builds everything, you flip the switch.**
 
 ## Quickstart
 
@@ -135,7 +135,7 @@ The wizard walks you through:
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |
 | **Auto-capabilities** | `CAPABILITIES.md` auto-generated from `.env` + bin/ manifests so the agent never lies |
-| **Sandbox** | OS-level bubblewrap isolation. Bash writes restricted to workspace only. Agent cannot modify `.env` or disable its own sandbox. |
+| **Sandbox** | Opt-in (`YODA_SANDBOX=off` by default). OS-level bubblewrap isolation: Bash writes restricted to workspace only, agent cannot modify `.env` or disable its own sandbox. |
 
 ## Sandbox
 
