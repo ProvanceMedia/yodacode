@@ -18,6 +18,19 @@ function csv(name, fallback = '') {
     .filter(Boolean);
 }
 
+// Parse a millisecond duration knob. A malformed value (non-numeric, NaN, ≤0)
+// silently falls back rather than producing a NaN/0 that setTimeout coerces to
+// "fire immediately" — which would kill every run. Pass fallback=0 for knobs
+// where 0 means "disabled" (the 0 then reads back as the fallback, still 0).
+function msEnv(name, fallback) {
+  const n = parseInt(process.env[name], 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  if (process.env[name] !== undefined && process.env[name] !== '') {
+    console.error(`WARN: ${name}="${process.env[name]}" is not a positive integer (ms); using ${fallback}`);
+  }
+  return fallback;
+}
+
 export const config = {
   // Which surfaces are enabled. CSV of names from lib/surfaces/*.
   // The yoda.js coordinator dynamically imports each enabled surface.
@@ -77,10 +90,22 @@ export const config = {
     allowedTools: process.env.YODA_ALLOWED_TOOLS ||
       'Bash,Read,Write,Edit,WebFetch,WebSearch,Glob,Grep,Task',
     permissionMode: process.env.YODA_PERMISSION_MODE || 'acceptEdits',
-    // Hard timeout per claude invocation (ms). Default 10 min — long enough
-    // for legitimate multi-step enrichment / prospecting work that may
-    // involve several curls + a browser-tools.sh verification.
-    timeoutMs: parseInt(process.env.YODA_CLAUDE_TIMEOUT_MS || '600000', 10),
+    // Idle watchdog per claude invocation (ms). The runner RESETS this timer on
+    // every stream event (each status tick), so it only fires when claude has
+    // gone genuinely SILENT this long — i.e. actually stuck on a hung API call
+    // or tool. A legitimately long task (lots of curls + a browser verification,
+    // research) keeps streaming status and is never killed for being slow.
+    // Default 10 min of total silence. (Env name kept for back-compat; semantics
+    // changed from wall-clock cap → idle watchdog.) A non-positive or malformed
+    // override falls back to the default rather than killing instantly.
+    timeoutMs: msEnv('YODA_CLAUDE_TIMEOUT_MS', 600000),
+    // Optional absolute wall-clock ceiling (ms). Must be a positive integer to
+    // enable; 0 / unset / malformed = disabled (default). Backstops a pathological
+    // run that keeps emitting activity forever (never idle) from burning unbounded
+    // quota. Runaway tool-loops are already bounded by maxIterations, so this is
+    // rarely needed — leave disabled unless you want a hard cap regardless of
+    // progress.
+    hardTimeoutMs: msEnv('YODA_CLAUDE_HARD_TIMEOUT_MS', 0),
     // Bail out after N consecutive Anthropic api_retry events. Claude defaults
     // to 10 retries with exponential backoff, which can hang for 60+ seconds
     // on a sustained 529. Failing fast at ~3 retries (≈8s total) is a much

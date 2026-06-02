@@ -25,6 +25,7 @@ const THROTTLE_MS = 800;
  *
  * @param {Readable} stdin              The claude process stdout
  * @param {object}   handlers
+ * @param {() => void} [handlers.onActivity] Called on every raw stream line, before the status throttle/dedupe — pure liveness signal (e.g. to reset an idle watchdog)
  * @param {(text: string) => Promise<void>} handlers.onStatus  Called for live updates (throttled)
  * @param {(text: string) => Promise<void>} handlers.onFinal   Called once with final text
  * @param {number}   [handlers.maxRetries] Bail when Claude reports this many consecutive api_retry events
@@ -35,6 +36,7 @@ const THROTTLE_MS = 800;
  * @returns {Promise<{ ok: boolean, finalText: string, error?: string, throttled?: boolean, tracker?: object }>}
  */
 export async function translateStream(stdin, {
+  onActivity,
   onStatus,
   onFinal,
   maxRetries = Infinity,
@@ -96,6 +98,9 @@ export async function translateStream(stdin, {
 
   for await (const line of rl) {
     if (!line.trim()) continue;
+    // Any line on the stream is proof of life — signal liveness before the
+    // throttle/dedupe in send() can swallow the resulting status update.
+    if (onActivity) { try { onActivity(); } catch (_) {} }
     let ev;
     try { ev = JSON.parse(line); } catch { continue; }
 

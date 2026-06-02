@@ -133,20 +133,28 @@ async function processReply(event, surface) {
     // All models in the chain were throttled
     try {
       await surface.updateMessage(placeholder,
-        `⚠️ All models throttled. Anthropic is overloaded — try again in a minute.`);
+        `⚠️ All models throttled. Anthropic is overloaded, try again in a minute.`);
     } catch (_) {}
   } else if (result.killed && result.error === 'timeout') {
-    // Hard timeout — claude was killed for running too long. The translator
-    // was still mid-stream so the placeholder is stuck on the last status.
-    // Replace it with a clear timeout message.
+    // Idle timeout — claude went silent for the whole watchdog window, so it
+    // was almost certainly stuck (hung API call or tool), not just busy. The
+    // translator was mid-stream, so the placeholder is frozen on the last
+    // status. Replace it with a clear message.
     try {
       await surface.updateMessage(placeholder,
-        `⏱️ Timed out after ${Math.round(config.claude.timeoutMs / 1000)}s of work. Probably stuck on a slow API call or running too many tool calls. Try a more focused request.`);
+        `⏱️ No activity for ${Math.round(config.claude.timeoutMs / 1000)}s, looked stuck on a hung API call or tool, so I stopped. Try again, or break it into smaller steps.`);
+    } catch (_) {}
+  } else if (result.killed && result.error === 'hard_timeout') {
+    // Hard ceiling — claude was still ACTIVE but ran past the absolute cap, so
+    // it was stopped to bound usage (not because it looked stuck).
+    try {
+      await surface.updateMessage(placeholder,
+        `⏱️ Hit the ${Math.round(config.claude.hardTimeoutMs / 1000)}s hard limit while still working, so I stopped to cap usage. Try breaking it into smaller steps.`);
     } catch (_) {}
   } else if (result.killed && result.error === 'iteration_cap') {
     try {
       await surface.updateMessage(placeholder,
-        result.guardrailMessage || '🛑 Iteration cap hit — claude was looping.');
+        result.guardrailMessage || '🛑 Iteration cap hit, claude was looping.');
     } catch (_) {}
   } else if (result.killed && result.error === 'killed') {
     // User-initiated stop — the stop-handler already updated the placeholder

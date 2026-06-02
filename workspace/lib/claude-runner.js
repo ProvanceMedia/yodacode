@@ -18,6 +18,12 @@ const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
 const TOOL_RUNS_MAX_ENTRIES = 100;
 const USAGE_FILE = path.join(config.stateDir, 'usage.jsonl');
 
+// PIDs killed by an explicit user "stop" (via killTick). The runner's exit
+// handler consults this so a user stop is classified as 'killed' even if a
+// watchdog timer fired in the same instant — the user's intent wins over a
+// racing timeout. Entries are removed by the owning run's exit handler.
+const userStoppedPids = new Set();
+
 mkdirSync(config.stateDir, { recursive: true });
 if (!existsSync(TICKS_FILE)) writeFileSync(TICKS_FILE, '{}');
 
@@ -130,16 +136,66 @@ export async function runClaude({
 
     let killed = false;
     let timedOut = false;
+    let settled = false;      // true once the process has exited/errored
     let finalResult = null;
     let iterationCap = null;  // populated when guardrail trips
 
-    const timeout = setTimeout(() => {
+    // Idle watchdog. The original implementation was a single wall-clock cap
+    // that fired a fixed timeoutMs after the run STARTED regardless of progress,
+    // so a legitimately long task (steady tool calls, all advancing) got killed
+    // mid-stream. Instead we reset this timer on every parsed stream line
+    // (bumpIdle, wired to the translator's onActivity below), and only kill a
+    // run that has gone genuinely SILENT for timeoutMs — i.e. stuck on a hung
+    // API call or tool. Caveat: a SINGLE long tool call (a slow curl, a heavy
+    // Task subagent, a long build) emits nothing between its tool_use and
+    // tool_result, so its whole runtime reads as silence; one tool that runs
+    // longer than timeoutMs will still be killed. Raise YODA_CLAUDE_TIMEOUT_MS
+    // if you legitimately need longer single operations. Runaway fast tool-loops
+    // are bounded separately by maxIterations.
+    let timeoutKind = null;   // 'idle' | 'hard' — which watchdog fired
+    let idleTimer = null;
+    let hardTimer = null;
+
+    const disarm = () => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+    };
+    const clearTimers = () => { settled = true; disarm(); };
+
+    // Single-fire: whichever watchdog trips first wins, disarms its sibling, and
+    // a user-stop / fail-fast that already set `killed` pre-empts both. Prevents
+    // a double SIGTERM + duplicate logs when the idle and hard deadlines coincide.
+    const fireTimeout = (kind) => {
+      if (settled || killed || timedOut) return;
       timedOut = true;
-      logger.warn('claude timeout, killing', {
-        surface, conversationId, ms: config.claude.timeoutMs,
+      timeoutKind = kind;
+      disarm();
+      logger.warn('claude watchdog timeout, killing', {
+        surface, conversationId, kind,
+        ms: kind === 'hard' ? config.claude.hardTimeoutMs : config.claude.timeoutMs,
       });
       try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
-    }, config.claude.timeoutMs);
+    };
+
+    idleTimer = setTimeout(() => fireTimeout('idle'), config.claude.timeoutMs);
+    idleTimer.unref();
+    const bumpIdle = () => {
+      // Reset the silence timer on any stream activity. Don't re-arm once the run
+      // has settled/timed-out/been-killed — a buffered event can arrive after
+      // exit and a stray timer could later SIGTERM a recycled PID.
+      if (settled || timedOut || killed || !idleTimer) return;
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => fireTimeout('idle'), config.claude.timeoutMs);
+      idleTimer.unref();
+    };
+
+    // Optional absolute ceiling — disabled by default (hardTimeoutMs === 0).
+    // Guards against a run that keeps emitting activity forever (never idle)
+    // from burning unbounded quota.
+    if (config.claude.hardTimeoutMs > 0) {
+      hardTimer = setTimeout(() => fireTimeout('hard'), config.claude.hardTimeoutMs);
+      hardTimer.unref();
+    }
 
     // Buffer stderr — emit at debug for normal runs, escalate to warn on
     // non-zero exit so the user actually sees why claude died (auth errors,
@@ -157,7 +213,11 @@ export async function runClaude({
     // too many api_retry events (Anthropic 529 throttling), the translator
     // calls onMaxRetries → we kill claude to fail fast and avoid deepening
     // the cooldown by sustaining concurrent load.
-    translateStream(claude.stdout, {
+    const translatorDone = translateStream(claude.stdout, {
+      // Fired on every raw stream line, BEFORE the user-facing throttle/dedupe in
+      // the translator can swallow it — so the idle watchdog tracks true stream
+      // liveness, not just distinct status changes.
+      onActivity: () => bumpIdle(),
       onStatus: async (text) => {
         if (killed || timedOut) return;
         try { await onStatus(text); }
@@ -204,7 +264,7 @@ export async function runClaude({
     });
 
     claude.on('exit', (code, signal) => {
-      clearTimeout(timeout);
+      clearTimers();
       // SIGTERM/SIGKILL via process.kill on a pgid sometimes lands as
       // {code: 143|137, signal: null} rather than {code: null, signal: 'SIGTERM'}
       // depending on how the syscall propagated. Treat both as "killed".
@@ -217,22 +277,32 @@ export async function runClaude({
       delete t[conversationId];
       saveTicks(t);
 
-      // Wait a tiny moment for the translator to finish processing buffered
-      // output, then resolve.
-      setTimeout(() => {
+      // Was this an explicit user stop? (vs. a watchdog SIGTERM that also set
+      // `killed`.) Consume the flag now so it can't leak to a recycled PID.
+      const userStopped = userStoppedPids.delete(claude.pid);
+
+      const finish = () => {
         if (iterationCap) {
           resolve({
             ok: false,
             error: 'iteration_cap',
             killed: true,
-            guardrailMessage: `🛑 Iteration cap hit (${iterationCap.count}/${iterationCap.max}) — claude was looping. See logs/yoda.log and state/tool-runs.json.`,
+            guardrailMessage: `🛑 Iteration cap hit (${iterationCap.count}/${iterationCap.max}), claude was looping. See logs/yoda.log and state/tool-runs.json.`,
           });
+        } else if (userStopped) {
+          // Explicit user "stop" wins even if a watchdog fired in the same
+          // instant. The stop-handler already updated the placeholder, so the
+          // dispatcher's 'killed' branch is a deliberate no-op.
+          resolve({ ok: false, error: 'killed', killed: true });
         } else if (timedOut) {
-          resolve({ ok: false, error: 'timeout', killed: true });
+          // 'idle' = went silent (stuck); 'hard' = hit the absolute ceiling
+          // while still active. Distinct codes so the dispatcher can explain
+          // accurately which one happened.
+          resolve({ ok: false, error: timeoutKind === 'hard' ? 'hard_timeout' : 'timeout', killed: true });
         } else if (killed) {
-          // killed could be either user-stop OR fail-fast on throttle.
-          // If the translator already produced a result (throttled === true),
-          // surface that so dispatcher can fall back to a different model.
+          // killed could be fail-fast on throttle. If the translator already
+          // produced a result (throttled === true), surface that so dispatcher
+          // can fall back to a different model.
           if (finalResult && finalResult.throttled) {
             resolve({ ...finalResult, killed: true });
           } else {
@@ -254,12 +324,23 @@ export async function runClaude({
             resolve({ ok: true });
           }
         }
-      }, 100);
+      };
+
+      // Resolve once the translator has fully drained buffered stdout — it may
+      // still be awaiting its final onFinal call, and finalResult/throttled/
+      // tracker/usage aren't populated until it returns. (On a kill/timeout,
+      // onFinal is gated off so the translator settles immediately.) A fixed
+      // delay would race a slow onFinal and drop finalText; instead we wait on
+      // the translator promise, with a generous backstop in case onFinal wedges.
+      let finished = false;
+      const finishOnce = () => { if (finished) return; finished = true; finish(); };
+      Promise.resolve(translatorDone).then(finishOnce, finishOnce);
+      setTimeout(finishOnce, 5000).unref();
     });
 
     claude.on('error', (err) => {
       logger.error('claude spawn error', { err: err.message });
-      clearTimeout(timeout);
+      clearTimers();
       const t = loadTicks();
       delete t[conversationId];
       saveTicks(t);
@@ -295,6 +376,10 @@ export function killTick(tick) {
   if (!tick || !tick.pid) return false;
   try {
     process.kill(-tick.pid, 'SIGTERM');
+    // Flag only after a successful signal — the group exists, so the owning
+    // run's exit handler will fire and consume the flag (no leak). On failure
+    // the process is already gone, so we deliberately don't add it.
+    userStoppedPids.add(tick.pid);
     logger.info('killed tick', { surface: tick.surface, pid: tick.pid });
     return true;
   } catch (e) {
