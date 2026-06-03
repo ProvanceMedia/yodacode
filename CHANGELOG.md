@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.3.0 — 2026-06-03
+
+- feat(effort): add reasoning effort levels + thread-sticky ultrathink/xhigh
+
 ## v0.2.12 — 2026-06-02
 
 - fix(runner): idle-watchdog timeout so long-but-active runs aren't killed
