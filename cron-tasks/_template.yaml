@@ -27,8 +27,11 @@ allowed_tools: [Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep]
 # Hard timeout in seconds. Default 600.
 timeout: 600
 
-# Enable claude's extended thinking. Costs more quota per turn. Default false.
-thinking: false
+# Reasoning effort: low | medium | high | xhigh | max. Omit to use the model's
+# default (high on Opus 4.7/4.8 and Sonnet 4.6). xhigh/max cost more quota per
+# turn; no effect on Haiku. Replaces the old `thinking:` flag (a no-op on
+# adaptive-reasoning models).
+# effort: xhigh
 
 # Optional bash command(s) to run BEFORE invoking claude. Useful for jitter
 # sleeps, queue topups, anything that shouldn't burn agent turn quota.

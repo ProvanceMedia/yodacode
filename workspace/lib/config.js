@@ -113,6 +113,23 @@ export const config = {
     maxRetries: parseInt(process.env.YODA_CLAUDE_MAX_RETRIES || '3', 10),
     // Primary model (empty string = let Claude Code use its built-in default)
     model: process.env.YODA_CLAUDE_MODEL || '',
+    // Reasoning effort. '' = use the model's default (high on Opus 4.7/4.8 and
+    // Sonnet 4.6). Set to low|medium|high|xhigh|max to raise it globally.
+    // Applied only to models that support effort — skipped for Haiku ticks.
+    // xhigh is Opus 4.7/4.8 only; other models auto-clamp it down to high.
+    effort: process.env.YODA_CLAUDE_EFFORT || '',
+    // Thread-sticky escalation: if a human message that triggered (or recently
+    // preceded) this reply matches this case-insensitive pattern, the tick runs
+    // at xhigh effort. "ultrathink" also fires Claude Code's own per-turn
+    // deep-reasoning boost, since the keyword rides along in the prompt.
+    effortEscalatePattern: process.env.YODA_EFFORT_ESCALATE_PATTERN ||
+      '\\b(xhigh|ultrathink)\\b',
+    // Turns sticky escalation back off (the `/effort high` equivalent). Checked
+    // before the ON pattern, so "xhigh off" de-escalates despite containing
+    // "xhigh". A human message matching this, newer than the last escalate
+    // trigger, drops the thread back to the default effort.
+    effortDeescalatePattern: process.env.YODA_EFFORT_DEESCALATE_PATTERN ||
+      '\\b(?:xhigh|ultrathink|effort)\\s+(?:off|stop|normal)\\b|\\bnormal\\s+effort\\b',
     // CSV of fallback models tried in order if the primary returns a
     // throttled (529-style) failure. Empty = no fallback.
     fallbackModels: csv('YODA_CLAUDE_FALLBACK_MODELS', 'claude-haiku-4-5'),

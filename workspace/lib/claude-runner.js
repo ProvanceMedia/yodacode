@@ -85,6 +85,7 @@ function appendToolRuns(conversationId, surface, summary) {
  * @param {any}      args.placeholder     Opaque handle from surface.postPlaceholder
  * @param {string}   args.prompt          The full prompt to send to claude -p
  * @param {string}   [args.model]         Optional model override (e.g. claude-haiku-4-5)
+ * @param {string}   [args.effort]        Optional effort level (low|medium|high|xhigh|max)
  * @param {(text: string) => Promise<void>} args.onStatus  Live update callback
  * @param {(text: string) => Promise<void>} args.onFinal   Final text callback
  * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean }>}
@@ -95,6 +96,7 @@ export async function runClaude({
   placeholder,
   prompt,
   model,
+  effort,
   onStatus,
   onFinal,
 }) {
@@ -105,8 +107,15 @@ export async function runClaude({
       '--verbose',
       '--permission-mode', config.claude.permissionMode,
       '--allowed-tools', config.claude.allowedTools,
-      '--thinking', 'enabled',
     ];
+    // Reasoning effort. Models default to 'high' (Opus 4.7/4.8, Sonnet 4.6)
+    // when unset; a per-tick override (e.g. xhigh from an "ultrathink"/"xhigh"
+    // message) beats the global YODA_CLAUDE_EFFORT default. Skip for Haiku,
+    // which has no effort levels; Opus/Sonnet auto-clamp an unsupported level
+    // (xhigh → high on Sonnet 4.6) so passing it there is safe. (--thinking was
+    // dropped: a no-op on adaptive-reasoning models, where effort is the lever.)
+    const eff = effort || config.claude.effort;
+    if (eff && !/haiku/i.test(model || '')) args.push('--effort', eff);
     if (model) args.push('--model', model);
     // Sandbox is configured via .claude/settings.json (written by yoda.js
     // at startup based on YODA_SANDBOX). Newer claude CLI no longer accepts

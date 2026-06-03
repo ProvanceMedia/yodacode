@@ -80,6 +80,21 @@ async function processReply(event, surface) {
   // 6. Build prompt with surface-specific hints
   const prompt = buildPrompt(event, ctx, surface);
 
+  // 6b. Thread-sticky effort escalation. There's no persistent session (each
+  // tick is a fresh `claude -p`), so "stay in deep mode for this thread" is
+  // simulated by re-scanning the conversation each tick: if the most recent
+  // deep-think signal from a human ("ultrathink"/"xhigh") is newer than any
+  // "xhigh off"/"normal effort" signal, run this tick at xhigh. Sticks while
+  // the trigger message is still in the fetched window. The runner skips effort
+  // on Haiku fallbacks automatically.
+  const effort = resolveEffort(event, ctx);
+  if (effort === 'xhigh') {
+    logger.info('effort escalated to xhigh (thread-sticky)', {
+      surface: event.surface,
+      conversationId: event.conversationId,
+    });
+  }
+
   // 7. Run claude with model fallback chain. If the primary model is
   // throttled (Anthropic 529), automatically retry with the next model in
   // YODA_CLAUDE_FALLBACK_MODELS. User-initiated stops, timeouts, and
@@ -105,6 +120,7 @@ async function processReply(event, surface) {
       placeholder,
       prompt,
       model: model || undefined,
+      effort,
       onStatus: (text) => (surface.setStatus
         ? surface.setStatus(placeholder, text)
         : surface.updateMessage(placeholder, text)),
@@ -179,6 +195,33 @@ async function processReply(event, surface) {
     try { maybeReflectMemory(reflectionArgs); }
     catch (e) { logger.warn('memory-reflector dispatch failed', { err: e.message }); }
   }
+}
+
+// Resolve the effort level for a tick. Scans the triggering message + recent
+// human messages (newest first) for an escalate ("xhigh"/"ultrathink") or
+// de-escalate ("xhigh off"/"normal effort") signal; the most recent wins. Bot
+// and the agent's own messages are skipped so it can't self-trigger by quoting
+// the keyword. Falls back to the global YODA_CLAUDE_EFFORT default.
+function resolveEffort(event, ctx) {
+  let onRe, offRe;
+  try {
+    onRe = new RegExp(config.claude.effortEscalatePattern, 'i');
+    offRe = new RegExp(config.claude.effortDeescalatePattern, 'i');
+  } catch (e) {
+    logger.warn('bad effort escalate/deescalate pattern, escalation off', { err: e.message });
+    return config.claude.effort || undefined;
+  }
+  // Newest-first: the current message, then recent history (skip bots + self).
+  const texts = [event.text || ''];
+  for (const m of [...(ctx.messages || [])].reverse()) {
+    if (m.bot_id || (config.botUserId && m.user === config.botUserId)) continue;
+    texts.push(m.text || '');
+  }
+  for (const text of texts) {
+    if (offRe.test(text)) return config.claude.effort || undefined;  // explicit off wins
+    if (onRe.test(text)) return 'xhigh';
+  }
+  return config.claude.effort || undefined;
 }
 
 function buildPrompt(event, ctx, surface) {

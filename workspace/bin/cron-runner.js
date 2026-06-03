@@ -27,7 +27,7 @@
 //   model: claude-haiku-4-5            # optional; empty → default
 //   timeout: 600                       # seconds, default 600
 //   allowed_tools: [Bash, Read, ...]   # default sensible
-//   thinking: true                     # default false
+//   effort: xhigh                      # low|medium|high|xhigh|max; omit = model default
 //   deliver:                           # optional auto-delivery
 //     surface: slack
 //     channel: D0AR8C2P814
@@ -211,7 +211,11 @@ function main() {
   ];
   // Every yaml must declare its model explicitly (validated above).
   args.push('--model', def.model);
-  if (def.thinking) args.push('--thinking', 'enabled');
+  // Reasoning effort (low|medium|high|xhigh|max). Omit to use the model's
+  // default. Skipped for Haiku, which has no effort levels. The legacy
+  // `thinking:` field is now ignored — it was a no-op on adaptive-reasoning
+  // models, where effort is the real control.
+  if (def.effort && !/haiku/i.test(def.model || '')) args.push('--effort', def.effort);
 
   const timeoutMs = (def.timeout || 600) * 1000;
   const claudeBin = process.env.CLAUDE_BIN || 'claude';

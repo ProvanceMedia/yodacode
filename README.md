@@ -129,7 +129,7 @@ The wizard walks you through:
 | **Cron tasks** | Declarative YAML task definitions executed by a shared runner — one file per task, no bash boilerplate. Per-task model selection, optional auto-delivery to Slack, optional reflection. |
 | **Model fallback** | Sonnet → Haiku (configurable chain). Fail-fast on 529. |
 | **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` — pick a model per thread. Thread-sticky: follow-up replies keep using the chosen model. |
-| **Extended thinking** | `--thinking enabled` for better reasoning (uses more quota per turn) |
+| **Effort levels** | Reasoning depth (`low`→`max`) set globally, per cron, or per thread. Say `ultrathink`/`xhigh` in a thread to run it at `xhigh` (thread-sticky; `xhigh off` to stop). |
 | **Browser automation** | Playwright for JS-rendered pages, Google Maps verification |
 | **Subagents** | `Task` tool for parallel work and context protection |
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly |
@@ -166,8 +166,23 @@ SLACK_BOT_TOKEN=               # from your Slack app
 SLACK_APP_TOKEN=               # from your Slack app
 YODA_DM_AUTHORIZED_USERS=     # comma-separated Slack user IDs
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
+YODA_CLAUDE_EFFORT=            # low|medium|high|xhigh|max (empty = model default)
 YODA_SANDBOX=off               # off (default) or auto
 ```
+
+## Effort levels
+
+Claude Code exposes a reasoning **effort** control (`low`, `medium`, `high`, `xhigh`, `max`) — higher means deeper reasoning at the cost of more tokens per turn. YodaCode wires it in three ways:
+
+- **Global default** — set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default (`high` on Opus 4.7/4.8 and Sonnet 4.6).
+- **Per cron** — add `effort: xhigh` to a task's YAML.
+- **Per thread (sticky)** — say `ultrathink` or `xhigh` in any message, and that reply plus every later reply in the same thread runs at `xhigh`. Say `xhigh off` (or `normal effort`) to drop back. A new thread starts at the default.
+
+Notes:
+
+- `xhigh` is supported on Opus 4.7/4.8 only; other models clamp it to `high`. Haiku has no effort levels, so the setting is ignored there.
+- There's no persistent session (each reply is a fresh `claude -p`), so thread stickiness is re-derived from the recent thread history each turn — it lasts while the triggering message stays in the fetched window. In a very long thread, just say the word again.
+- `ultrathink` additionally triggers Claude Code's built-in per-turn deep-reasoning nudge, independent of the effort level.
 
 ## Adding a cron task
 
@@ -256,7 +271,7 @@ The index is rebuilt on every yoda startup and after the nightly `memory-consoli
 ## Important notes
 
 - **Claude Max subscription required.** YodaCode uses `claude -p` (headless Claude Code) which authenticates via your subscription OAuth token. No API key needed.
-- **Quota usage.** Each reply = 1 turn against your Max 5-hour limit. Extended thinking uses more quota per turn. Cron tasks add up. Monitor at `claude.ai/settings/usage`.
+- **Quota usage.** Each reply = 1 turn against your Max 5-hour limit. Higher effort levels (`xhigh`/`max`) use more quota per turn. Cron tasks add up. Monitor at `claude.ai/settings/usage`.
 - **Linux only.** The installer assumes systemd and bubblewrap. macOS users can run `node workspace/yoda.js` manually (sandbox uses Seatbelt on macOS).
 - **Personal use.** Designed for one person on one server. Not multi-tenant.
 
