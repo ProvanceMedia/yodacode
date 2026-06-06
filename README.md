@@ -254,6 +254,10 @@ The index is rebuilt on every yoda startup and after the nightly `memory-consoli
 - **Quota usage.** Each reply is one turn against your Max 5-hour limit. Higher effort levels (`xhigh`/`max`) use more quota per turn, and cron tasks add up. Monitor at `claude.ai/settings/usage`.
 - **Personal use.** Designed for one person on one server. Not multi-tenant.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ProvanceMedia/yodacode&type=Date)](https://star-history.com/#ProvanceMedia/yodacode&Date)
+
 ## License
 
 MIT
