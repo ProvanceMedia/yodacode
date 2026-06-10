@@ -208,6 +208,38 @@ const slackSurface = {
     sm.on('slash_commands', async ({ body, ack }) => {
       try { await ack(); } catch (_) {}
       try {
+        // /help — a self-contained how-to, posted privately (ephemeral) to the
+        // caller. Covers what a non-technical operator needs: adding API keys
+        // (done on the server, never pasted into chat), model picking, and
+        // day-to-day management.
+        if (body.command === '/help') {
+          const name = process.env.BOT_NAME || 'YodaCode';
+          const help = [
+            `*${name} — quick help*`,
+            '',
+            '*Talk to me.* Just DM me, or @-mention me in a channel I am in.',
+            '`/opus` · `/sonnet` · `/haiku` `<question>` — ask using a specific model (sticks to that thread).',
+            '',
+            '*Give me an API key* (GitHub, Stripe, Google, …)',
+            'For your safety, secrets are added on the *server*, never typed into Slack. SSH in and run:',
+            '```',
+            'cd ~/yodacode        # wherever you installed me',
+            './quickstart.sh addkey',
+            '```',
+            'It asks for the service, the key name, and the value, stores it in a separate broker',
+            'container (I never see it), and reloads. After that, just ask me to use the service.',
+            '',
+            '*Manage me* (run in the install folder on your server)',
+            '`docker compose logs -f agent` — watch me · `docker compose restart` — apply changes · `docker compose down` — stop',
+            '',
+            '*Change my name or your details:* run `./quickstart.sh` again and choose Reconfigure.',
+          ].join('\n');
+          try {
+            await web.chat.postEphemeral({ channel: body.channel_id, user: body.user_id, text: help });
+          } catch (e) { logger.warn('slack: /help postEphemeral failed', { err: e.message }); }
+          return;
+        }
+
         const spec = SLASH_MODELS[body.command];
         if (!spec) return;
         const text = (body.text || '').trim();
