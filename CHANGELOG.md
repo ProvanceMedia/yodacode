@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.0.0 — 2026-06-10
+
+- docs: container-first quickstart and broker model
+- feat: containerise — de-rooted by default
+
 ## v0.4.0 — 2026-06-10
 
 - docs: use placeholder ids in cron examples
