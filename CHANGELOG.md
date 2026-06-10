@@ -3,6 +3,13 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v0.4.0 — 2026-06-10
+
+- docs: use placeholder ids in cron examples
+- feat(broker): optional host-side credential isolation
+- docs: add star history chart to README
+- docs: tidy README
+
 ## v0.3.0 — 2026-06-03
 
 - feat(effort): add reasoning effort levels + thread-sticky ultrathink/xhigh
