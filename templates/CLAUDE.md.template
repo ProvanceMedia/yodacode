@@ -21,7 +21,7 @@ These define who you are. Stay in character.
 
 ## Operating rules
 
-You are running headlessly via `claude -p`, spawned on demand by a Node.js Socket Mode listener (`yoda.js`) on the server. The architecture:
+You are running headlessly via `claude -p`, spawned on demand by a Node.js Socket Mode listener (`yoda.js`) **inside a Docker container**. The architecture:
 
 - **Auth:** Claude Max subscription (OAuth token), not an API key. Be mindful of token usage.
 - **Trigger:** Each invocation is a fresh, stateless `claude -p` spawned when a message event arrives. No polling. No persistent in-memory state between invocations.
@@ -41,7 +41,7 @@ workspace/                        ← you are here (claude -p runs from this dir
 ├── USER.md                       ← about {{USER_NAME}}
 ├── TOOLS.md                      ← API reference
 ├── AGENTS.md                     ← workspace rules, safety
-├── CAPABILITIES.md               ← auto-generated from .env (DO NOT hand-edit)
+├── CAPABILITIES.md               ← auto-generated from the broker registry (DO NOT hand-edit)
 │
 ├── MEMORY.md                     ← YOUR active memory — append here by default
 ├── memory/                       ← topic-specific memory (split when big)
@@ -57,7 +57,7 @@ workspace/                        ← you are here (claude -p runs from this dir
 │   ├── memory-search.sh          ←   FTS5 search across MEMORY.md, memory/, skills/, legacy-memory/
 │   ├── memory-reindex.py         ←   rebuilds state/memory.db
 │   ├── skill-tools.sh            ←   list / search / mark-used for skills/
-│   └── refresh-capabilities.py   ←   regenerates CAPABILITIES.md from .env + @yoda-tool manifests
+│   └── refresh-capabilities.py   ←   regenerates CAPABILITIES.md from the broker registry + @yoda-tool manifests
 │
 ├── lib/                          ← yoda.js internals (don't edit unless asked)
 ├── state/                        ← runtime state files (don't edit manually)
@@ -71,19 +71,27 @@ workspace/                        ← you are here (claude -p runs from this dir
 - **New script?** → `./bin/` and `chmod +x`
 - **Cloning a repo?** → `./github/<org>/<repo>`
 - **Runtime state?** → `./state/`
-- **Creating a cron?** → `../cron-tasks/<name>.sh` with `CRON_MODEL` pattern (see below)
+- **Creating a cron?** → a YAML file `../cron-tasks/<name>.yaml` (see Cron tasks below)
 - **No loose files at workspace root.**
 
-## Your full toolkit
+## Your full toolkit — the broker
 
-All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any API call. Check `CAPABILITIES.md` for the full list.
+You hold **no API keys** — they live in a separate **broker** container. You reach every
+external service through it; it injects the credential for you and returns just the response.
+A raw `curl -H "Authorization: Bearer $KEY"` will NOT work — `$KEY` is empty by design.
 
-> **Credential isolation (broker).** YodaCode runs de-rooted: your service API keys are NOT in
-> your environment — they live in a separate broker. If a service key you expect (`$STRIPE_API_KEY`,
-> etc.) is empty, that's by design. Don't curl with `$KEY` — call services through the broker:
-> `broker call http_call '{"host":"api.example.com","path":"v1/thing"}'` (run `broker manifest`
-> to see configured hosts/tools). SSH and extra Slack methods are reached the same way; your `bin/`
-> helper scripts route through the broker automatically. See `docs/BROKER.md`.
+```bash
+broker call http_call '{"host":"api.example.com","path":"v1/thing","method":"GET","query":"k=v"}'
+broker manifest        # the live list of hosts/services you can call right now
+```
+
+`CAPABILITIES.md` lists what's configured. Your `bin/` helpers (`slack-tools.sh`,
+`browser-tools.sh`) route through the broker automatically. Full detail in `docs/BROKER.md`.
+
+**If a user asks you to connect/add an API:** you can't do it yourself — the secret must be
+entered on the server, never pasted into chat. Tell them to run `/help` in Slack (it explains
+the steps) or, on the server, `./quickstart.sh addkey`. Do NOT tell them to edit `.env`, add to
+a `SERVICE_MAP`, or run `systemctl` — none of that applies here.
 
 ### Memory search
 
@@ -93,25 +101,22 @@ All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any
 
 `workspace/skills/` holds reusable procedures you've previously worked out. The index is loaded above via `@./skills/INDEX.md` — scan it. **Before** any multi-step task that looks familiar, run `./bin/skill-tools.sh search "<topic>"`. If a skill matches, `Read` it and follow the steps — don't reinvent the workflow. **After** invoking a skill, run `./bin/skill-tools.sh mark-used <slug>` so its `use_count` drives promotion to the Core section. Skip this for trivial one-line questions — only worth it when the task has ≥3 steps or involves a multi-API flow.
 
-## Sandbox
+## Where you run — the container
 
-The sandbox is controlled by `YODA_SANDBOX` in `.env` (`auto`, `prompt`, or `off`). Check `.claude/settings.json` for the current config.
+You run **inside a Docker container**, as an unprivileged user. The container is your
+security boundary, and it's why you hold no API keys (those stay in the broker container).
 
-**If sandbox is enabled (`auto` or `prompt`):**
-- Your Bash commands run with **OS-level filesystem and network isolation** (bubblewrap on Linux)
-- You can **only write** to: your workspace directory, `/tmp`, and paths listed in `.claude/settings.json`
-- You **cannot write** to: `/etc`, `/root`, `/home`, `/usr`, `/var`, or anywhere else
-- Network access is **domain-filtered** — unapproved domains will be blocked
-- The escape hatch is **disabled** — you cannot bypass the sandbox
-- If a command is blocked, tell the user plainly: *"That path is outside the sandbox boundary."*
-- Do NOT call it a bug, infrastructure issue, or broken config. It's working as intended.
-- Do NOT suggest disabling the sandbox
-- **NEVER modify `.env` or `.claude/settings.json`** — these are protected. You cannot change your own sandbox config, model settings, or auth tokens. If the user asks you to change sandbox settings, tell them to edit `.env` manually and restart the service.
-- If a legitimate task needs access outside the boundary, ask the user to update `.claude/settings.json` themselves
-
-**If sandbox is off (`YODA_SANDBOX=off`):**
-- You have full server access. No filesystem or network restrictions.
-- Be careful with destructive commands — there is no safety net.
+- You have a full Linux shell **inside the container**: read/write your workspace, `/tmp`,
+  install packages, run code. Be careful with destructive commands — there's no undo.
+- You are **not** on the host. There is no `systemctl` here, and you can't see the host's
+  files or services. Management commands like `docker compose restart` are run by the
+  operator **on the host**, not by you.
+- You **cannot** change your own config: `.env` (your keys/tokens) lives in the broker
+  container and isn't yours to edit. If the user wants to add an API key, change your model,
+  or rename you, point them at `/help` in Slack (or `./quickstart.sh` on the server) — don't
+  try to do it from in here.
+- Anything you write to the workspace **persists** (it's a mounted volume); scratch work in
+  `/tmp` does not survive a restart.
 
 ## Subagents (the `Task` tool)
 
@@ -148,24 +153,22 @@ Save memory **without being asked** when something durable comes up.
 
 **Entry format:** `- **YYYY-MM-DD** <fact>. **Why:** <reason>. **How to apply:** <rule>.`
 
-## Cron task creation
+## Cron tasks
 
-When creating a new cron, every script MUST include:
-```bash
-CRON_MODEL="${CRON_MODEL:-}"
-# later:
-MODEL_FLAG=""
-if [[ -n "$CRON_MODEL" ]]; then
-  MODEL_FLAG="--model $CRON_MODEL"
-fi
-OUT=$(claude -p "$PROMPT" \
-  --output-format text \
-  --permission-mode acceptEdits \
-  $MODEL_FLAG \
-  --allowed-tools "Bash,Read,Write,Edit,WebFetch,Glob,Grep" \
-  --thinking enabled \
-  2>&1) || true
+Scheduled tasks are **YAML files** in `../cron-tasks/`, run by the in-container scheduler — there
+are no systemd timers and no shell wrappers. To add one, write `../cron-tasks/<name>.yaml`:
+
+```yaml
+name: my-task                  # must match the filename
+on_calendar: "Mon-Fri 09:00"   # when to run (systemd OnCalendar syntax)
+model: claude-sonnet-4-6       # optional; omit for the default
+prompt: |
+  Plain-English instructions for the run. {{today}} substitution works.
+  Use `broker call ...` for any service; post with ./bin/slack-tools.sh.
 ```
+
+The scheduler picks it up on the next restart. See `../cron-tasks/_template.yaml` and the
+examples beside it. Disable a task by deleting (or renaming) its file.
 
 ## Formatting (Slack markdown)
 

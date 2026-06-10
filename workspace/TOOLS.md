@@ -1,23 +1,41 @@
 # TOOLS.md - API Reference
 
-Your API keys are stored in `../.env` (chmod 600). Reference them as `$VAR_NAME` in shell commands.
-**Never hardcode secrets.** Use env vars.
+You do **not** hold any API keys. They live in the **broker** (a separate container);
+you reach every external service through it, and it injects the credential for you.
 
-Check `CAPABILITIES.md` (auto-generated) for the full list of what's available.
+## Calling a service
 
----
+```bash
+broker call http_call '{"host":"api.example.com","path":"v1/things","method":"GET","query":"limit=5"}'
+broker manifest        # list every host/service currently configured
+```
 
-## Add your services below
+- The broker picks the right auth per host (bearer, header, query param, basic, OAuth).
+- Replies are JSON: `{"ok":true,"data":...}` or `{"ok":false,"error":"..."}`.
+- A raw `curl -H "Authorization: Bearer $KEY"` will **not** work — `$KEY` is empty by design.
+- `./bin/slack-tools.sh` and `./bin/browser-tools.sh` work as documented; they route
+  through the broker automatically where they need a credential.
 
-As you connect APIs, document them here so future-you knows the endpoints,
-auth headers, and gotchas.
+`CAPABILITIES.md` (auto-generated) lists the hosts/services available right now.
 
-### Example format
+## Adding a new service
+
+You can't add one yourself — the secret has to be entered on the server, not in chat.
+Tell the user to either run `/help` in Slack (it explains the steps) or, on the server:
+
+```bash
+./quickstart.sh addkey
+```
+
+That stores the key in the broker and maps the host. After it reloads, the new host shows
+up in `broker manifest` / `CAPABILITIES.md` and you can call it.
+
+## Document services as you go
+
+When a service is connected, jot its endpoints and gotchas here so future-you knows them:
 
 ```
-## ServiceName
-- **Base:** https://api.example.com/v1
-- **Auth:** Bearer $SERVICE_API_KEY
-- **Endpoints:** /users, /items, /orders
-- **Notes:** Rate limited to 100 req/min. Use ?page= for pagination.
+## ServiceName  (host: api.example.com)
+- Endpoints: /users, /items, /orders
+- Notes: rate-limited 100 req/min; use ?page= for pagination.
 ```

@@ -99,7 +99,15 @@ if [[ -f "$ENVF" ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' "$ENVF" 2>/dev
    && grep -q '^SLACK_BOT_TOKEN=xoxb-' "$ENVF" 2>/dev/null && ! grep -q 'xoxb-your-bot-token' "$ENVF" 2>/dev/null; then
   ok "Found an existing setup ($(grep -m1 '^BOT_NAME=' "$ENVF" | cut -d= -f2-) for $(grep -m1 '^USER_NAME=' "$ENVF" | cut -d= -f2-))."
   a=$(ask "(S)tart it, or (R)econfigure from scratch?" "S")
-  if [[ ! "${a,,}" =~ ^r ]]; then docker compose up -d --build && ok "Starting — watch with: docker compose logs -f agent"; exit $?; fi
+  if [[ ! "${a,,}" =~ ^r ]]; then
+    # Refresh the framework persona doc from the (possibly updated) template, keeping
+    # the operator's name/context. TOOLS.md is static and CAPABILITIES.md regenerates
+    # on boot, so this keeps a `git pull && start` fully up to date.
+    bn="$(grep -m1 '^BOT_NAME=' "$ENVF" | cut -d= -f2-)"; un="$(grep -m1 '^USER_NAME=' "$ENVF" | cut -d= -f2-)"
+    tz="$(grep -m1 '^TZ=' "$ENVF" | cut -d= -f2-)"
+    [[ -f templates/CLAUDE.md.template ]] && sed -e "s/{{BOT_NAME}}/${bn:-Yoda}/g" -e "s/{{USER_NAME}}/${un:-friend}/g" -e "s|{{TIMEZONE}}|${tz:-UTC}|g" templates/CLAUDE.md.template > workspace/CLAUDE.md
+    docker compose up -d --build && ok "Starting — watch with: docker compose logs -f agent"; exit $?
+  fi
 fi
 
 # ── 1 · Docker ────────────────────────────────────────────────────────────────

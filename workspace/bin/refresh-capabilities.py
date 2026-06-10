@@ -14,6 +14,7 @@ Adding a new tool: drop a manifest block at the top of the script (see
 `browser-tools.sh` for the format). No code edit needed.
 """
 
+import json
 import os
 import re
 import sys
@@ -23,6 +24,7 @@ from datetime import datetime, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "bin")
 ENV = os.path.join(ROOT, "..", ".env")
+BROKER_DIR = os.path.join(ROOT, "broker")
 OUT = os.path.join(ROOT, "CAPABILITIES.md")
 
 # Files in workspace/bin/ that are NOT user-facing tools (helpers, generators).
@@ -233,40 +235,54 @@ def parse_env(path: str) -> set[str]:
     return keys
 
 
+def load_broker_services() -> tuple[list[tuple[str, str, str]], list[tuple[str, str]]]:
+    """Read the broker registry (the real source of truth for what services this
+    agent can reach). Returns (hosts, services) where hosts = (host, scheme, vaultKey)
+    and services = (name, description). Empty if the broker isn't configured here."""
+    hosts: list[tuple[str, str, str]] = []
+    services: list[tuple[str, str]] = []
+    try:
+        ah = os.path.join(BROKER_DIR, "auth-hosts.json")
+        if os.path.exists(ah):
+            for host, cfg in sorted(json.load(open(ah)).items()):
+                if isinstance(cfg, dict):
+                    hosts.append((host, cfg.get("scheme", "?"), cfg.get("vaultKey", "?")))
+    except Exception:
+        pass
+    try:
+        sp = os.path.join(BROKER_DIR, "services.policy.json")
+        if os.path.exists(sp):
+            for name, cfg in sorted(json.load(open(sp)).items()):
+                services.append((name, cfg.get("description", "") if isinstance(cfg, dict) else ""))
+    except Exception:
+        pass
+    return hosts, services
+
+
 def main() -> int:
-    present = parse_env(ENV)
     tools = scan_tools(BIN)
-
-    # Group services by category for output
-    groups: dict[str, list[tuple[str, str, str, str, str]]] = {}
-    uncategorised: list[str] = []
-    for k in sorted(present):
-        if k in SERVICE_MAP:
-            cat, name, base, auth, notes = SERVICE_MAP[k]
-            groups.setdefault(cat, []).append((k, name, base, auth, notes))
-        else:
-            uncategorised.append(k)
-
+    hosts, services = load_broker_services()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     out = []
-    out.append("# CAPABILITIES.md — Yoda")
+    out.append("# CAPABILITIES.md")
     out.append("")
-    out.append(f"*Auto-generated on {today}. Two sources: `@yoda-tool` manifests in `workspace/bin/*`, and `SERVICE_MAP` × `../.env`. Re-runs on every yoda startup via `refresh-capabilities.py`. Do not hand-edit.*")
+    out.append(f"*Auto-generated on {today} from `@yoda-tool` manifests in `bin/*` and the broker registry "
+               "(`broker/auth-hosts.json`, `broker/services.policy.json`). Re-runs on every startup. Do not hand-edit.*")
     out.append("")
-    out.append("This is the **source of truth** for what Yoda can do right now. If a service is listed here, you have the credentials and you should use them when relevant. If a service is NOT listed here, you do not have access — say so honestly.")
+    out.append("This lists what you can do right now. Service API keys are held by the **broker**, not by you — "
+               "you reach every external API through `broker call` (see the Services section). For the live, "
+               "authoritative list at any moment, run `broker manifest`.")
     out.append("")
-    out.append("## Built-in (no env var needed)")
+    out.append("## Built-in (always available)")
     out.append("")
-    out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep** — full local FS, HTTP, and native web search via the standard tool list")
-    out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — for parallel work and context-protected research")
-    out.append("- ✅ **File-based memory** — `MEMORY.md` is auto-loaded each tick; topic files in `memory/` are searched on demand via `memory-search.sh`")
-    out.append("- ✅ **Slack I/O** — via `./slack-tools.sh` (handled automatically by the loop wrapper for interactive replies)")
-    out.append("- ✅ **Live status streaming** — `claude --output-format stream-json` piped through `lib/stream-translator.js` updates the placeholder in real time")
-    out.append("- ✅ **SSH to your-server** — via `ssh -F .ssh/config your-server`")
-    out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `maps`, `street-view`, `script`). Use for JS-rendered pages, Google Maps address verification, and any flow needing real DOM rendering. Screenshots are saved to `/tmp/yoda-*.png` and you can `Read` them to visually analyse the image.")
-    out.append("- ❌ **No native MCP servers** (browser, slack, hubspot plugins) — replicate via raw HTTP curls or `./bin/browser-tools.sh`")
-    out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — use OpenAI/other APIs via curl when needed.")
+    out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep** — full local FS, HTTP, native web search")
+    out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — parallel work, context-protected research")
+    out.append("- ✅ **File-based memory** — `MEMORY.md` auto-loaded each tick; `memory/` searched on demand via `memory-search.sh`")
+    out.append("- ✅ **Slack** — the wrapper handles your interactive replies; for cron/other contexts use `./bin/slack-tools.sh` (routes through the broker)")
+    out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `script`). Screenshots save to `/tmp/`; `Read` them to view.")
+    out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`")
+    out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — call the relevant API through the broker when needed")
     out.append("")
     primary = os.environ.get("YODA_CLAUDE_MODEL") or "claude-sonnet-4-6 (Claude Code default)"
     fallbacks_csv = os.environ.get("YODA_CLAUDE_FALLBACK_MODELS") or "claude-haiku-4-5"
@@ -274,54 +290,47 @@ def main() -> int:
     out.append("## Model fallback chain")
     out.append("")
     out.append(f"- **Primary:** `{primary}`")
-    if fallbacks:
-        out.append(f"- **Fallback:** `{' → '.join(fallbacks)}` (auto-tried by the dispatcher when the primary returns 529 / `overloaded_error`)")
-    else:
-        out.append("- **Fallback:** none configured")
-    out.append("")
-    out.append("**This is your real model fallback chain.** If a user asks what you'll fall back to, this is the answer — NOT Groq. Groq is only available as a direct curl target via `$GROQ_API_KEY` for completion calls when you explicitly want it. Yoda's automatic fallback is whatever is in `YODA_CLAUDE_FALLBACK_MODELS`.")
+    out.append(f"- **Fallback:** `{' → '.join(fallbacks)}` (auto-tried on 529 / `overloaded_error`)" if fallbacks
+               else "- **Fallback:** none configured")
     out.append("")
 
-    out.extend(render_tools_section(tools, present))
+    out.extend(render_tools_section(tools, set()))
 
-    out.append("## Services by env var")
+    out.append("## Services (via the broker)")
     out.append("")
-    out.append("Raw HTTP APIs available via curl. Auth headers and base URLs documented here so you don't have to grep TOOLS.md.")
+    out.append("Reach these through the broker — it injects the credential host-side; you never see the key. "
+               "You have NO API keys in your environment, so a raw `curl -H \"Authorization: Bearer $KEY\"` will not work.")
     out.append("")
-    for cat in ["AI", "Google", "Business", "CRM", "Money", "Infra", "Content", "Commerce", "Personal", "Slack", "Auth"]:
-        if cat not in groups:
-            continue
-        out.append(f"## {cat}")
+    if hosts:
+        out.append("**Hosts** — `broker call http_call '{\"host\":\"<host>\",\"path\":\"<path>\",\"method\":\"GET\",\"query\":\"k=v\"}'`")
         out.append("")
-        out.append("| Env var | Service | Base URL | Auth | Notes |")
-        out.append("|---|---|---|---|---|")
-        for k, name, base, auth, notes in sorted(groups[cat]):
-            base_md = base.replace("|", "\\|") if base else ""
-            auth_md = auth.replace("|", "\\|") if auth else ""
-            notes_md = notes.replace("|", "\\|") if notes else ""
-            out.append(f"| `${k}` | {name} | {base_md} | {auth_md} | {notes_md} |")
+        out.append("| Host | Auth (handled for you) |")
+        out.append("|---|---|")
+        for host, scheme, _vk in hosts:
+            out.append(f"| `{host}` | {scheme} |")
         out.append("")
-
-    if uncategorised:
-        out.append("## Uncategorised env vars")
+    if services:
+        out.append("**Named services** — `broker call <name> '{...}'`")
         out.append("")
-        out.append("These keys are present in `.env` but not in `refresh-capabilities.py`'s `SERVICE_MAP`. They may still be usable — check `TOOLS.md` before claiming they don't work.")
+        for name, desc in services:
+            out.append(f"- `{name}` — {desc}" if desc else f"- `{name}`")
         out.append("")
-        for k in uncategorised:
-            out.append(f"- `${k}`")
+    if not hosts and not services:
+        out.append("_No services configured yet._ The operator adds them on the server with `./quickstart.sh addkey` "
+                   "(or by editing `broker/auth-hosts.json` + `.env`). Until then, use the built-in tools above. "
+                   "If a user asks for a service that isn't listed, tell them to run `/help` in Slack — it explains how to add one.")
         out.append("")
 
     out.append("---")
     out.append("")
     out.append("## Honesty rules")
     out.append("")
-    out.append("- **If a tool or service is listed here, you have it.** Don't claim you can't do something that's in this file.")
-    out.append("- **If a tool/service is NOT listed here, you don't have it.** Don't pretend you do. Say so honestly and offer the closest alternative.")
-    out.append("- **If you discover a new env var or want to register a new tool**, add a `@yoda-tool` manifest block to the script in `workspace/bin/` (or add the env key to `SERVICE_MAP` in `refresh-capabilities.py`). The yoda startup will regenerate this file.")
-    out.append("- **If a service IS listed but actually fails**, the credentials may be stale or the upstream may be down. Report the actual error rather than claiming you don't have access.")
+    out.append("- **If a tool or service is listed here, you have it.** Use it; don't claim you can't.")
+    out.append("- **If a service is NOT listed, you don't have it yet.** Say so, and tell the user they can add it by running `/help` in Slack (which points to `./quickstart.sh addkey` on the server). Do NOT tell them to edit `.env`, `SERVICE_MAP`, or run `systemctl` — that is not how this works.")
+    out.append("- **If a listed service fails**, the key may be stale or upstream down. Report the actual error rather than claiming no access.")
 
     open(OUT, "w").write("\n".join(out) + "\n")
-    print(f"wrote {OUT} — {len(tools)} tools + {sum(len(g) for g in groups.values())} known services + {len(uncategorised)} uncategorised")
+    print(f"wrote {OUT} — {len(tools)} tools + {len(hosts)} broker hosts + {len(services)} broker services")
     return 0
 
 
