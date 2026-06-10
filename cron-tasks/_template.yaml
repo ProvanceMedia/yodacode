@@ -43,7 +43,7 @@ timeout: 600
 # Optional auto-delivery. If omitted, output just goes to the log.
 # deliver:
 #   surface: slack
-#   channel: C0AS4NZNH16
+#   channel: C0123456789
 #   # Optional format template. {{output}}, {{name}}, {{today}}, ${ENV_VAR} all work.
 #   # If omitted, raw output is posted.
 #   format: |

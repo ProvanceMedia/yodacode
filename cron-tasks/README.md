@@ -36,7 +36,7 @@ Optional:
   ```yaml
   deliver:
     surface: slack
-    channel: C0ALZ3KBN5A
+    channel: C0123456789
     format: "*{{name}}* — {{today}}\n\n{{output}}"  # optional
   ```
 - `reflect` — opt-in skill + memory reflectors. Honours `YODA_SKILL_REFLECTOR_ENABLED` / `YODA_MEMORY_REFLECTOR_ENABLED`. Librarian tasks (`memory-consolidate`, `skill-review`) auto-skip reflection to avoid recursion.
