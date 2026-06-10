@@ -55,12 +55,17 @@ not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
 ```bash
 git clone https://github.com/ProvanceMedia/yodacode.git
 cd yodacode
-cp .env.example .env        # add your Slack tokens + Claude OAuth token + any API keys
-docker compose up -d        # broker + agent come up de-rooted
+./quickstart.sh             # installs Docker if missing, creates .env, starts the stack
 ```
 
-That's the whole install — Docker bakes node + Claude Code into the image, so there's nothing to
-provision on the host and it behaves identically on any machine. Edit `.env`, add hosts to
+`quickstart.sh` installs Docker (via get.docker.com) when it's not already present, creates
+`.env` from the example on first run and tells you which tokens to fill in, then builds and
+starts the de-rooted broker + agent. Re-run it after editing `.env`. (Already have Docker and
+a filled `.env`? `docker compose up -d` does the same thing.)
+
+Docker bakes node + Claude Code into the image, so there's nothing else to provision on the
+host and it behaves identically on any machine. Give the build ~1 GB of RAM — on a 512 MB VPS
+add swap first or the image build can stall. Edit `.env`, add hosts to
 `workspace/broker/auth-hosts.json`, and `docker compose restart`. Your workspace (memory, skills,
 cron definitions) is bind-mounted, so you can read and edit it on the host; set `PUID`/`PGID` in
 `.env` to your host user so those files stay owned by you.
