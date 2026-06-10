@@ -21,7 +21,7 @@ broker manifest        # list every host/service currently configured
 ## Adding a new service
 
 You can't add one yourself — the secret has to be entered on the server, not in chat.
-Tell the user to either run `/help` in Slack (it explains the steps) or, on the server:
+Tell the user to either run `/yodacode` in Slack (it explains the steps) or, on the server:
 
 ```bash
 ./quickstart.sh addkey

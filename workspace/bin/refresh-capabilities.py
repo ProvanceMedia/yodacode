@@ -318,7 +318,7 @@ def main() -> int:
     if not hosts and not services:
         out.append("_No services configured yet._ The operator adds them on the server with `./quickstart.sh addkey` "
                    "(or by editing `broker/auth-hosts.json` + `.env`). Until then, use the built-in tools above. "
-                   "If a user asks for a service that isn't listed, tell them to run `/help` in Slack — it explains how to add one.")
+                   "If a user asks for a service that isn't listed, tell them to run `/yodacode` in Slack — it explains how to add one.")
         out.append("")
 
     out.append("---")
@@ -326,7 +326,7 @@ def main() -> int:
     out.append("## Honesty rules")
     out.append("")
     out.append("- **If a tool or service is listed here, you have it.** Use it; don't claim you can't.")
-    out.append("- **If a service is NOT listed, you don't have it yet.** Say so, and tell the user they can add it by running `/help` in Slack (which points to `./quickstart.sh addkey` on the server). Do NOT tell them to edit `.env`, `SERVICE_MAP`, or run `systemctl` — that is not how this works.")
+    out.append("- **If a service is NOT listed, you don't have it yet.** Say so, and tell the user they can add it by running `/yodacode` in Slack (which points to `./quickstart.sh addkey` on the server). Do NOT tell them to edit `.env`, `SERVICE_MAP`, or run `systemctl` — that is not how this works.")
     out.append("- **If a listed service fails**, the key may be stale or upstream down. Report the actual error rather than claiming no access.")
 
     open(OUT, "w").write("\n".join(out) + "\n")

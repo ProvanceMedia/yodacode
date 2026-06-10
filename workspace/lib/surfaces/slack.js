@@ -208,11 +208,12 @@ const slackSurface = {
     sm.on('slash_commands', async ({ body, ack }) => {
       try { await ack(); } catch (_) {}
       try {
-        // /help — a self-contained how-to, posted privately (ephemeral) to the
-        // caller. Covers what a non-technical operator needs: adding API keys
-        // (done on the server, never pasted into chat), model picking, and
-        // day-to-day management.
-        if (body.command === '/help') {
+        // /yodacode — a self-contained how-to, posted privately (ephemeral) to the
+        // caller. Covers what a non-technical operator needs: adding API keys (done
+        // on the server, never pasted into chat), model picking, and day-to-day
+        // management. NB: /help is a built-in Slack command and is intercepted by
+        // Slack before it reaches the app, so we use /yodacode.
+        if (body.command === '/yodacode' || body.command === '/help') {
           const name = process.env.BOT_NAME || 'YodaCode';
           const help = [
             `*${name} — quick help*`,

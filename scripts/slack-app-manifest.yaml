@@ -24,8 +24,8 @@ features:
       description: Ask YodaCode using Claude Haiku (thread-sticky)
       usage_hint: your question
       should_escape: false
-    - command: /help
-      description: How to manage and configure YodaCode
+    - command: /yodacode
+      description: Help & setup — how to manage and configure your assistant
       should_escape: false
 
 oauth_config:

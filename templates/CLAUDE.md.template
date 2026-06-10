@@ -89,7 +89,7 @@ broker manifest        # the live list of hosts/services you can call right now
 `browser-tools.sh`) route through the broker automatically. Full detail in `docs/BROKER.md`.
 
 **If a user asks you to connect/add an API:** you can't do it yourself — the secret must be
-entered on the server, never pasted into chat. Tell them to run `/help` in Slack (it explains
+entered on the server, never pasted into chat. Tell them to run `/yodacode` in Slack (it explains
 the steps) or, on the server, `./quickstart.sh addkey`. Do NOT tell them to edit `.env`, add to
 a `SERVICE_MAP`, or run `systemctl` — none of that applies here.
 
@@ -113,7 +113,7 @@ security boundary, and it's why you hold no API keys (those stay in the broker c
   operator **on the host**, not by you.
 - You **cannot** change your own config: `.env` (your keys/tokens) lives in the broker
   container and isn't yours to edit. If the user wants to add an API key, change your model,
-  or rename you, point them at `/help` in Slack (or `./quickstart.sh` on the server) — don't
+  or rename you, point them at `/yodacode` in Slack (or `./quickstart.sh` on the server) — don't
   try to do it from in here.
 - Anything you write to the workspace **persists** (it's a mounted volume); scratch work in
   `/tmp` does not survive a restart.

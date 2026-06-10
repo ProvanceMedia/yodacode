@@ -34,8 +34,8 @@
                 "should_escape": false
             },
             {
-                "command": "/help",
-                "description": "How to manage and configure YodaCode",
+                "command": "/yodacode",
+                "description": "Help & setup — how to manage and configure your assistant",
                 "usage_hint": "",
                 "should_escape": false
             }
