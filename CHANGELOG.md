@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.3.4 — 2026-06-10
+
+- docs: rewrite README and cron docs for the container model
+
 ## v1.3.3 — 2026-06-10
 
 - fix(addkey): edit auth-hosts.json with python3, not node
