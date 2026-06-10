@@ -54,7 +54,15 @@ const LOG_DIR = path.join(PROJECT_ROOT, 'logs');
 
 function loadEnvFile(envPath) {
   if (!existsSync(envPath)) return;
-  for (const raw of readFileSync(envPath, 'utf8').split('\n')) {
+  // In a container the agent is non-root and may not be able to read a root-only
+  // .env — fine: its config comes from the container env, keys from the broker.
+  let contents;
+  try {
+    contents = readFileSync(envPath, 'utf8');
+  } catch {
+    return;
+  }
+  for (const raw of contents.split('\n')) {
     const line = raw.trim();
     if (!line || line.startsWith('#') || !line.includes('=')) continue;
     const eq = line.indexOf('=');
@@ -260,7 +268,12 @@ function main() {
   let spawnArgs = args;
   let spawnEnv = { ...process.env, ANTHROPIC_API_KEY: '' };
 
-  if (def.deroot) {
+  // Inside a container the boundary is the container itself (unprivileged user, no
+  // service keys) and there is no separate agent user to runuser into — honour
+  // `deroot:` only on a bare-metal host install.
+  const inContainer = process.env.YODA_IN_CONTAINER === '1' || existsSync('/.dockerenv');
+
+  if (def.deroot && !inContainer) {
     const agentEnv = buildDerootEnv();
     const wrapped = derootWrap(claudeBin, args, agentEnv);
     spawnCmd = wrapped.cmd;

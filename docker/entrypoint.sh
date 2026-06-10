@@ -37,12 +37,17 @@ if [[ "$(id -u)" == "0" ]]; then
   # files stay readable; only the writable areas are chowned. node_modules is a
   # separate volume — don't recurse into it.
   mkdir -p /app/logs /app/workspace/state /app/workspace/memory \
-           /app/workspace/.memory-backups /app/workspace/skills /home/yoda
-  chown yoda:yodacode /app/workspace 2>/dev/null || true
-  chmod g+rwxs /app/workspace 2>/dev/null || true
-  chown -R yoda:yodacode /app/logs /app/workspace/state /app/workspace/memory \
-        /app/workspace/.memory-backups /app/workspace/skills /home/yoda 2>/dev/null || true
-  [[ -f /app/workspace/MEMORY.md ]] && chown yoda:yodacode /app/workspace/MEMORY.md 2>/dev/null || true
+           /app/workspace/.memory-backups /app/workspace/skills /home/yoda 2>/dev/null || true
+  # Skip the chown when the workspace is already group-shared with the agent's gid
+  # (e.g. an existing host deployment mounted in) — flipping ownership there is wrong.
+  if [[ "${YODA_NO_CHOWN:-0}" != "1" ]]; then
+    chown yoda:yodacode /app/workspace 2>/dev/null || true
+    chmod g+rwxs /app/workspace 2>/dev/null || true
+    chown -R yoda:yodacode /app/logs /app/workspace/state /app/workspace/memory \
+          /app/workspace/.memory-backups /app/workspace/skills 2>/dev/null || true
+    [[ -f /app/workspace/MEMORY.md ]] && chown yoda:yodacode /app/workspace/MEMORY.md 2>/dev/null || true
+  fi
+  chown yoda:yodacode /home/yoda 2>/dev/null || true
   exec gosu yoda "$0" "$@"
 fi
 

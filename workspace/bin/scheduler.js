@@ -34,7 +34,8 @@ const DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
 function dowField(tok) {
   if (!tok) return '*';
-  const m = tok.toLowerCase().match(/^([a-z]{3})(?:\.\.([a-z]{3}))?$/);
+  // weekday, or a range with either systemd ".." or a plain "-" (Mon..Fri / Mon-Fri)
+  const m = tok.toLowerCase().match(/^([a-z]{3})(?:(?:\.\.|-)([a-z]{3}))?$/);
   if (!m) return null;
   const a = DOW[m[1]];
   if (a == null) return null;
@@ -72,9 +73,11 @@ export function onCalendarToCron(expr) {
   let datePart = null;
   let timePart = null;
   for (const tok of tokens) {
-    if (/^[A-Za-z]{3}(\.\.[A-Za-z]{3})?$/.test(tok)) { dow = dowField(tok) ?? dow; }
-    else if (tok.includes('-')) { datePart = tok; } // *-*-* date (we only support "every day")
+    // Weekday (Mon / Mon..Fri / Mon-Fri) — must be tested before the date branch,
+    // since a "-" range would otherwise look like a date token.
+    if (/^[A-Za-z]{3}(?:(?:\.\.|-)[A-Za-z]{3})?$/.test(tok)) { dow = dowField(tok) ?? dow; }
     else if (tok.includes(':')) { timePart = tok; }
+    else if (tok.includes('-')) { datePart = tok; } // *-*-* date (only "every day" supported)
   }
   if (!timePart) return null;
   if (datePart && !/^\*-\*-\*$/.test(datePart)) return null; // specific dates unsupported
