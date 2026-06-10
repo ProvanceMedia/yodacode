@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.3.3 — 2026-06-10
+
+- fix(addkey): edit auth-hosts.json with python3, not node
+
 ## v1.3.2 — 2026-06-10
 
 - fix: rename /help slash command to /yodacode (avoids Slack's built-in /help)
