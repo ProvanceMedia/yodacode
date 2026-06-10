@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.2.1 — 2026-06-10
+
+- fix(quickstart): show the JSON manifest in the Slack step
+
 ## v1.2.0 — 2026-06-10
 
 - feat(quickstart): fully guided installer
