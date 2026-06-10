@@ -2,53 +2,45 @@
 
 ## The problem it solves
 
-By default, YodaCode loads your API keys into the agent's environment and the agent calls
-services with `curl -H "Authorization: Bearer $KEY"`. That's simple and fine for a hobby bot —
-but it means the LLM-driven process **holds every secret you've given it**. Anything that can
-steer the agent (a prompt injection in an email it reads, a malicious web page, a confused
-instruction) is one `cat .env` or `env` away from your keys.
+An LLM-driven agent that holds your API keys is one prompt injection away from leaking them. A
+malicious email it reads, a poisoned web page, a confused instruction — any of these can turn
+into `cat .env` or `env`. You cannot fix this with prompting, because the rule ("never reveal
+secrets") lives in the same place the attacker's text lands. The only durable fix is to make the
+secrets **unreachable** — put them in a different security context from the agent.
 
-You cannot fix this with prompting. A rule like "never reveal secrets" lives in the same place
-the attacker's text lands. The only durable fix is to make the secrets **unreachable** — put
-them in a different security context from the agent.
+YodaCode does that by default.
 
-## The model
+## The model (container, default)
+
+`docker compose up` brings up two containers:
 
 ```
-  ┌─────────────────────────┐         ┌──────────────────────────────┐
-  │  agent  (yodacode-agent) │  socket │  broker  (root)              │
-  │  - no API keys in env    │ ──────► │  - holds the vault (.env)    │
-  │  - can't read .env/.ssh  │ ◄────── │  - injects creds, calls API  │
-  │  - unprivileged user     │  result │  - returns only the response │
-  └─────────────────────────┘         └──────────────────────────────┘
+   ┌───────────────────────────┐        ┌──────────────────────────────┐
+   │  agent container          │ socket │  broker container            │
+   │  - the bot (yoda.js) +    │ ─────► │  - the ONLY place keys live  │
+   │    in-container scheduler │ ◄───── │  - reads .env, holds vault   │
+   │  - unprivileged user      │ result │  - injects creds, calls API  │
+   │  - NO service API keys    │        │  - returns only the response │
+   └───────────────────────────┘        └──────────────────────────────┘
 ```
 
-- The **agent** runs as an unprivileged user (`yodacode-agent`). Its environment is scrubbed to
-  a non-secret allowlist; the secret files are `root:root 0600`, so it cannot read them. This is
-  an OS boundary, not a prompt rule.
-- The **broker** (`workspace/broker/brokerd.js`) runs as root, holds the secrets in memory, and
-  exposes a few tools over a Unix socket. It performs the authenticated call and hands back just
-  the response. The key never crosses the socket.
-- The agent calls services with `broker call http_call '{"host":"…","path":"…"}'` instead of
-  curl. Your existing helper scripts (`slack-tools.sh`, etc.) route through the broker
-  automatically when no token is present, so most prompts/docs need no change.
+- The **broker** container mounts `.env` read-only and holds the vault. It performs every
+  authenticated call and returns just the response. Your service API keys (Stripe, GitHub,
+  HubSpot, …) exist **only** here.
+- The **agent** container runs the bot as an unprivileged user. Its environment contains only
+  what the supervisor itself needs — the Slack tokens (for Socket Mode) and the model's own
+  Claude OAuth token — and **none** of your service API keys. To call a service it asks the
+  broker: `broker call http_call '{"host":"api.stripe.com","path":"v1/charges"}'`.
+- The wall is the container boundary plus the key split, both enforced by the OS. A compromised
+  agent can't read keys it doesn't have and can't reach the file they live in.
 
-This is the same pattern used by container-isolating agents (a host vault + an injecting proxy),
-implemented for a plain host process: a separate user instead of a container.
+Your `bin/` helper scripts (`slack-tools.sh`, etc.) route through the broker automatically, so
+most prompts and docs need no change.
 
-## Enabling it
-
-```bash
-sudo scripts/setup-broker.sh      # creates the user, locks secrets, starts the broker
-# add your hosts:
-cp workspace/broker/auth-hosts.example.json workspace/broker/auth-hosts.json
-$EDITOR workspace/broker/auth-hosts.json
-sudo systemctl restart yodacode-brokerd   # reload after editing hosts
-sudo systemctl restart yodacode           # agent now spawns de-rooted
-```
-
-`setup-broker.sh` sets `YODA_DEROOT=1` in `.env`. To roll back, set it to `0` and restart — the
-agent runs exactly as it did before, with keys in its env. Nothing is destroyed.
+> Honest scope: the agent container does hold the **Slack** bot token and the **Claude OAuth**
+> token, because the supervisor needs them to run. The high-value service keys (money, CRM,
+> cloud, data) are what the broker removes from the agent entirely. Hiding the Slack token too
+> is possible with the bare-metal de-root path below (separate uid).
 
 ## Configuring services
 
@@ -61,9 +53,10 @@ agent runs exactly as it did before, with keys in its env. Nothing is destroyed.
 }
 ```
 
-The secret named by `vaultKey` must exist in `.env` (or `$YODA_VAULT_FILE`). Schemes:
-`bearer`, `header`, `basic`, `query`, `oauth2`. For anything more involved (two-secret Basic
-auth, fixed paths) use `services.policy.json` — see the `.example` files in `workspace/broker/`.
+The secret named by `vaultKey` must exist in `.env`. Schemes: `bearer`, `header`, `basic`,
+`query`, `oauth2`. After editing, `docker compose restart broker`. For richer cases (two-secret
+Basic auth, fixed paths) use `services.policy.json` — see the `.example` files in
+`workspace/broker/`.
 
 ## Built-in tools
 
@@ -77,16 +70,18 @@ auth, fixed paths) use `services.policy.json` — see the `.example` files in `w
 
 ## What stays exposed (be honest)
 
-- `CLAUDE_CODE_OAUTH_TOKEN` is in the agent's env — it's the model's own auth and must travel
-  with the agent. It's short-lived and not a service credential.
+- `CLAUDE_CODE_OAUTH_TOKEN` and the Slack tokens are in the agent container (the supervisor needs
+  them). The model's OAuth token is short-lived and not a service credential.
 - The broker is an authorization choke point, not a firewall: the agent can still call any host
   you've configured. Configure only what it needs.
-- Secrets are plaintext in the broker's memory and in `.env` at `0600` (encrypt-at-rest is a
-  later hardening, out of scope here).
+- Secrets are plaintext in the broker's memory and in `.env` at rest (encrypt-at-rest is a later
+  hardening, out of scope here).
 
-## Cron jobs
+## Bare-metal alternative (no Docker)
 
-Set `deroot: true` in a cron's YAML to run that job de-rooted too. Anything in the job's prompt
-that used `curl -H "...$KEY"` should become a `broker call`. Jobs that need a host-side CLI with
-its own credential store (e.g. a vendor CLI with a keyring) can keep a small root-side `pre_hook`
-that prepares data for the de-rooted agent to consume.
+If you run YodaCode as a host systemd install instead of containers, `sudo scripts/setup-broker.sh`
+sets up the same isolation without Docker: it creates an unprivileged `yodacode-agent` user, locks
+the secret files root-only, installs a `yodacode-brokerd` systemd service, and sets `YODA_DEROOT=1`
+so the agent (and crons) spawn as that user with a scrubbed environment. This path additionally
+hides the Slack token from the spawned agent (it runs as a separate uid). Roll back with
+`YODA_DEROOT=0` and a restart. The mechanism lives in `workspace/lib/deroot.js`.

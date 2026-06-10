@@ -36,37 +36,50 @@ You *can* manually edit files, write cron scripts, and configure integrations, b
 
 - *"Remember that I prefer bullet points over paragraphs"* appends to its own MEMORY.md under the right section.
 - *"Change your name to Jarvis"* edits IDENTITY.md and CLAUDE.md.
-- *"Write a cron that checks my inbox every 30 minutes"* writes the script in `cron-tasks/`, then tells you the one `systemctl` command to enable it.
+- *"Write a cron that checks my inbox every 30 minutes"* writes the YAML in `cron-tasks/`, and the in-container scheduler picks it up automatically — no command to run.
 - *"Add HubSpot integration"* tells you what to add to `.env`, updates `refresh-capabilities.py` with the new service, and starts using it once you restart.
 
 With the default config the agent has full host access, so it can carry these out end to end. With the sandbox on it writes what it can and tells you the one protected step (see [Sandbox](#sandbox)). Either way: the agent builds everything, you flip the switch.
 
-## Quickstart
+## Security model: de-rooted by default
+
+YodaCode runs **de-rooted out of the box**. Your API keys never enter the agent. They live
+in a separate **broker** container that holds the vault and makes the authenticated calls; the
+**agent** container — the bot itself — runs as an unprivileged user with no service keys in its
+environment and reaches every API through the broker. So a prompt injection or a confused agent
+has nothing to leak: the keys are on the other side of a container boundary, enforced by the OS,
+not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
+
+## Quickstart (Docker)
 
 ```bash
 git clone https://github.com/ProvanceMedia/yodacode.git
 cd yodacode
-./install.sh
+cp .env.example .env        # add your Slack tokens + Claude OAuth token + any API keys
+docker compose up -d        # broker + agent come up de-rooted
 ```
 
-`install.sh` installs Node 22 LTS into `~/.yodacode/node/` (no sudo needed) if a suitable Node isn't already on PATH, then runs the setup wizard. It also drops a `yodacode` command into `~/.local/bin/` so you can manage the install from anywhere afterwards:
+That's the whole install — Docker bakes node + Claude Code into the image, so there's nothing to
+provision on the host and it behaves identically on any machine. Edit `.env`, add hosts to
+`workspace/broker/auth-hosts.json`, and `docker compose restart`. Your workspace (memory, skills,
+cron definitions) is bind-mounted, so you can read and edit it on the host; set `PUID`/`PGID` in
+`.env` to your host user so those files stay owned by you.
 
 ```bash
-yodacode                    # full wizard
-yodacode setup <step>       # re-run one step (auth, slack, persona, dashboard, systemd)
-yodacode update             # git pull, install new deps, restart the service
-yodacode status             # show what's currently configured
-yodacode help               # list all commands
+docker compose logs -f agent      # watch the bot
+docker compose exec agent bash    # poke around inside
+docker compose restart            # after editing .env or configs
 ```
 
-The wizard walks you through:
-1. Claude Code authentication (paste your `setup-token`)
-2. Slack app creation (one-click via manifest)
-3. Persona setup (name your bot, customise its voice)
-4. Sandbox dependency installation (bubblewrap, socat)
-5. systemd service installation
+Crons run **inside the agent container** on their own timers (no host systemd) — drop a YAML in
+`cron-tasks/` and it's picked up automatically. 3 minutes after `up`, DM your bot in Slack.
 
-3 minutes later, DM your bot in Slack.
+### Bare-metal alternative (no Docker)
+
+If you can't run Docker, `./install.sh` still does a host install (Node into `~/.yodacode/node/`,
+a setup wizard, a systemd service). For de-rooting on bare metal, run `sudo scripts/setup-broker.sh`
+after install. The `yodacode` CLI (`yodacode update|status|help`) manages a host install. The
+container path above is the recommended one.
 
 ## Architecture
 
@@ -137,24 +150,6 @@ If you want the sandbox, set `YODA_SANDBOX=auto` in `.env`. When enabled:
 YODA_SANDBOX=off      # default, full host access
 YODA_SANDBOX=auto     # bubblewrap sandbox + auto-allow (restricts writes + network)
 ```
-
-## Credential isolation (broker)
-
-By default your API keys are loaded into the agent's environment and it calls services with
-`curl`. That means the LLM-driven process holds every secret — a prompt injection is one
-`cat .env` away from them.
-
-Opt-in **broker mode** removes that exposure. A root-owned daemon holds the secrets and makes
-the authenticated calls; the agent runs as an unprivileged user with no keys in its environment
-and no read access to `.env`. It's an OS-level boundary, not a prompt rule.
-
-```bash
-sudo scripts/setup-broker.sh   # creates the agent user, locks secrets, starts the broker
-sudo systemctl restart yodacode
-```
-
-Roll back any time by setting `YODA_DEROOT=0` in `.env` and restarting. See
-[docs/BROKER.md](docs/BROKER.md).
 
 ## Configuration
 

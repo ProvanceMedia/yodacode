@@ -12,9 +12,13 @@ prompt: |
 # Optional
 description: One-line human description (shown in skill output, not used at runtime).
 
-# Schedule. Used by gen-timers.sh to generate the systemd .timer file —
-# NOT read by the runner at runtime. systemd OnCalendar syntax.
-on_calendar: "*-*-* 09:00 Europe/London"
+# Schedule. The in-container scheduler (workspace/bin/scheduler.js) reads this
+# and fires the task on time — no host systemd. Prefer `schedule:` (standard
+# 5-field cron); `on_calendar` (systemd syntax) is also accepted for common
+# forms. Set `disabled: true` to keep a task but stop it running.
+schedule: "0 9 * * *"          # 09:00 daily  (min hour dom mon dow)
+# on_calendar: "*-*-* 09:00 Europe/London"   # alternative: systemd syntax
+# disabled: true
 
 # Model. REQUIRED — every cron yaml must state its model explicitly so you
 # can see at a glance what it runs on. No implicit defaults.

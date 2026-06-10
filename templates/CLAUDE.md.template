@@ -78,12 +78,12 @@ workspace/                        ← you are here (claude -p runs from this dir
 
 All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any API call. Check `CAPABILITIES.md` for the full list.
 
-> **Running in broker mode?** If this install enables credential isolation (`YODA_DEROOT=1`,
-> see `docs/BROKER.md`), you have NO API keys in your environment and `.env` is not readable by
-> you. Don't curl with `$KEY` — call services through the broker instead:
+> **Credential isolation (broker).** YodaCode runs de-rooted: your service API keys are NOT in
+> your environment — they live in a separate broker. If a service key you expect (`$STRIPE_API_KEY`,
+> etc.) is empty, that's by design. Don't curl with `$KEY` — call services through the broker:
 > `broker call http_call '{"host":"api.example.com","path":"v1/thing"}'` (run `broker manifest`
-> to see configured hosts/tools). The bot token, SSH key, etc. are all reached the same way; your
-> `bin/` helper scripts route through the broker automatically.
+> to see configured hosts/tools). SSH and extra Slack methods are reached the same way; your `bin/`
+> helper scripts route through the broker automatically. See `docs/BROKER.md`.
 
 ### Memory search
 
