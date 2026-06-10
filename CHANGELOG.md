@@ -3,6 +3,12 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.1.0 — 2026-06-10
+
+- fix: scheduler weekday ranges, container env handling
+- feat: quickstart.sh — zero-to-running on a fresh server
+- fix: structured reply tags so model deliberation can't reach the chat
+
 ## v1.0.0 — 2026-06-10
 
 - docs: container-first quickstart and broker model
