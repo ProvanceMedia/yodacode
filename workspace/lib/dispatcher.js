@@ -18,6 +18,7 @@ import { queue } from './queue.js';
 import { runClaude } from './claude-runner.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { parseFinalReply } from './reply-policy.js';
 import { maybeReflect } from './skill-reflector.js';
 import { maybeReflectMemory } from './memory-reflector.js';
 
@@ -124,7 +125,14 @@ async function processReply(event, surface) {
       onStatus: (text) => (surface.setStatus
         ? surface.setStatus(placeholder, text)
         : surface.updateMessage(placeholder, text)),
-      onFinal: (text) => surface.updateMessage(placeholder, text),
+      onFinal: async (text) => {
+        // Post ONLY the <say>-tagged part of the model's final output; everything
+        // else is scratchpad (see parseFinalReply). <silent/> posts nothing.
+        const parsed = parseFinalReply(text);
+        if (parsed.kind === 'text') return surface.updateMessage(placeholder, parsed.text);
+        if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
+        return surface.updateMessage(placeholder, '·');
+      },
     });
     if (result.ok) break;
     // Only retry on transient throttle. Stops/timeouts/other errors → fail.
@@ -181,12 +189,13 @@ async function processReply(event, surface) {
   // after a successful tick. Skills capture reusable PROCEDURES, memory
   // captures durable FACTS — they look at the same transcript but produce
   // different artefacts. Both opt-in via env vars. Never blocks the response.
-  if (result.ok && result.finalText) {
+  const parsedFinal = result.ok && result.finalText ? parseFinalReply(result.finalText) : null;
+  if (parsedFinal && parsedFinal.kind === 'text') {
     const reflectionArgs = {
       surface: event.surface,
       conversationId: event.conversationId,
       userText: event.text || '',
-      replyText: result.finalText,
+      replyText: parsedFinal.text,
       tracker: result.tracker,
       durationMs: Date.now() - tickStartMs,
     };
@@ -241,9 +250,10 @@ Instructions:
 - Compose a single in-character reply to the marked message, taking the prior messages as context for continuity.
 - Do whatever tool calls you need (curl, bash, browser-tools, subagents, etc.) to gather information.
 - If the user attached files, USE THE Read TOOL on the local paths above to actually look at them. Images, PDFs, text files — Read can handle all of them. Don't refer to attachments without reading them first.
-- Your FINAL message text becomes the user-visible reply. Do NOT call any bin/slack-tools.sh post/update yourself — the wrapper handles that automatically by editing a placeholder.
-- Be concise, in character. No preamble like "Sure, here's...". Just the reply.
-- If there is genuinely nothing to say (e.g. the message wasn't really aimed at you), output the literal text NO_REPLY and nothing else.
+- **Output contract (important):** Think, plan, and decide as much as you like — the user ONLY ever sees the text you put inside \`<say>…</say>\` tags. Everything outside those tags is private scratchpad and is never shown. Wrap just the user-facing reply in \`<say>…</say>\`, e.g. \`<say>hey, what's up?</say>\`. Do NOT call any bin/slack-tools.sh post/update yourself — the wrapper handles delivery.
+- Be concise, in character. No preamble like "Sure, here's...". Put just the reply inside \`<say>\`.
+- If there is genuinely nothing to say (the message wasn't aimed at you, or it's banter between others), emit \`<silent/>\` and nothing else — nothing is posted.
+- Emit exactly ONE \`<say>…</say>\` (or \`<silent/>\`). NEVER put reasoning, your decision process, or a description of the message inside \`<say>\` — only the reply text the user should read. For a greeting, just greet back inside \`<say>\`.
 `;
 }
 

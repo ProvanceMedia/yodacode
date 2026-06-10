@@ -308,6 +308,16 @@ const whatsappSurface = {
     }
   },
 
+  // Remove the placeholder without posting anything (a <silent/> final).
+  async suppressPlaceholder(handle) {
+    if (!sock || !handle) return;
+    try {
+      await sock.sendMessage(handle.jid, { delete: handle.key });
+    } catch (e) {
+      logger.debug('whatsapp: placeholder delete failed', { err: e.message });
+    }
+  },
+
   formatPromptHints() {
     return `Surface formatting hints (WhatsApp):
 - WhatsApp markdown: *bold* (single asterisks), _italic_, ~strike~, \`inline code\`, triple backticks for code blocks

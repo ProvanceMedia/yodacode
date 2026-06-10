@@ -448,6 +448,23 @@ const slackSurface = {
     }
   },
 
+  // Remove the placeholder without posting anything (a <silent/> final).
+  async suppressPlaceholder(handle) {
+    if (!handle || !handle.channel) return;
+    if (handle.shimmer) {
+      try {
+        await web.assistant.threads.setStatus({ channel_id: handle.channel, thread_ts: handle.threadTs, status: '' });
+      } catch (_) {}
+      return;
+    }
+    if (!handle.ts) return;
+    try {
+      await web.chat.delete({ channel: handle.channel, ts: handle.ts });
+    } catch (e) {
+      logger.debug('slack: placeholder delete failed', { err: e.message });
+    }
+  },
+
   formatPromptHints() {
     return `Surface formatting hints (Slack):
 - Use Slack markdown: *bold* (single asterisks), _italic_, ~strike~, \`inline code\`, triple backticks for code blocks
