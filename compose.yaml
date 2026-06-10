@@ -1,0 +1,72 @@
+# YodaCode — de-rooted by default.
+#
+#   cp .env.example .env   # add your keys
+#   docker compose up -d
+#
+# Two services share one image:
+#   broker → the ONLY place your service API keys live. Reads .env, holds the
+#            vault, performs authenticated calls. Never exposed to the agent.
+#   agent  → the bot (Slack listener + cron scheduler). Runs as an unprivileged
+#            user with NO service API keys in its environment; it reaches every
+#            API through the broker. The container boundary + the key split are
+#            the isolation.
+#
+# PUID/PGID map the agent's user to your host user so files it writes (memory,
+# state, logs, cron edits) are owned by you on the host. Defaults to 1000:1000.
+name: yodacode
+
+x-image: &image
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: yodacode:local
+  restart: unless-stopped
+
+services:
+  broker:
+    <<: *image
+    environment:
+      ROLE: broker
+      PGID: ${PGID:-1000}
+      YODA_ENV_FILE: /app/.env
+      YODA_BROKER_SOCK: /run/yodacode-broker/broker.sock
+      YODA_BROKER_GROUP: yodacode
+    volumes:
+      - ./.env:/app/.env:ro                 # the vault — broker only
+      - ./workspace:/app/workspace          # broker/*.js + auth-hosts.json/services.policy.json
+      - yc_node_modules:/app/workspace/node_modules
+      - broker_sock:/run/yodacode-broker
+
+  agent:
+    <<: *image
+    depends_on: [broker]
+    environment:
+      ROLE: agent
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      YODA_BROKER_SOCK: /run/yodacode-broker/broker.sock
+      TZ: ${TZ:-UTC}
+      # Only what the supervisor itself needs — Slack (Socket Mode) + the model's
+      # own OAuth token. Service API keys are deliberately NOT passed here; they
+      # live only in the broker. Add non-secret YODA_* behaviour knobs as needed.
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      SLACK_TEST_CHANNEL_ID: ${SLACK_TEST_CHANNEL_ID:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      YODA_SURFACES: ${YODA_SURFACES:-slack}
+      YODA_CLAUDE_MODEL: ${YODA_CLAUDE_MODEL:-}
+      YODA_DM_AUTHORIZED_USERS: ${YODA_DM_AUTHORIZED_USERS:-}
+      YODA_MENTION_CHANNELS: ${YODA_MENTION_CHANNELS:-}
+      YODA_SKILL_REFLECTOR_ENABLED: ${YODA_SKILL_REFLECTOR_ENABLED:-0}
+      YODA_MEMORY_REFLECTOR_ENABLED: ${YODA_MEMORY_REFLECTOR_ENABLED:-0}
+    volumes:
+      - ./workspace:/app/workspace          # persona, memory, state, skills — host-editable
+      - ./cron-tasks:/app/cron-tasks        # add/edit crons from the host
+      - ./logs:/app/logs
+      - yc_node_modules:/app/workspace/node_modules
+      - broker_sock:/run/yodacode-broker
+
+volumes:
+  yc_node_modules:    # keeps the image's baked workspace deps over the bind mount
+  broker_sock:        # shared unix-socket dir between broker and agent

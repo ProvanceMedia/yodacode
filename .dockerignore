@@ -1,0 +1,12 @@
+.git
+node_modules
+workspace/node_modules
+**/node_modules
+logs/*.log
+.env
+workspace/broker/auth-hosts.json
+workspace/broker/services.policy.json
+workspace/broker/secrets.json
+workspace/.memory-backups
+**/__pycache__
+*.pyc
