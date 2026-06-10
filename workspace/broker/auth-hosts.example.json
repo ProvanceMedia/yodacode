@@ -1,0 +1,42 @@
+{
+  "_comment": "Copy to auth-hosts.json and add your own API hosts. One line per host: the broker injects the matching vault secret by host name so the agent calls `broker call http_call '{\"host\":\"...\",\"path\":\"...\"}'` and never sees a key. Scheme is one of: bearer | header | basic | query | oauth2.",
+
+  "api.github.com": {
+    "scheme": "bearer",
+    "vaultKey": "GITHUB_PAT",
+    "extraHeaders": { "Accept": "application/vnd.github+json", "User-Agent": "yodacode" },
+    "note": "GitHub API — Authorization: Bearer <secret>"
+  },
+  "api.example-bearer.com": {
+    "scheme": "bearer",
+    "vaultKey": "EXAMPLE_API_KEY",
+    "note": "Pattern: Authorization: Bearer <secret>"
+  },
+  "api.example-header.com": {
+    "scheme": "header",
+    "headerName": "X-API-Key",
+    "vaultKey": "EXAMPLE_API_KEY",
+    "note": "Pattern: a custom auth header"
+  },
+  "api.example-basic.com": {
+    "scheme": "basic",
+    "vaultKey": "EXAMPLE_API_KEY",
+    "basicPassword": "",
+    "note": "Pattern: HTTP Basic with the key as username, empty password (set basicPasswordKey to draw the password from another vault key)"
+  },
+  "api.example-query.com": {
+    "scheme": "query",
+    "queryParam": "api_key",
+    "vaultKey": "EXAMPLE_API_KEY",
+    "note": "Pattern: credential as a ?api_key= query param"
+  },
+  "api.example-oauth2.com": {
+    "scheme": "oauth2",
+    "tokenUrl": "https://oauth2.example.com/token",
+    "clientIdKey": "EXAMPLE_OAUTH_CLIENT_ID",
+    "clientSecretKey": "EXAMPLE_OAUTH_CLIENT_SECRET",
+    "refreshTokenKey": "EXAMPLE_OAUTH_REFRESH_TOKEN",
+    "secretHeaders": { "x-extra-token": "EXAMPLE_EXTRA_TOKEN" },
+    "note": "Pattern: refresh-token → short-lived access token, injected as Bearer. secretHeaders adds further secret-valued headers (optional)."
+  }
+}

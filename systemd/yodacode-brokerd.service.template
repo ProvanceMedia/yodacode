@@ -1,0 +1,24 @@
+[Unit]
+Description=YodaCode — credential broker (holds secrets host-side, injects into API calls)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{INSTALL_DIR}}/workspace
+# The broker reads the vault from this file directly. In de-rooted mode this is the
+# ONLY process that gets the secrets — do NOT also export .env to the agent service.
+Environment=YODA_ENV_FILE={{INSTALL_DIR}}/.env
+Environment=YODA_BROKER_SOCK=/run/yodacode-broker.sock
+Environment=YODA_BROKER_GROUP=yodacode
+Environment=PATH={{LOCAL_BIN}}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart={{NODE_BIN}} {{INSTALL_DIR}}/workspace/broker/brokerd.js
+Restart=always
+RestartSec=3
+RuntimeDirectory=yodacode-broker
+StandardOutput=append:{{INSTALL_DIR}}/logs/brokerd.log
+StandardError=append:{{INSTALL_DIR}}/logs/brokerd.log
+
+[Install]
+WantedBy=multi-user.target

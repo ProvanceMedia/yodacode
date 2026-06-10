@@ -30,7 +30,7 @@
 //   effort: xhigh                      # low|medium|high|xhigh|max; omit = model default
 //   deliver:                           # optional auto-delivery
 //     surface: slack
-//     channel: D0AR8C2P814
+//     channel: D0123456789
 //     format: "..."                    # template, supports {{output}} {{name}} {{today}}
 //   reflect: true                      # opt-in skill + memory reflectors
 //   prompt: |
@@ -70,6 +70,41 @@ function loadEnvFile(envPath) {
 function logLine(logPath, line) {
   try { appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`); }
   catch (_) {}
+}
+
+// Optional credential isolation: when a cron sets `deroot: true`, its `claude -p` runs as
+// the unprivileged agent user with a curated, secret-free environment — credentialed calls
+// go through the broker (`broker call …`). Everything else keeps the legacy root+env path.
+// See docs/BROKER.md.
+const DEROOT_USER = process.env.YODA_AGENT_USER || 'yodacode-agent';
+const BROKER_SOCK = process.env.YODA_BROKER_SOCK || '/run/yodacode-broker.sock';
+
+// The ONLY non-secret env the de-rooted agent inherits. CLAUDE_CODE_OAUTH_TOKEN is the
+// model's own auth (not a service secret); every API key is withheld and reached via the
+// broker instead.
+const DEROOT_ENV_ALLOWLIST = [
+  'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'NODE_OPTIONS', 'TERM',
+  'CLAUDE_CODE_OAUTH_TOKEN', 'YODA_CLAUDE_MODEL', 'SLACK_TEST_CHANNEL_ID',
+];
+
+function buildDerootEnv() {
+  const env = {};
+  for (const k of DEROOT_ENV_ALLOWLIST) if (process.env[k] != null) env[k] = process.env[k];
+  env.HOME = `/home/${DEROOT_USER}`;
+  if (!env.PATH) env.PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+  if (!env.LANG) env.LANG = 'C.UTF-8';
+  env.ANTHROPIC_API_KEY = '';
+  env.YODA_BROKER_SOCK = BROKER_SOCK;
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  env.YODA_DEROOTED = '1';
+  return env;
+}
+
+// Wrap a claude argv so it runs as the agent user. `env -i` guarantees NOTHING from the
+// root environment leaks in — only the allowlist passed after it.
+function derootWrap(claudeBin, claudeArgs, env) {
+  const envPairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
+  return { cmd: 'runuser', args: ['-u', DEROOT_USER, '--', 'env', '-i', ...envPairs, claudeBin, ...claudeArgs] };
 }
 
 function substitute(template, ctx) {
@@ -220,9 +255,25 @@ function main() {
   const timeoutMs = (def.timeout || 600) * 1000;
   const claudeBin = process.env.CLAUDE_BIN || 'claude';
 
-  const res = spawnSync(claudeBin, args, {
+  // Default (legacy) spawn: claude with full env minus the API key.
+  let spawnCmd = claudeBin;
+  let spawnArgs = args;
+  let spawnEnv = { ...process.env, ANTHROPIC_API_KEY: '' };
+
+  if (def.deroot) {
+    const agentEnv = buildDerootEnv();
+    const wrapped = derootWrap(claudeBin, args, agentEnv);
+    spawnCmd = wrapped.cmd;
+    spawnArgs = wrapped.args;
+    // The runuser launcher must NOT carry the secret-laden root env; the agent's real
+    // env is the `env -i …` list inside the wrapped argv.
+    spawnEnv = { PATH: agentEnv.PATH };
+    logLine(logPath, `deroot: running as ${DEROOT_USER} via broker (sock ${BROKER_SOCK}); secrets withheld from agent`);
+  }
+
+  const res = spawnSync(spawnCmd, spawnArgs, {
     cwd: WORKSPACE,
-    env: { ...process.env, ANTHROPIC_API_KEY: '' },
+    env: spawnEnv,
     encoding: 'utf8',
     timeout: timeoutMs,
     maxBuffer: 50 * 1024 * 1024,

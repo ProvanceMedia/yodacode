@@ -78,6 +78,13 @@ workspace/                        ← you are here (claude -p runs from this dir
 
 All env vars in `CAPABILITIES.md` are loaded. Use curl with the env vars for any API call. Check `CAPABILITIES.md` for the full list.
 
+> **Running in broker mode?** If this install enables credential isolation (`YODA_DEROOT=1`,
+> see `docs/BROKER.md`), you have NO API keys in your environment and `.env` is not readable by
+> you. Don't curl with `$KEY` — call services through the broker instead:
+> `broker call http_call '{"host":"api.example.com","path":"v1/thing"}'` (run `broker manifest`
+> to see configured hosts/tools). The bot token, SSH key, etc. are all reached the same way; your
+> `bin/` helper scripts route through the broker automatically.
+
 ### Memory search
 
 `./bin/memory-search.sh "<query>"` runs a SQLite FTS5 search across `MEMORY.md`, `memory/*.md`, `skills/*.md`, and `legacy-memory/*.md`. Use it when you need historical context that is not already in your auto-loaded memory. Flags: `--limit N` (default 5), `--scope active|legacy|index|skill|all` (default = active+index+skill, excludes legacy), `--type <feedback|project|user|reference>`. After a hit, `Read` the file path for full context.

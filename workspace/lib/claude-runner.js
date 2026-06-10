@@ -12,6 +12,7 @@ import path from 'node:path';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { translateStream } from './stream-translator.js';
+import { agentSpawnOpts, derootEnabled } from './deroot.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
 const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
@@ -121,13 +122,17 @@ export async function runClaude({
     // at startup based on YODA_SANDBOX). Newer claude CLI no longer accepts
     // a --sandbox flag.
 
+    // De-rooted when YODA_DEROOT=1: child runs as the agent user (uid/gid spawn options)
+    // with a curated secret-free env — credentials only via the broker. Legacy path
+    // otherwise: full env minus the API key. Either way the PID is claude itself, so the
+    // stop-handler's process-group SIGTERM works unchanged.
+    if (derootEnabled()) logger.info('spawning claude de-rooted', { surface, conversationId });
     const claude = spawn(
       config.claude.bin,
       args,
       {
         cwd: config.workspace,
-        // Force OAuth/sub auth — never let an API key sneak in via env inheritance
-        env: { ...process.env, ANTHROPIC_API_KEY: '' },
+        ...agentSpawnOpts(),
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true, // own process group so we can SIGTERM the whole tree on stop
       },

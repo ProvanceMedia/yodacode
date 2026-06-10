@@ -1,0 +1,32 @@
+{
+  "_comment": "Copy to services.policy.json for richer/templated services that don't fit the one-line auth-hosts model (multi-secret basic auth, fixed paths, etc.). Each becomes a named broker tool: `broker call <name> '{...args}'`. ${VAULT:KEY} substitutes a vault secret; ${ARG:name} substitutes a tool argument. Secrets are substituted host-side only, never logged or returned.",
+
+  "github": {
+    "description": "Authenticated GitHub API call. Provide method + path (+ optional JSON body). Example path: repos/OWNER/REPO/commits?per_page=5",
+    "method": "${ARG:method}",
+    "url": "https://api.github.com/${ARG:path}",
+    "headers": { "Authorization": "Bearer ${VAULT:GITHUB_PAT}", "User-Agent": "yodacode", "Accept": "application/vnd.github+json" },
+    "params": {
+      "method": { "type": "string", "description": "GET/POST/PATCH/DELETE", "optional": true },
+      "path": { "type": "string", "description": "path after the host" },
+      "body": { "type": "string", "description": "JSON body for writes", "optional": true }
+    }
+  },
+  "example_dual_secret_basic": {
+    "description": "Pattern: an API whose Basic auth uses TWO secrets (key:secret), e.g. some commerce APIs.",
+    "method": "${ARG:method}",
+    "url": "https://api.example.com/${ARG:path}",
+    "basicAuth": "${VAULT:EXAMPLE_CONSUMER_KEY}:${VAULT:EXAMPLE_CONSUMER_SECRET}",
+    "params": {
+      "method": { "type": "string", "optional": true },
+      "path": { "type": "string" },
+      "body": { "type": "string", "optional": true }
+    }
+  },
+  "example_query_auth": {
+    "description": "Pattern: an API that authenticates with a ?api_key= query param (host adds it).",
+    "url": "https://api.example.com/${ARG:path}",
+    "query": { "api_key": "${VAULT:EXAMPLE_API_KEY}" },
+    "params": { "path": { "type": "string" } }
+  }
+}

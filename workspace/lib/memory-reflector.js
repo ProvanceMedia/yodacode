@@ -15,6 +15,7 @@
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { agentSpawnOpts } from './deroot.js';
 
 function buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -105,7 +106,7 @@ export function maybeReflectMemory({ surface, conversationId, userText, replyTex
   try {
     child = spawn(config.claude.bin, args, {
       cwd: config.workspace,
-      env: { ...process.env, ANTHROPIC_API_KEY: '' },
+      ...agentSpawnOpts(),
       stdio: 'ignore',
       detached: true,
     });

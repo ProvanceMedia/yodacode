@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { agentSpawnOpts } from './deroot.js';
 
 function buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs }) {
   const toolCount = tracker?.useCount || 0;
@@ -118,7 +119,7 @@ export function maybeReflect({ surface, conversationId, userText, replyText, tra
   try {
     child = spawn(config.claude.bin, args, {
       cwd: config.workspace,
-      env: { ...process.env, ANTHROPIC_API_KEY: '' },
+      ...agentSpawnOpts(),
       stdio: 'ignore',
       detached: true,
     });

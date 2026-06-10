@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+// broker — the agent-facing CLI shim. Connects to yodacode-brokerd over its Unix socket,
+// sends one request, prints the JSON reply, exits. The agent uses this INSTEAD of
+// curl-with-a-secret: it never holds an API key — the broker injects it host-side.
+//
+// Usage:
+//   broker call <tool> '<json-args>'   # e.g. broker call http_call '{"host":"api.stripe.com","path":"v1/balance"}'
+//   broker call http_call --host api.stripe.com --path v1/balance [--method GET] [--query "k=v"] [--body '<json>']
+//   broker manifest                    # list the tools/hosts you can call
+//   broker status                      # vault size, #hosts, #services
+//   broker ping                        # liveness check
+//
+// Exit code: 0 if the reply is ok, 1 otherwise.
+import net from 'node:net';
+import { FrameDecoder, encodeFrame } from '../broker/framing.js';
+
+const SOCK = process.env.YODA_BROKER_SOCK || '/run/yodacode-broker.sock';
+
+function die(msg, code = 1) {
+  process.stderr.write(`broker: ${msg}\n`);
+  process.exit(code);
+}
+
+// Exec tools (gog/ssh) legitimately run long; everything else gets a tight timeout.
+const CLIENT_TIMEOUTS = { ssh_exec: 320_000 };
+
+function request(frame) {
+  const timeoutMs = (frame.t === 'call' && CLIENT_TIMEOUTS[frame.tool]) || 35_000;
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(SOCK);
+    const dec = new FrameDecoder();
+    let settled = false;
+    const to = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        sock.destroy();
+        reject(new Error('timed out waiting for broker'));
+      }
+    }, timeoutMs);
+    sock.on('connect', () => sock.write(encodeFrame(frame)));
+    sock.on('data', (chunk) => {
+      const frames = dec.push(chunk);
+      if (frames.length && !settled) {
+        settled = true;
+        clearTimeout(to);
+        sock.end();
+        resolve(frames[0]);
+      }
+    });
+    sock.on('error', (e) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(to);
+        reject(e);
+      }
+    });
+  });
+}
+
+// Parse `--flag value` pairs into an args object (used by the http_call convenience form).
+function parseFlags(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const val = argv[i + 1];
+      if (val === undefined || val.startsWith('--')) {
+        out[key] = true;
+      } else {
+        out[key] = val;
+        i++;
+      }
+    }
+  }
+  return out;
+}
+
+async function main() {
+  const [cmd, ...rest] = process.argv.slice(2);
+  if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') {
+    process.stdout.write(
+      [
+        'broker — call configured APIs without ever holding a key.',
+        '',
+        "  broker call <tool> '<json-args>'",
+        '  broker call http_call --host api.stripe.com --path v1/balance [--method GET] [--query "k=v"] [--body \'{...}\']',
+        '  broker manifest      list callable tools/hosts',
+        '  broker status        vault size, #hosts, #services',
+        '  broker ping          liveness check',
+        '',
+      ].join('\n'),
+    );
+    process.exit(0);
+  }
+
+  let frame;
+  if (cmd === 'ping') frame = { t: 'ping' };
+  else if (cmd === 'status') frame = { t: 'status' };
+  else if (cmd === 'manifest') frame = { t: 'manifest' };
+  else if (cmd === 'reload') frame = { t: 'reload' };
+  else if (cmd === 'call') {
+    const tool = rest[0];
+    if (!tool) die('usage: broker call <tool> <json-args | --flags>');
+    let args = {};
+    const tail = rest.slice(1);
+    if (tail.length === 1 && !tail[0].startsWith('--')) {
+      try {
+        args = JSON.parse(tail[0]);
+      } catch (e) {
+        die(`args must be valid JSON: ${e?.message ?? e}`);
+      }
+    } else if (tail.length) {
+      args = parseFlags(tail);
+    }
+    frame = { t: 'call', tool, args };
+  } else {
+    die(`unknown command: ${cmd} (try: call, manifest, status, ping)`);
+  }
+
+  let reply;
+  try {
+    reply = await request(frame);
+  } catch (e) {
+    die(`could not reach broker at ${SOCK}: ${e?.message ?? e} (is yodacode-brokerd running?)`);
+  }
+
+  process.stdout.write(JSON.stringify(reply, null, 2) + '\n');
+  // Exit non-zero on a failed call so shell `&&` chains behave.
+  if (reply && (reply.ok === false || reply.t === 'result') && reply.ok === false) process.exit(1);
+  process.exit(0);
+}
+
+main();

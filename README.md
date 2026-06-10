@@ -138,6 +138,24 @@ YODA_SANDBOX=off      # default, full host access
 YODA_SANDBOX=auto     # bubblewrap sandbox + auto-allow (restricts writes + network)
 ```
 
+## Credential isolation (broker)
+
+By default your API keys are loaded into the agent's environment and it calls services with
+`curl`. That means the LLM-driven process holds every secret — a prompt injection is one
+`cat .env` away from them.
+
+Opt-in **broker mode** removes that exposure. A root-owned daemon holds the secrets and makes
+the authenticated calls; the agent runs as an unprivileged user with no keys in its environment
+and no read access to `.env`. It's an OS-level boundary, not a prompt rule.
+
+```bash
+sudo scripts/setup-broker.sh   # creates the agent user, locks secrets, starts the broker
+sudo systemctl restart yodacode
+```
+
+Roll back any time by setting `YODA_DEROOT=0` in `.env` and restarting. See
+[docs/BROKER.md](docs/BROKER.md).
+
 ## Configuration
 
 All configuration is via `.env`. See `.env.example` for the full list with documentation.

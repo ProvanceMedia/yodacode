@@ -16,8 +16,8 @@
 #   slack-tools.sh thread <channel> <thread_ts>        — print full thread history
 #   slack-tools.sh mark <channel> <ts>                 — write last-seen for a channel
 # examples:
-#   ./bin/slack-tools.sh post C0AS4NZNH16 "hello"
-#   ./bin/slack-tools.sh react C0AS4NZNH16 1234.5678 thumbsup
+#   ./bin/slack-tools.sh post C0123456789 "hello"
+#   ./bin/slack-tools.sh react C0123456789 1234.5678 thumbsup
 # @end
 #
 # Reads SLACK_BOT_TOKEN from env. State file: ./state/last-seen.json
@@ -27,10 +27,21 @@ set -euo pipefail
 
 STATE_FILE="${YODA_STATE_FILE:-./state/last-seen.json}"
 API="https://slack.com/api"
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export BROKER_PY_DIR="$BIN_DIR"
+BROKER_SOCK="${YODA_BROKER_SOCK:-/run/yodacode-broker.sock}"
 
+# Transparent broker fallback (credential-isolation mode): when running de-rooted there is
+# no SLACK_BOT_TOKEN in the environment — the broker holds it and proxies Slack calls via
+# the slack_api tool. Same CLI, same output. With a token present nothing changes.
+BROKER_MODE=0
 if [[ -z "${SLACK_BOT_TOKEN:-}" ]]; then
-  echo "ERROR: SLACK_BOT_TOKEN must be set" >&2
-  exit 2
+  if [[ -S "$BROKER_SOCK" ]]; then
+    BROKER_MODE=1
+  else
+    echo "ERROR: SLACK_BOT_TOKEN must be set (or the broker socket must exist at $BROKER_SOCK)" >&2
+    exit 2
+  fi
 fi
 
 # Ensure state file exists and is a JSON object
@@ -49,15 +60,48 @@ PY
 
 call_post() {
   local method=$1 payload=$2
-  curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-    -H "Content-Type: application/json; charset=utf-8" \
-    --data "$payload" "$API/$method"
+  if [[ "$BROKER_MODE" == "1" ]]; then
+    python3 - "$method" "$payload" <<'PYB'
+import json, os, sys
+sys.path.insert(0, os.environ["BROKER_PY_DIR"])
+from _broker_client import mediated_call
+res = mediated_call("slack_api", {"method": sys.argv[1], "params": sys.argv[2], "http": "POST"})
+if res.get("ok"):
+    print(json.dumps(res.get("data")))
+else:
+    print(json.dumps({"ok": False, "error": res.get("error", "broker error")})); sys.exit(1)
+PYB
+  else
+    curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+      -H "Content-Type: application/json; charset=utf-8" \
+      --data "$payload" "$API/$method"
+  fi
 }
 
 call_get() {
   local method=$1; shift
-  curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-    -G "$API/$method" "$@"
+  if [[ "$BROKER_MODE" == "1" ]]; then
+    python3 - "$method" "$@" <<'PYB'
+import json, os, sys
+sys.path.insert(0, os.environ["BROKER_PY_DIR"])
+from _broker_client import mediated_call
+method = sys.argv[1]
+params = {}
+rest = sys.argv[2:]
+for i, a in enumerate(rest):
+    if a == "--data-urlencode" and i + 1 < len(rest):
+        k, _, v = rest[i + 1].partition("=")
+        params[k] = v
+res = mediated_call("slack_api", {"method": method, "params": json.dumps(params), "http": "GET"})
+if res.get("ok"):
+    print(json.dumps(res.get("data")))
+else:
+    print(json.dumps({"ok": False, "error": res.get("error", "broker error")})); sys.exit(1)
+PYB
+  else
+    curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+      -G "$API/$method" "$@"
+  fi
 }
 
 cmd_whoami() {
@@ -72,18 +116,25 @@ cmd_list() {
 }
 
 cmd_fetch() {
-  python3 - "$STATE_FILE" "$SLACK_BOT_TOKEN" "$API" <<'PY'
-import json, sys, urllib.request, urllib.parse
+  python3 - "$STATE_FILE" "${SLACK_BOT_TOKEN:-}" "$API" <<'PY'
+import json, os, sys, urllib.request, urllib.parse
 
 state_path, token, api = sys.argv[1], sys.argv[2], sys.argv[3]
 state = json.load(open(state_path))
 
-def slack_get(method, **params):
-    qs = urllib.parse.urlencode(params)
-    req = urllib.request.Request(f"{api}/{method}?{qs}",
-                                 headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return json.load(r)
+if token:
+    def slack_get(method, **params):
+        qs = urllib.parse.urlencode(params)
+        req = urllib.request.Request(f"{api}/{method}?{qs}",
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.load(r)
+else:
+    sys.path.insert(0, os.environ["BROKER_PY_DIR"])
+    from _broker_client import mediated_call
+    def slack_get(method, **params):
+        res = mediated_call("slack_api", {"method": method, "params": json.dumps(params), "http": "GET"})
+        return res.get("data") if res.get("ok") else {"ok": False, "error": res.get("error", "broker error")}
 
 convs = slack_get("users.conversations",
                   types="im,public_channel,private_channel",

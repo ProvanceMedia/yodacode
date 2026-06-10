@@ -57,3 +57,12 @@ workspace/.pki/
 # Per-install generated systemd units (use gen-units.sh to regenerate)
 cron-tasks/systemd/yoda-cron@.service
 cron-tasks/systemd/yoda-cron@*.timer
+
+# Broker: personal credential configs (only *.example.json ship)
+workspace/broker/auth-hosts.json
+workspace/broker/services.policy.json
+workspace/broker/secrets.json
+
+# python bytecode cache
+__pycache__/
+*.pyc
