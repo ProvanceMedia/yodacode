@@ -49,18 +49,19 @@ if [[ "${1:-}" == "addkey" ]]; then
   echo "    4) Anything else (you provide the host + scheme)"
   echo ""
   pick="$(ask 'Choice' '1')"
+  HEADERNAME=""; QUERYPARAM=""; EXTRAHEADERS=""
   case "$pick" in
-    1) HOST=api.github.com;  SCHEME=bearer; KEYNAME=GITHUB_PAT;     EXTRA='"extraHeaders":{"Accept":"application/vnd.github+json","User-Agent":"yodacode"}' ;;
-    2) HOST=api.stripe.com;  SCHEME=basic;  KEYNAME=STRIPE_API_KEY; EXTRA='"basicPassword":""' ;;
-    3) HOST=api.openai.com;  SCHEME=bearer; KEYNAME=OPENAI_API_KEY; EXTRA='' ;;
+    1) HOST=api.github.com;  SCHEME=bearer; KEYNAME=GITHUB_PAT;     EXTRAHEADERS='{"Accept":"application/vnd.github+json","User-Agent":"yodacode"}' ;;
+    2) HOST=api.stripe.com;  SCHEME=basic;  KEYNAME=STRIPE_API_KEY ;;
+    3) HOST=api.openai.com;  SCHEME=bearer; KEYNAME=OPENAI_API_KEY ;;
     *) HOST="$(ask 'API host (e.g. api.example.com)' '')"
        echo "  Auth style:  1) Bearer token   2) custom header   3) ?query= param   4) HTTP basic"
        st="$(ask 'Style' '1')"
        case "$st" in
-         2) HN="$(ask 'Header name (e.g. X-API-Key)' 'X-API-Key')"; SCHEME=header; EXTRA="\"headerName\":\"$HN\"" ;;
-         3) QP="$(ask 'Query param name (e.g. api_key)' 'api_key')"; SCHEME=query; EXTRA="\"queryParam\":\"$QP\"" ;;
-         4) SCHEME=basic; EXTRA='"basicPassword":""' ;;
-         *) SCHEME=bearer; EXTRA='' ;;
+         2) SCHEME=header; HEADERNAME="$(ask 'Header name (e.g. X-API-Key)' 'X-API-Key')" ;;
+         3) SCHEME=query;  QUERYPARAM="$(ask 'Query param name (e.g. api_key)' 'api_key')" ;;
+         4) SCHEME=basic ;;
+         *) SCHEME=bearer ;;
        esac
        KEYNAME="$(ask 'Name this key (UPPER_SNAKE, e.g. EXAMPLE_API_KEY)' 'EXAMPLE_API_KEY')"
        KEYNAME="$(echo "$KEYNAME" | tr '[:lower:] -' '[:upper:]__' | tr -cd 'A-Z0-9_')" ;;
@@ -74,16 +75,37 @@ if [[ "${1:-}" == "addkey" ]]; then
   set_env "$KEYNAME" "$SECRET"
   AH="workspace/broker/auth-hosts.json"
   [[ -f "$AH" ]] || echo '{}' > "$AH"
-  HOST="$HOST" SCHEME="$SCHEME" KEYNAME="$KEYNAME" EXTRA="$EXTRA" node -e '
-    const fs=require("fs"); const f="workspace/broker/auth-hosts.json";
-    const o=JSON.parse(fs.readFileSync(f,"utf8"));
-    const e=JSON.parse("{\"scheme\":\""+process.env.SCHEME+"\",\"vaultKey\":\""+process.env.KEYNAME+"\""+(process.env.EXTRA?","+process.env.EXTRA:"")+"}");
-    o[process.env.HOST]=e; fs.writeFileSync(f,JSON.stringify(o,null,2)+"\n");
-  ' || { fail "Failed to update auth-hosts.json"; exit 1; }
+  # Edit the JSON with python3 (present on the host); the host has no node — that
+  # lives in the container. Fall back to running node inside the container if needed.
+  json_edit() {
+    HOST="$HOST" SCHEME="$SCHEME" KEYNAME="$KEYNAME" HEADERNAME="$HEADERNAME" \
+    QUERYPARAM="$QUERYPARAM" EXTRAHEADERS="$EXTRAHEADERS" python3 - "$AH" <<'PY'
+import json, os, sys
+f = sys.argv[1]
+try:
+    o = json.load(open(f))
+except Exception:
+    o = {}
+e = {"scheme": os.environ["SCHEME"], "vaultKey": os.environ["KEYNAME"]}
+if os.environ.get("HEADERNAME"): e["headerName"] = os.environ["HEADERNAME"]
+if os.environ.get("QUERYPARAM"): e["queryParam"] = os.environ["QUERYPARAM"]
+if os.environ["SCHEME"] == "basic": e["basicPassword"] = ""
+if os.environ.get("EXTRAHEADERS"): e["extraHeaders"] = json.loads(os.environ["EXTRAHEADERS"])
+o[os.environ["HOST"]] = e
+json.dump(o, open(f, "w"), indent=2); open(f, "a").write("\n")
+PY
+  }
+  if command -v python3 >/dev/null 2>&1; then
+    json_edit || { fail "Failed to update auth-hosts.json"; exit 1; }
+  else
+    fail "python3 not found on this host and node lives only in the container."
+    note "Install python3 ($SUDO apt-get install -y python3) and re-run, or add the host to $AH by hand."
+    exit 1
+  fi
   ok "Stored $KEYNAME and mapped $HOST (scheme: $SCHEME)."
   note "Reloading the broker…"
   docker compose restart broker >/dev/null 2>&1 || docker compose up -d >/dev/null 2>&1 || true
-  ok "Done. Ask the bot to use $HOST — e.g. \"fetch my latest from $HOST\"."
+  ok "Done. Ask the bot to use $HOST."
   exit 0
 fi
 
