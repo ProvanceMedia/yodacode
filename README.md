@@ -58,10 +58,12 @@ cd yodacode
 ./quickstart.sh             # installs Docker if missing, creates .env, starts the stack
 ```
 
-`quickstart.sh` installs Docker (via get.docker.com) when it's not already present, creates
-`.env` from the example on first run and tells you which tokens to fill in, then builds and
-starts the de-rooted broker + agent. Re-run it after editing `.env`. (Already have Docker and
-a filled `.env`? `docker compose up -d` does the same thing.)
+`quickstart.sh` is a fully guided installer — no config-file editing, no prior tooling. It
+installs Docker if missing, builds the image, signs you in to Claude (a URL you open on your
+laptop), walks you through creating the Slack app click-by-click (and verifies each token
+live as you paste it), writes the config for you, launches the stack, and confirms the bot
+is connected. Adding service API keys is an optional step it explains at the end. Already
+configured? Re-running it offers start-or-reconfigure.
 
 Docker bakes node + Claude Code into the image, so there's nothing else to provision on the
 host and it behaves identically on any machine. Give the build ~1 GB of RAM — on a 512 MB VPS
