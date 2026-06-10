@@ -7,203 +7,193 @@
    ╚═╝    ╚═════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
 ```
 
-Personal Claude-Code-powered chat agent for Slack, WhatsApp, and beyond.
+Your own Claude-powered assistant for Slack, running on your server.
 
-Runs entirely on your **Claude Max subscription**, so there's no API key and no per-request billing. One command to install. DM your bot 3 minutes later.
+Runs on your **Claude subscription** (Max recommended) — no API key, no per-request billing.
+One guided command installs everything; DM your bot a few minutes later.
 
 ## What is this?
 
-YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in Slack (and optionally WhatsApp). Every reply runs through Claude Code (`claude -p`), so the agent has real tools: Read, Write, Edit, web search, browser automation, subagents, and sandboxable Bash.
+YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in
+Slack. Every reply runs through Claude Code (`claude -p`), so the agent has real tools: Read,
+Write, Edit, web search, browser automation, subagents, and a full Bash shell. It runs as two
+Docker containers — a **broker** that holds your API keys, and the **agent** itself, which never
+sees them (see [Security](#security-de-rooted-by-default)).
 
-It also remembers. A structured file-based memory system with daily consolidation and full-text search means the agent builds up context over time instead of starting cold every conversation. The full feature list is in the [table below](#features).
+It also remembers. A structured file-based memory system with daily consolidation and full-text
+search means the agent builds up context over time instead of starting cold every conversation.
+The full feature list is in the [table below](#features).
 
-## Server requirements
+## What you need
 
-YodaCode runs as a persistent background service, so it needs an always-on Linux host: a cheap VPS, a cloud droplet, or a home server. A laptop that sleeps won't do.
+- **A small always-on Linux server** — a cheap VPS, cloud droplet, or home server. (A laptop that
+  sleeps won't do; the bot needs to stay connected.) **1 GB RAM** is enough; that's it for specs.
+- **Docker** — if it's missing, the installer offers to install it for you.
+- **A Claude subscription** — Max recommended, Pro works with tighter limits. The installer signs
+  you in; no API key.
+- **A Slack workspace** where you can add an app — the installer walks you through creating it.
 
-- **OS:** Linux with `systemd`. Ubuntu/Debian-family is smoothest (the sandbox step uses `apt`). macOS works if you run it manually (`node workspace/yoda.js`, with the sandbox using Seatbelt); the one-command installer is Linux-only, and Windows isn't supported.
-- **Node.js 20+:** if it's missing, `install.sh` drops Node 22 LTS into `~/.yodacode/node/` for you, no sudo required.
-- **Claude subscription:** Max recommended, Pro works with tighter limits. The installer signs you in with `claude setup-token`, and the Claude Code CLI is installed for you if it's not already on PATH.
-- **A Slack workspace** where you can add an app: the wizard creates it from a manifest in one click. WhatsApp is optional.
-- **Hardware:** modest. 1 vCPU and 1 GB RAM is enough for the agent itself (the Node process idles around 40 MB). Bump to ~2 GB RAM and ~2 GB free disk if you want the browser tools, which pull in headless Chromium (~400 MB).
-- **Network:** outbound HTTPS only. Slack runs over Socket Mode, so you don't open any inbound ports or expose the box to the internet.
+You do **not** need Node, systemd, or any other tooling on the host — everything the bot needs is
+baked into the Docker image. Outbound HTTPS only; Slack runs over Socket Mode, so no inbound ports
+and nothing exposed to the internet.
 
-The wizard installs the heavier optional bits on demand: `bubblewrap` + `socat` for the Bash sandbox, and Playwright + Chromium for the browser tools. Skip them and the footprint stays tiny.
-
-## You don't need to be technical
-
-You *can* manually edit files, write cron scripts, and configure integrations, but you usually don't need to. YodaCode has access to its own workspace and knows its own directory structure. Just ask it:
-
-- *"Remember that I prefer bullet points over paragraphs"* appends to its own MEMORY.md under the right section.
-- *"Change your name to Jarvis"* edits IDENTITY.md and CLAUDE.md.
-- *"Write a cron that checks my inbox every 30 minutes"* writes the YAML in `cron-tasks/`, and the in-container scheduler picks it up automatically — no command to run.
-- *"Add HubSpot integration"* tells you what to add to `.env`, updates `refresh-capabilities.py` with the new service, and starts using it once you restart.
-
-With the default config the agent has full host access, so it can carry these out end to end. With the sandbox on it writes what it can and tells you the one protected step (see [Sandbox](#sandbox)). Either way: the agent builds everything, you flip the switch.
-
-## Security model: de-rooted by default
-
-YodaCode runs **de-rooted out of the box**. Your API keys never enter the agent. They live
-in a separate **broker** container that holds the vault and makes the authenticated calls; the
-**agent** container — the bot itself — runs as an unprivileged user with no service keys in its
-environment and reaches every API through the broker. So a prompt injection or a confused agent
-has nothing to leak: the keys are on the other side of a container boundary, enforced by the OS,
-not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
-
-## Quickstart (Docker)
+## Quickstart
 
 ```bash
 git clone https://github.com/ProvanceMedia/yodacode.git
 cd yodacode
-./quickstart.sh             # installs Docker if missing, creates .env, starts the stack
+./quickstart.sh
 ```
 
-`quickstart.sh` is a fully guided installer — no config-file editing, no prior tooling. It
-installs Docker if missing, builds the image, signs you in to Claude (a URL you open on your
-laptop), walks you through creating the Slack app click-by-click (and verifies each token
-live as you paste it), writes the config for you, launches the stack, and confirms the bot
-is connected. Adding service API keys is an optional step it explains at the end. Already
-configured? Re-running it offers start-or-reconfigure.
+`quickstart.sh` is a fully guided, 6-step installer — no config files to edit, no prior tooling.
+It installs Docker if missing, builds the image, signs you in to Claude (open a URL on your
+laptop), lets you **name your assistant and tell it about yourself**, walks you through creating
+the Slack app click-by-click (verifying each token live as you paste it), writes the config for
+you, launches the stack, and prints your assistant introducing itself so you can see it working.
+A few minutes later, DM your bot in Slack.
 
-Docker bakes node + Claude Code into the image, so there's nothing else to provision on the
-host and it behaves identically on any machine. Give the build ~1 GB of RAM — on a 512 MB VPS
-add swap first or the image build can stall. Edit `.env`, add hosts to
-`workspace/broker/auth-hosts.json`, and `docker compose restart`. Your workspace (memory, skills,
-cron definitions) is bind-mounted, so you can read and edit it on the host; set `PUID`/`PGID` in
-`.env` to your host user so those files stay owned by you.
+Adding API keys is optional and explained at the end. Re-running `./quickstart.sh` offers
+start-or-reconfigure.
+
+> On a 512 MB box the image build can stall — use 1 GB, or add swap first.
+
+## You don't need to be technical
+
+You *can* edit files and write configs by hand, but you usually don't need to. The agent knows its
+own workspace. Just ask it in Slack:
+
+- *"Remember I prefer bullet points over paragraphs"* → appends to its own memory.
+- *"Change your name to Jarvis"* → edits its identity files.
+- *"Write a cron that checks my inbox every 30 minutes"* → drops a task file in `cron-tasks/`; the
+  scheduler picks it up.
+- *"Connect my GitHub"* → it points you to `/yodacode` in Slack (or `./quickstart.sh addkey` on the
+  server), because keys are added on the server, never pasted into chat.
+
+## Security: de-rooted by default
+
+Your API keys never enter the agent. They live in a separate **broker** container that holds the
+vault and makes the authenticated calls; the **agent** container — the bot itself — runs as an
+unprivileged user with no service keys in its environment and reaches every API through the broker.
+So a prompt injection or a confused agent has nothing to leak: the keys are on the other side of a
+container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
+
+## Day-to-day
+
+Run these from the install folder on your server:
 
 ```bash
-docker compose logs -f agent      # watch the bot
-docker compose exec agent bash    # poke around inside
-docker compose restart            # after editing .env or configs
+docker compose logs -f agent     # watch the bot work
+docker compose restart           # apply config changes
+docker compose down              # stop it
+docker compose exec agent bash   # open a shell inside the agent
 ```
 
-Crons run **inside the agent container** on their own timers (no host systemd) — drop a YAML in
-`cron-tasks/` and it's picked up automatically. 3 minutes after `up`, DM your bot in Slack.
+**Adding an API key** (GitHub, Stripe, Google, …): DM your bot `/yodacode` in Slack for the
+walkthrough, or on the server run `./quickstart.sh addkey` — it stores the key in the broker (the
+agent never sees it) and reloads. The new host then shows up in the agent's `CAPABILITIES.md`.
 
-### Bare-metal alternative (no Docker)
-
-If you can't run Docker, `./install.sh` still does a host install (Node into `~/.yodacode/node/`,
-a setup wizard, a systemd service). For de-rooting on bare metal, run `sudo scripts/setup-broker.sh`
-after install. The `yodacode` CLI (`yodacode update|status|help`) manages a host install. The
-container path above is the recommended one.
+Your workspace (memory, skills, cron definitions) is **bind-mounted**, so you can read and edit it
+on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those files owned by you.
 
 ## Architecture
 
 ```
-                    ┌──────────────┐
-                    │   Slack API  │
-                    │ (Socket Mode)│
-                    └──────┬───────┘
-                           │ real-time events
-                    ┌──────▼───────┐
-                    │   yoda.js    │ ← Node.js coordinator
-                    │  (surfaces)  │
-                    └──────┬───────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-     ┌────────▼──┐  ┌──────▼─────┐  ┌──-▼─────────┐
-     │ dispatcher│  │stop-handler│  │queue (serial│
-     │ (policy + │  │ (kill mid- │  │ per-convo   │
-     │  context) │  │  tick)     │  │ + coalesce) │
-     └────────┬──┘  └────────────┘  └─────────────┘
-              │
-     ┌────────▼───────────────────────────┐
-     │          claude-runner             │
-     │  spawn claude -p --stream-json     │
-     │  ├─ stream-translator (live status)│
-     │  ├─ model fallback (529 → Haiku)   │
-     │  ├─ bubblewrap sandbox             │
-     │  └─ tick state (for stop/timeout)  │
-     └────────────────────────────────────┘
+                 ┌──────────────┐
+                 │   Slack API  │  (Socket Mode — no inbound ports)
+                 └──────┬───────┘
+                        │ real-time events
+   ╔════════════════════▼═══════════════════════╗
+   ║  agent container  (unprivileged, no keys)  ║
+   ║   yoda.js ─ surfaces                        ║
+   ║     ├─ dispatcher (policy + context)        ║
+   ║     ├─ claude-runner → claude -p (stream)   ║
+   ║     │     ├─ live status streaming          ║
+   ║     │     └─ model fallback (529 → Haiku)   ║
+   ║     ├─ stop-handler (kill mid-tick)         ║
+   ║     └─ scheduler (in-container crons)       ║
+   ╚════════════════════╤═══════════════════════╝
+                        │ broker call (unix socket)
+   ╔════════════════════▼═══════════════════════╗
+   ║  broker container  (holds the vault)       ║
+   ║   injects credentials, makes the API calls ║
+   ╚════════════════════════════════════════════╝
 ```
 
 ## Features
 
 | Feature | Description |
 |---|---|
-| **Multi-surface** | Slack + WhatsApp. Add more via `lib/surfaces/<name>.js`. |
+| **De-rooted by default** | Keys live in a separate broker container; the agent never sees them. |
 | **Live streaming** | Placeholder message updates in real time as Claude works. |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging). |
 | **Memory system** | Proactive memory with 4 typed categories, a daily consolidation cron, and FTS5 search. See [Memory search](#memory-search). |
-| **Skill self-generation** | Opt-in reflector turns long conversations into reusable `SKILL.md` files. See [Closed-loop self-improvement](#closed-loop-self-improvement-opt-in). |
+| **Skill self-generation** | Opt-in reflector turns long conversations into reusable `SKILL.md` files. See [Self-improvement](#closed-loop-self-improvement-opt-in). |
 | **Loop guardrails** | Repeat-failure, no-progress, and iteration-cap detection. See [Loop guardrails](#loop-guardrails). |
-| **Tool auto-discovery** | Drop a `@yoda-tool` manifest on a script in `bin/` and it appears in `CAPABILITIES.md` on restart. See [Adding a tool](#adding-a-tool). |
-| **Cron tasks** | Declarative YAML task definitions run by a shared runner. Per-task model, optional Slack delivery. See [Adding a cron task](#adding-a-cron-task). |
+| **In-container crons** | Declarative YAML tasks run on their own timers — no host systemd. See [Cron tasks](#adding-a-cron-task). |
 | **Model fallback** | Sonnet to Haiku (configurable chain). Fail-fast on 529. |
-| **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread, and it sticks for follow-up replies. |
+| **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread; `/yodacode` shows help & setup. |
 | **Effort levels** | Reasoning depth (`low` to `max`) set globally, per cron, or per thread. See [Effort levels](#effort-levels). |
-| **Browser automation** | Playwright for JS-rendered pages and Google Maps verification. |
+| **Browser automation** | Playwright for JS-rendered pages and screenshots (when the image includes it). |
 | **Subagents** | `Task` tool for parallel work and context protection. |
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly. |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |
-| **Auto-capabilities** | `CAPABILITIES.md` auto-generated from `.env` + `bin/` manifests so the agent never lies about what it can do. |
-| **Sandbox** | Opt-in OS-level bubblewrap isolation, off by default. See [Sandbox](#sandbox). |
-
-## Sandbox
-
-Default is `YODA_SANDBOX=off`, which gives the agent full host access (install systemd units end to end, sudo, talk to D-Bus, and so on). This is the practical default because the bubblewrap sandbox blocks systemctl, sudo, and most multi-step ops.
-
-If you want the sandbox, set `YODA_SANDBOX=auto` in `.env`. When enabled:
-
-- Bash commands can **only write** to: workspace, `/tmp`, `logs/`, `cron-tasks/`, `pollers/`
-- `.env` and `.claude/settings.json` are protected from the agent
-- Network is domain-filtered via a proxy
-- Cron self-install, sudo, and most system-level work will not function
-
-```bash
-# .env options:
-YODA_SANDBOX=off      # default, full host access
-YODA_SANDBOX=auto     # bubblewrap sandbox + auto-allow (restricts writes + network)
-```
+| **Auto-capabilities** | `CAPABILITIES.md` is auto-generated from the broker registry + `bin/` manifests so the agent never lies about what it can do. |
 
 ## Configuration
 
-All configuration is via `.env`. See `.env.example` for the full list with documentation.
-
-Key variables:
+The installer writes `.env` for you. To change something later, edit `.env` and
+`docker compose restart`. See `.env.example` for the full list with documentation.
 
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN=       # from `claude setup-token`
-SLACK_BOT_TOKEN=               # from your Slack app
-SLACK_APP_TOKEN=               # from your Slack app
-YODA_DM_AUTHORIZED_USERS=     # comma-separated Slack user IDs
+CLAUDE_CODE_OAUTH_TOKEN=       # set by the installer (claude sign-in)
+SLACK_BOT_TOKEN=               # set by the installer
+SLACK_APP_TOKEN=               # set by the installer
+YODA_DM_AUTHORIZED_USERS=      # comma-separated Slack user IDs allowed to DM the bot
+YODA_CLAUDE_MODEL=             # primary model (empty = Claude Code default)
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
 YODA_CLAUDE_EFFORT=            # low|medium|high|xhigh|max (empty = model default)
-YODA_SANDBOX=off               # off (default) or auto
+BOT_NAME=                      # your assistant's name
+USER_NAME=                     # what it calls you
+PUID=                          # host uid to own bind-mounted workspace files (optional)
+PGID=
 ```
 
 ## Effort levels
 
-Claude Code exposes a reasoning **effort** control (`low`, `medium`, `high`, `xhigh`, `max`), where higher means deeper reasoning at the cost of more tokens per turn. YodaCode wires it in three ways:
+Claude Code exposes a reasoning **effort** control (`low`, `medium`, `high`, `xhigh`, `max`), where
+higher means deeper reasoning at the cost of more tokens per turn. YodaCode wires it in three ways:
 
-- **Global default:** set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default (`high` on Opus 4.7/4.8 and Sonnet 4.6).
+- **Global default:** set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default.
 - **Per cron:** add `effort: xhigh` to a task's YAML.
-- **Per thread (sticky):** say `ultrathink` or `xhigh` in any message, and that reply plus every later reply in the same thread runs at `xhigh`. Say `xhigh off` (or `normal effort`) to drop back. A new thread starts at the default.
+- **Per thread (sticky):** say `ultrathink` or `xhigh` in any message, and that reply plus every
+  later reply in the same thread runs at `xhigh`. Say `xhigh off` to drop back. A new thread starts
+  at the default.
 
-Notes:
-
-- `xhigh` is supported on Opus 4.7/4.8 only; other models clamp it to `high`. Haiku has no effort levels, so the setting is ignored there.
-- There's no persistent session (each reply is a fresh `claude -p`), so thread stickiness is re-derived from the recent thread history each turn. It lasts while the triggering message stays in the fetched window, so in a very long thread, just say the word again.
-- `ultrathink` additionally triggers Claude Code's built-in per-turn deep-reasoning nudge, independent of the effort level.
+Notes: `xhigh` is supported on Opus only; other models clamp it to `high`, and Haiku ignores effort.
+Each reply is a fresh `claude -p`, so thread stickiness is re-derived from recent thread history —
+in a very long thread, just say the word again.
 
 ## Adding a cron task
 
-**Declarative YAML (recommended).** One file per task, no boilerplate:
+Scheduled tasks are YAML files run by the in-container scheduler — no host systemd, no shell
+wrappers. Drop a file in `cron-tasks/` and `docker compose restart`:
 
 ```bash
 cp cron-tasks/_template.yaml cron-tasks/my-task.yaml
-# edit my-task.yaml: name, prompt, on_calendar, optional deliver block
-./cron-tasks/gen-units.sh my-task
-# follow the printed sudo commands to install + enable
+# edit: name, prompt, on_calendar (systemd OnCalendar syntax), optional model/effort/deliver
+docker compose restart
 ```
 
-The shared runner (`workspace/bin/cron-runner.js`) handles env loading, claude invocation, optional Slack delivery, and skill/memory reflection. See [`cron-tasks/README.md`](cron-tasks/README.md) for the full schema.
+The scheduler reads `on_calendar`, runs the prompt on schedule via `cron-runner.js`, and handles
+optional Slack delivery and skill/memory reflection. Delete or rename a file to disable it. See
+[`cron-tasks/README.md`](cron-tasks/README.md) for the full schema. (You can also just ask the bot
+to write one for you.)
 
 ## Adding a tool
 
-Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the top. On next restart, `refresh-capabilities.py` scans it and the agent sees it in `CAPABILITIES.md`. No code edits.
+Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the top. On the next
+restart, `refresh-capabilities.py` scans it and the agent sees it in `CAPABILITIES.md`. No code
+edits.
 
 ```bash
 #!/usr/bin/env bash
@@ -211,7 +201,6 @@ Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the to
 # name: hello.sh
 # summary: Say hello to a name.
 # tags: example
-# requires:                        # CSV of env keys the tool needs (or empty)
 # usage:
 #   hello.sh <name>
 # examples:
@@ -221,22 +210,27 @@ Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the to
 echo "hello $1"
 ```
 
-The `requires:` field cross-references against `.env`; if a required key is missing, the tool is marked `❌ missing $X` in the agent's capability listing so it knows not to try.
-
 ## Adding a surface
 
-Create `workspace/lib/surfaces/<name>.js` implementing the surface contract (see `lib/surface.js` for the interface). Then add `<name>` to `YODA_SURFACES` in `.env` and restart the service.
+Create `workspace/lib/surfaces/<name>.js` implementing the surface contract (see `lib/surface.js`
+for the interface). Add `<name>` to `YODA_SURFACES` in `.env` and `docker compose restart`.
 
 ## Closed-loop self-improvement (opt-in)
 
-Two background reflectors can run after any successful conversation that crosses a threshold (default: ≥30 seconds OR ≥5 tool calls). Both spawn a separate detached `claude -p` (Haiku by default, so it's cheap), look at the just-completed transcript, and decide whether to persist anything:
+Two background reflectors can run after any successful conversation that crosses a threshold
+(default: ≥30 seconds OR ≥5 tool calls). Both spawn a separate detached `claude -p` (Haiku by
+default, so it's cheap), look at the just-completed transcript, and decide whether to persist
+anything:
 
-- **Skill reflector** asks *"Did we discover a reusable PROCEDURE here?"* If yes, it writes `workspace/skills/<slug>.md` with numbered steps + frontmatter and appends a pointer to `skills/INDEX.md` (which is `@-imported` into the agent's persona, so future conversations see it).
-- **Memory reflector** asks *"Did we learn a durable FACT here?"* If yes, it appends a dated bullet to `MEMORY.md` under the right section, or writes a new `memory/<slug>.md` for larger topics.
+- **Skill reflector** asks *"Did we discover a reusable PROCEDURE here?"* If yes, it writes
+  `workspace/skills/<slug>.md` with numbered steps + frontmatter and appends a pointer to
+  `skills/INDEX.md` (which is `@-imported` into the agent's persona).
+- **Memory reflector** asks *"Did we learn a durable FACT here?"* If yes, it appends a dated bullet
+  to `MEMORY.md` under the right section, or writes a new `memory/<slug>.md` for larger topics.
 
-Both fire-and-forget (never block the user-facing reply). After writing, each rebuilds the FTS5 index so the new entry is searchable on the very next conversation.
-
-A nightly `skill-review.sh` cron then dedupes near-identical skills, promotes ones with `use_count ≥ 3` in the last 30 days into a "Core" section of `INDEX.md`, and archives stale ones (>180 days unused) into `skills/archive/`.
+Both fire-and-forget (never block the reply) and rebuild the FTS5 index after writing. A nightly
+`skill-review` cron dedupes near-identical skills, promotes frequently-used ones into a "Core"
+section of `INDEX.md`, and archives stale ones.
 
 Both are off by default. Opt in with:
 
@@ -245,33 +239,32 @@ YODA_SKILL_REFLECTOR_ENABLED=1
 YODA_MEMORY_REFLECTOR_ENABLED=1
 ```
 
-Cost: one extra Haiku invocation per reflector per notable conversation. Cheap, but not free, so start with the skill reflector and see how it goes before enabling memory too.
-
 ## Loop guardrails
 
-Every Slack/WhatsApp tick is wrapped by a tool tracker that watches the `stream-json` event stream and detects three failure modes:
+Every tick is wrapped by a tool tracker that watches the `stream-json` event stream and detects
+three failure modes:
 
-- **`repeat_failure`:** the same tool called with the same input errored ≥2× in a row, which puts a warning in the Slack placeholder ("⚠️ Bash failed 2× - may be stuck").
-- **`no_progress`:** the same tool + same input + same output ≥3× in a row, which warns ("⚠️ may be looping").
-- **`iteration_cap`:** total tool_use count exceeded the budget (`YODA_MAX_ITERATIONS_SLACK`, default 60), which SIGTERMs claude and replaces the placeholder with "🛑 Iteration cap hit".
+- **`repeat_failure`:** the same tool + same input errored ≥2× in a row → warning in the placeholder.
+- **`no_progress`:** the same tool + same input + same output ≥3× in a row → "may be looping" warning.
+- **`iteration_cap`:** total tool_use count exceeded the budget (`YODA_MAX_ITERATIONS_SLACK`,
+  default 60) → SIGTERMs claude and replaces the placeholder with "🛑 Iteration cap hit".
 
-Per-run summary persisted to `state/tool-runs.json` (LRU-capped to 100) for post-mortem. Disable entirely with `YODA_GUARDRAIL_ENABLED=0` if you'd rather just rely on the 10-minute claude timeout.
+Per-run summaries persist to `state/tool-runs.json` for post-mortem. Disable with
+`YODA_GUARDRAIL_ENABLED=0`.
 
 ## Memory search
 
-`./bin/memory-search.sh "<query>"` runs a SQLite FTS5 full-text search over `MEMORY.md`, every file in `memory/`, every file in `skills/`, and (if present) `legacy-memory/`. The bot uses it to fetch just the relevant context for a given question instead of stuffing every memory file into every prompt.
+`./bin/memory-search.sh "<query>"` runs a SQLite FTS5 full-text search over `MEMORY.md`, every file
+in `memory/`, and every file in `skills/`. The bot uses it to fetch just the relevant context for a
+question instead of stuffing every memory file into every prompt.
 
-Flags:
-
-- `--limit N` (default 5)
-- `--scope active|legacy|index|skill|all` (default = active + index + skill; legacy excluded)
-- `--type <feedback|project|user|reference>` (filter by frontmatter)
-
-The index is rebuilt on every yoda startup and after the nightly `memory-consolidate` cron. Each search returns the matching file paths so the agent can `Read` them for full context.
+Flags: `--limit N` (default 5), `--scope active|index|skill|all`, `--type <feedback|project|user|reference>`.
+The index is rebuilt on startup and after the nightly `memory-consolidate` cron.
 
 ## Important notes
 
-- **Quota usage.** Each reply is one turn against your Max 5-hour limit. Higher effort levels (`xhigh`/`max`) use more quota per turn, and cron tasks add up. Monitor at `claude.ai/settings/usage`.
+- **Quota usage.** Each reply is one turn against your Max limit. Higher effort levels
+  (`xhigh`/`max`) and cron tasks use more. Monitor at `claude.ai/settings/usage`.
 - **Personal use.** Designed for one person on one server. Not multi-tenant.
 
 ## Star History
