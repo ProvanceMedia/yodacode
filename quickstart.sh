@@ -12,13 +12,39 @@ cd "$(dirname "$0")"
 YELLOW='\033[33m'; GREEN='\033[32m'; RED='\033[31m'; RESET='\033[0m'
 
 # ── Docker ────────────────────────────────────────────────────────────────────
+# On a freshly booted VPS, cloud-init / unattended-upgrades often holds the apt
+# lock for the first few minutes — wait for it rather than failing mid-install.
+wait_for_apt() {
+  command -v fuser >/dev/null 2>&1 || return 0   # minimal image without psmisc — just try
+  local locks="/var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock"
+  local waited=0
+  while $SUDO fuser $locks >/dev/null 2>&1; do
+    if (( waited == 0 )); then
+      echo -e "${YELLOW}Another package manager is running (first-boot updates) — waiting for it to finish...${RESET}"
+    fi
+    sleep 5; waited=$((waited + 5))
+    if (( waited >= 600 )); then
+      echo -e "${RED}apt is still locked after 10 minutes. Check: ps aux | grep apt${RESET}"; return 1
+    fi
+  done
+  (( waited > 0 )) && echo -e "${GREEN}Package manager free (waited ${waited}s).${RESET}"
+  return 0
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   echo -e "${YELLOW}Docker not found — installing via get.docker.com (needs root)...${RESET}"
   if [[ $EUID -ne 0 ]] && ! command -v sudo >/dev/null 2>&1; then
     echo -e "${RED}Need root (or sudo) to install Docker. Re-run as root.${RESET}"; exit 1
   fi
   SUDO=""; [[ $EUID -ne 0 ]] && SUDO="sudo"
-  curl -fsSL https://get.docker.com | $SUDO sh || { echo -e "${RED}Docker install failed.${RESET}"; exit 1; }
+  wait_for_apt || exit 1
+  ok=0
+  for attempt in 1 2; do
+    if curl -fsSL https://get.docker.com | $SUDO sh; then ok=1; break; fi
+    echo -e "${YELLOW}Docker install attempt ${attempt} failed — waiting for apt and retrying...${RESET}"
+    sleep 10; wait_for_apt || break
+  done
+  [[ "$ok" == "1" ]] || { echo -e "${RED}Docker install failed.${RESET}"; exit 1; }
   $SUDO systemctl enable --now docker 2>/dev/null || true
 fi
 if ! docker compose version >/dev/null 2>&1; then
