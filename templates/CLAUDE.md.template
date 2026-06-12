@@ -162,6 +162,7 @@ are no systemd timers and no shell wrappers. To add one, write `../cron-tasks/<n
 name: my-task                  # must match the filename
 on_calendar: "Mon-Fri 09:00"   # when to run (systemd OnCalendar syntax)
 model: claude-sonnet-4-6       # optional; omit for the default
+timeout: 600                   # seconds; raise to 1800 for heavy runs (see below)
 prompt: |
   Plain-English instructions for the run. {{today}} substitution works.
   Use `broker call ...` for any service; post with ./bin/slack-tools.sh.
@@ -169,6 +170,11 @@ prompt: |
 
 The scheduler picks it up on the next restart. See `../cron-tasks/_template.yaml` and the
 examples beside it. Disable a task by deleting (or renaming) its file.
+
+**Set `timeout` for the work.** Default 600s (10 min). If a run exceeds it, it's SIGTERM-killed
+(exit 143) and produces nothing. A heavy task — a deep model plus many `broker call`s plus
+per-record web verification — needs **`timeout: 1800`**. Better to over-provision than have a run
+cut off mid-way.
 
 **Run a cron NOW (out of schedule):** you can't spawn the worker yourself (your shell has no
 auth token by design) — instead drop a trigger file and the scheduler runs it immediately,

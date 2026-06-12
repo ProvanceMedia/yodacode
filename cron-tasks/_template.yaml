@@ -28,7 +28,10 @@ model: claude-sonnet-4-6
 # Tools claude is allowed to use. Pick the smallest set the task actually needs.
 allowed_tools: [Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep]
 
-# Hard timeout in seconds. Default 600.
+# Hard timeout in seconds. Default 600 (10 min). If the run exceeds this it is
+# SIGTERM-killed (exit 143) and produces nothing. A heavy task — a deep model
+# plus many tool/broker calls plus per-record web verification — needs more:
+# bump to 1800 (30 min) so it isn't cut off mid-run.
 timeout: 600
 
 # Reasoning effort: low | medium | high | xhigh | max. Omit to use the model's
