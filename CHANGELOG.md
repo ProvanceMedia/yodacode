@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.4.2 — 2026-06-12
+
+- fix: cron run logs survive the unprivileged runner
+
 ## v1.4.1 — 2026-06-12
 
 - docs: timeout guidance for heavy crons
