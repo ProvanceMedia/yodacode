@@ -47,6 +47,13 @@ if [[ "$(id -u)" == "0" ]]; then
           /app/workspace/.memory-backups /app/workspace/skills 2>/dev/null || true
     [[ -f /app/workspace/MEMORY.md ]] && chown yoda:yodacode /app/workspace/MEMORY.md 2>/dev/null || true
   fi
+  # Logs must be writable by the agent in BOTH chown modes. Files inherited from a
+  # previous deployment can be root-owned with group read-only — cron-runner's append
+  # would fail on those (it now warns to stderr, but the run record still belongs in
+  # the file). Log files aren't secrets, so group-write is always safe here.
+  chgrp -R yodacode /app/logs 2>/dev/null || true
+  chmod -R g+w /app/logs 2>/dev/null || true
+  chmod g+s /app/logs 2>/dev/null || true
   chown yoda:yodacode /home/yoda 2>/dev/null || true
   exec gosu yoda "$0" "$@"
 fi

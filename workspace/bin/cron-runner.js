@@ -75,9 +75,20 @@ function loadEnvFile(envPath) {
   }
 }
 
+let logWriteWarned = false;
 function logLine(logPath, line) {
-  try { appendFileSync(logPath, `[${new Date().toISOString()}] ${line}\n`); }
-  catch (_) {}
+  const entry = `[${new Date().toISOString()}] ${line}\n`;
+  try {
+    appendFileSync(logPath, entry);
+  } catch (e) {
+    // Never lose run records silently: fall back to stderr (the scheduler inherits
+    // it, so this lands in `docker compose logs`) and say why, once per run.
+    if (!logWriteWarned) {
+      logWriteWarned = true;
+      console.error(`[cron-runner] WARN cannot write ${logPath}: ${e.message} — logging to stderr. Fix: chmod g+w on the logs dir/files.`);
+    }
+    console.error(entry.trimEnd());
+  }
 }
 
 // Optional credential isolation: when a cron sets `deroot: true`, its `claude -p` runs as
