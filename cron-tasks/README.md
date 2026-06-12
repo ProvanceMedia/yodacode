@@ -16,6 +16,18 @@ docker compose restart       # the in-container scheduler picks it up
 That's it — the scheduler reads `on_calendar` and runs the task on time; the runner does the
 rest. Delete or rename a file to disable it. (You can also just ask the bot to write one for you.)
 
+## Running a task now (out of schedule)
+
+Drop a trigger file and the scheduler fires the task immediately, exactly like a scheduled run:
+
+```bash
+touch workspace/state/cron-triggers/<task-name>     # from the install dir on the host
+```
+
+Or just ask the bot in Slack ("run the prospecting cron now") — it does the same thing from
+inside the container. The scheduler picks triggers up within ~5 seconds and won't double-fire
+a task that's already running.
+
 ## YAML schema
 
 See [`_template.yaml`](_template.yaml) for the full annotated example. Required fields:

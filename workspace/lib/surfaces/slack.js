@@ -230,6 +230,8 @@ const slackSurface = {
             'It asks for the service, the key name, and the value, stores it in a separate broker',
             'container (I never see it), and reloads. After that, just ask me to use the service.',
             '',
+            '*Run a scheduled task now*  Just ask me — e.g. "run the prospecting cron now".',
+            '',
             '*Manage me* (run in the install folder on your server)',
             '`docker compose logs -f agent` — watch me · `docker compose restart` — apply changes · `docker compose down` — stop',
             '',

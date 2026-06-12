@@ -10,7 +10,7 @@
 //
 // The agent can create/edit/enable/disable a cron just by writing the YAML file;
 // the scheduler watches the directory and reloads. No host privileges involved.
-import { readFileSync, readdirSync, existsSync, watch } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, watch, mkdirSync, unlinkSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,13 @@ const BIN_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = path.dirname(BIN_DIR);
 const PROJECT_ROOT = path.dirname(WORKSPACE);
 const CRON_TASKS_DIR = path.join(PROJECT_ROOT, 'cron-tasks');
+// Drop a file named after a task in here to run it NOW (out of schedule). This is
+// how the agent (and the operator) trigger manual runs: the agent's own spawned
+// workers have no auth token by design, but the scheduler does — so it runs the
+// task exactly like a scheduled fire. `touch state/cron-triggers/<task-name>`.
+const TRIGGER_DIR = path.join(WORKSPACE, 'state', 'cron-triggers');
 const TZ = process.env.TZ || 'UTC';
+const DRY = process.env.YODA_SCHEDULER_DRY === '1'; // test mode: log fires, don't spawn
 
 function log(...a) {
   console.error(`[scheduler ${new Date().toISOString()}]`, ...a);
@@ -105,13 +111,61 @@ function clearAll() {
   timers.clear();
 }
 
-function runTask(name) {
-  log(`firing ${name}`);
+const running = new Map(); // name -> child (used to refuse overlapping manual fires)
+
+function runTask(name, source = 'schedule') {
+  log(`firing ${name}${source === 'manual' ? ' (manual trigger)' : ''}`);
+  if (DRY) { log(`DRY: would spawn cron-runner.js ${name}`); return; }
   const child = spawn(process.execPath, [path.join(BIN_DIR, 'cron-runner.js'), name], {
     cwd: WORKSPACE,
     stdio: 'inherit',
   });
-  child.on('exit', (code) => log(`${name} exited ${code}`));
+  running.set(name, child);
+  child.on('exit', (code) => {
+    running.delete(name);
+    log(`${name} exited ${code}`);
+  });
+}
+
+// ── manual triggers ──────────────────────────────────────────────────────────
+// A file appearing in TRIGGER_DIR named <task> (extension ignored) fires that task
+// immediately. Watched + polled (fs.watch can be unreliable on bind mounts).
+function knownTask(name) {
+  return existsSync(path.join(CRON_TASKS_DIR, `${name}.yaml`));
+}
+
+function checkTriggers() {
+  let files;
+  try {
+    files = readdirSync(TRIGGER_DIR);
+  } catch {
+    return;
+  }
+  for (const f of files) {
+    if (f.startsWith('.')) continue;
+    const name = f.replace(/\.[a-z]+$/i, '');
+    try { unlinkSync(path.join(TRIGGER_DIR, f)); } catch { continue; } // claimed by someone else
+    if (!knownTask(name)) {
+      log(`trigger for unknown task "${name}" ignored (no cron-tasks/${name}.yaml)`);
+      continue;
+    }
+    if (running.has(name)) {
+      log(`trigger for ${name} ignored — already running`);
+      continue;
+    }
+    runTask(name, 'manual');
+  }
+}
+
+function watchTriggers() {
+  try { mkdirSync(TRIGGER_DIR, { recursive: true }); } catch (_) {}
+  try {
+    watch(TRIGGER_DIR, { persistent: false }, () => setTimeout(checkTriggers, 200));
+  } catch (e) {
+    log(`WARN: cannot watch trigger dir: ${e.message}`);
+  }
+  const poll = setInterval(checkTriggers, 5000); // reliable fallback
+  if (poll.unref) poll.unref();
 }
 
 function scheduleNext(name, cronExpr) {
@@ -174,6 +228,7 @@ function main() {
   log(`starting (tz ${TZ})`);
   loadAll();
   watchTasks();
+  watchTriggers();
   process.on('SIGTERM', () => { clearAll(); process.exit(0); });
   process.on('SIGINT', () => { clearAll(); process.exit(0); });
   setInterval(() => {}, 1 << 30); // keep alive

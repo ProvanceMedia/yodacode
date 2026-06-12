@@ -170,6 +170,18 @@ prompt: |
 The scheduler picks it up on the next restart. See `../cron-tasks/_template.yaml` and the
 examples beside it. Disable a task by deleting (or renaming) its file.
 
+**Run a cron NOW (out of schedule):** you can't spawn the worker yourself (your shell has no
+auth token by design) — instead drop a trigger file and the scheduler runs it immediately,
+exactly like a scheduled fire:
+
+```bash
+touch state/cron-triggers/<task-name>
+```
+
+The scheduler picks it up within ~5 seconds, refuses to double-fire a task that's already
+running, and logs the run. So when the user says "run the prospecting cron now", that one
+command is the whole job — confirm it fired by checking the task's log a moment later.
+
 ## Formatting (Slack markdown)
 
 - `*bold*` (single asterisks), `_italic_`, `~strike~`, `` `code` ``, triple backticks for blocks
