@@ -1,6 +1,6 @@
 display_information:
   name: YodaCode
-  description: Personal Claude-Code-powered chat agent
+  description: Personal Claude-Code-powered agent
   background_color: "#1a1a1a"
 
 features:
@@ -26,6 +26,7 @@ features:
       should_escape: false
     - command: /yodacode
       description: Help & setup — how to manage and configure your assistant
+      usage_hint: show help
       should_escape: false
 
 oauth_config:
