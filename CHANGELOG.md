@@ -3,6 +3,14 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.5.0 — 2026-06-13
+
+- feat: add maintainer release command to yodacode CLI
+- docs: document the yodacode CLI and updating
+- fix(slack): refine app description and command usage hint
+- chore: remove bundled-node installer, standardize on Docker
+- feat: add yodacode CLI and shared setup library
+
 ## v1.4.2 — 2026-06-12
 
 - fix: cron run logs survive the unprivileged runner
