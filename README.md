@@ -79,18 +79,44 @@ container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.m
 
 ## Day-to-day
 
-Run these from the install folder on your server:
+The installer drops a `yodacode` command on your PATH. Run `yodacode help` for the full list:
 
 ```bash
-docker compose logs -f agent     # watch the bot work
-docker compose restart           # apply config changes
-docker compose down              # stop it
-docker compose exec agent bash   # open a shell inside the agent
+yodacode doctor      # diagnose setup & health, with fixes
+yodacode logs        # watch the bot work
+yodacode restart     # apply .env changes
+yodacode stop        # stop it
+yodacode shell       # open a shell inside the agent
+yodacode status      # what's configured + container state
 ```
 
-**Adding an API key** (GitHub, Stripe, Google, …): DM your bot `/yodacode` in Slack for the
-walkthrough, or on the server run `./quickstart.sh addkey` — it stores the key in the broker (the
-agent never sees it) and reloads. The new host then shows up in the agent's `CAPABILITIES.md`.
+Configuration without editing files:
+
+```bash
+yodacode slack       # (re)connect the Slack app + tokens
+yodacode persona     # change bot name, your name, timezone
+yodacode model       # show / set the Claude model
+yodacode tools       # toggle reflectors & guardrails
+yodacode addkey      # give the bot an API key (via the broker)
+```
+
+(Everything still works as plain `docker compose …` from the install folder if you prefer — the
+`yodacode` command is a thin wrapper. If it isn't found yet, run `source ~/.bashrc` once, or use
+`./yodacode` from the repo.)
+
+**Adding an API key** (GitHub, Stripe, Google, …): run `yodacode addkey`, or DM your bot
+`/yodacode` in Slack for the walkthrough — it stores the key in the broker (the agent never sees
+it) and reloads. The new host then shows up in the agent's `CAPABILITIES.md`.
+
+## Updating
+
+```bash
+yodacode update      # fetch the latest, show what changed, rebuild & restart
+```
+
+It pulls the newest version, rebuilds the image, and restarts the stack — pausing to show you the
+incoming commits first. (By hand it's `git pull && docker compose up -d --build` from the install
+folder.)
 
 Your workspace (memory, skills, cron definitions) is **bind-mounted**, so you can read and edit it
 on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those files owned by you.
