@@ -4,9 +4,6 @@
   "private": true,
   "type": "module",
   "description": "YodaCode root — installer + scripts. The actual agent runtime lives in ./workspace.",
-  "scripts": {
-    "install:wizard": "node scripts/install.js"
-  },
   "engines": {
     "node": ">=20"
   }
