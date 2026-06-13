@@ -258,6 +258,83 @@ cmd_status() {
 
 cmd_version() { echo "yodacode $(version_string)"; }
 
+# Maintainer-only release cutter. Refuses to run outside the canonical repo.
+CANONICAL_RELEASE_REPO="${YODACODE_RELEASE_REPO:-ProvanceMedia/yodacode}"
+bump_version() {  # version kind → new version
+  local v="${1%%-*}" kind="$2" maj min pat
+  IFS=. read -r maj min pat <<<"$v"
+  case "$kind" in
+    major) maj=$((maj+1)); min=0; pat=0 ;;
+    minor) min=$((min+1)); pat=0 ;;
+    patch) pat=$((pat+1)) ;;
+    *) return 1 ;;
+  esac
+  echo "$maj.$min.$pat"
+}
+cmd_release() {
+  local kind="${1:-}"
+  case "$kind" in patch|minor|major) ;; *)
+    fail "Usage: yodacode release <patch|minor|major>"
+    note "patch — bug fixes / internal refactors"
+    note "minor — new feature, backwards-compatible"
+    note "major — breaking change"; return 1 ;;
+  esac
+  # Maintainer gate: only run in the canonical repo. Don't print origin — it
+  # may carry an embedded credential.
+  local origin; origin="$(git remote get-url origin 2>/dev/null)" || { fail "No origin remote — release is maintainer-only."; return 1; }
+  [[ "$origin" == *"$CANONICAL_RELEASE_REPO"* ]] || { fail "yodacode release is a maintainer-only command (wrong origin)."; return 1; }
+
+  title "Releasing yodacode"
+  [[ -z "$(git status --porcelain)" ]] || { fail "Working tree is dirty — commit or stash first."; return 1; }
+  local branch; branch="$(git rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == main ]] || { fail "Not on main (on $branch). Release from main."; return 1; }
+  git fetch --quiet || { fail "git fetch failed."; return 1; }
+  local behind; behind="$(git rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)"
+  [[ "$behind" == 0 ]] || { fail "Behind origin/main by $behind commit(s). Pull first."; return 1; }
+
+  local curver newver lasttag range commits
+  curver="$(grep -m1 '"version"' package.json | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')"
+  newver="$(bump_version "$curver" "$kind")" || { fail "Couldn't parse version $curver"; return 1; }
+  lasttag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  range="${lasttag:+$lasttag..}HEAD"
+  commits="$(git log --no-merges --format='%s' $range | grep -vE '^Release v[0-9]' || true)"
+  [[ -n "$commits" ]] || { fail "No commits since ${lasttag:-repo start} — nothing to release."; return 0; }
+
+  echo "  $curver → $newver  ($kind)"
+  echo "  commits since ${lasttag:-repo start}:"
+  echo "$commits" | sed 's/^/    • /'
+  echo ""
+  local ans; ans="$(ask "Cut release v$newver? [y/N]" 'n')"
+  [[ "${ans,,}" == y ]] || { note "Aborted."; return 0; }
+
+  local tmpf entryfile ln today
+  tmpf="$(mktemp)"; entryfile="$(mktemp)"; today="$(date +%F)"
+  # Bump package.json (single root "version").
+  sed -E "s/(\"version\"[[:space:]]*:[[:space:]]*\")[^\"]+\"/\1$newver\"/" package.json > "$tmpf" && mv "$tmpf" package.json
+  ok "Bumped package.json → $newver"
+  # Prepend a CHANGELOG entry before the first existing "## " heading.
+  { printf '## v%s — %s\n\n' "$newver" "$today"; echo "$commits" | sed 's/^/- /'; printf '\n'; } > "$entryfile"
+  ln="$(grep -n '^## ' CHANGELOG.md | head -1 | cut -d: -f1)"
+  if [[ -n "$ln" ]]; then
+    { head -n $((ln-1)) CHANGELOG.md; cat "$entryfile"; tail -n +"$ln" CHANGELOG.md; } > "$tmpf" && mv "$tmpf" CHANGELOG.md
+  else
+    { cat CHANGELOG.md; printf '\n'; cat "$entryfile"; } > "$tmpf" && mv "$tmpf" CHANGELOG.md
+  fi
+  rm -f "$entryfile"
+  ok "Updated CHANGELOG.md"
+
+  git add package.json CHANGELOG.md
+  git commit -q -m "Release v$newver"
+  git tag -a "v$newver" -m "v$newver"
+  ok "Committed and tagged v$newver"
+
+  local push; push="$(ask 'Push to origin now? [Y/n]' 'Y')"
+  [[ "${push,,}" =~ ^n ]] && { note "Skipped push. Later: git push origin main --follow-tags"; return 0; }
+  if git push origin main --follow-tags 2>&1 | sed -E 's#(ghp_|github_pat_|x-access-token:)[A-Za-z0-9_]+#\1***#g'; then
+    ok "Pushed v$newver to origin"
+  else fail "Push failed — retry: git push origin main --follow-tags"; return 1; fi
+}
+
 default_action() {
   if is_configured; then
     cmd_status; echo ""; note "Run 'yodacode help' for all commands."
@@ -283,6 +360,7 @@ case "$CMD" in
   persona)              cmd_persona ;;
   model)                cmd_model "$@" ;;
   tools)                cmd_tools "$@" ;;
+  release)              cmd_release "$@" ;;
   addkey)               cmd_addkey ;;
   status)               cmd_status ;;
   version|-v|--version) cmd_version ;;
