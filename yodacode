@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+# yodacode — day-to-day CLI for a Docker-installed YodaCode.
+#
+#   yodacode help     # the full command list
+#   yodacode doctor   # diagnose setup & health
+#   yodacode update   # pull the latest version and rebuild
+#
+# Installed on PATH as ~/.local/bin/yodacode by quickstart.sh; also runnable as
+# ./yodacode from the repo.
+set -uo pipefail
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+source scripts/common.sh
+
+# ── small helpers ────────────────────────────────────────────────────────────
+is_configured() {
+  [[ -f .env ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' .env 2>/dev/null \
+                && grep -q '^SLACK_BOT_TOKEN=xoxb-' .env 2>/dev/null
+}
+version_string() {
+  local v t
+  v="$(grep -m1 '"version"' package.json 2>/dev/null | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')"
+  t="$(git describe --tags 2>/dev/null || true)"   # e.g. v1.4.2-3-gabc123 when ahead of the tag
+  # Only append the git description when it adds info beyond the package version.
+  [[ -n "$t" && "$t" != "v${v}" ]] && echo "v${v:-?} ($t)" || echo "v${v:-?}"
+}
+agent_running() { docker compose ps --status running --services 2>/dev/null | grep -qx agent; }
+restart_if_running() {
+  agent_running || { note "Not running — changes apply next start (yodacode start)."; return 0; }
+  if spin "Restarting…" "$(mktemp)" docker compose restart; then ok "Restarted."; else warn "Restart failed — try: yodacode restart"; fi
+}
+
+# ── commands ─────────────────────────────────────────────────────────────────
+cmd_help() {
+  cat <<EOF
+
+$(echo -e "${C}${B}yodacode${X}") — your own Claude, on your server
+
+$(echo -e "${B}Setup${X}")
+  yodacode              run the guided installer (or show status if set up)
+  yodacode doctor       diagnose setup & health, with fixes
+  yodacode update       pull the latest version and rebuild
+
+$(echo -e "${B}Run${X}")
+  yodacode start        start the bot
+  yodacode stop         stop it
+  yodacode restart      apply .env changes
+  yodacode logs         follow the agent logs
+  yodacode shell        open a shell in the agent container
+
+$(echo -e "${B}Configure${X}")
+  yodacode slack        (re)connect the Slack app + tokens
+  yodacode persona      change bot name, your name, timezone
+  yodacode model [name] show / set the Claude model
+  yodacode tools        toggle reflectors & guardrails
+  yodacode addkey       give the bot an API key (via the broker)
+
+$(echo -e "${B}Info${X}")
+  yodacode status       what's configured + container state
+  yodacode version      installed version
+  yodacode help         this list
+
+EOF
+}
+
+cmd_doctor() {
+  title "yodacode doctor"
+  local problems=0 ps bt at tmp resp rc
+  check_key() {  # name expected-prefix fix-hint
+    local v; v="$(env_get "$1")"
+    if [[ -n "$v" && "$v" == "$2"* ]]; then ok "$1 set"
+    elif [[ -n "$v" ]]; then warn "$1 set but doesn't start with $2 — likely wrong"; problems=$((problems+1))
+    else fail "$1 missing"; note "   fix: $3"; problems=$((problems+1)); fi
+  }
+
+  # Docker
+  if command -v docker >/dev/null 2>&1; then
+    if docker info >/dev/null 2>&1; then ok "Docker daemon running"
+    else fail "Docker installed but the daemon isn't running"; note "   fix: sudo systemctl start docker"; problems=$((problems+1)); fi
+  else fail "Docker not installed"; note "   fix: ./quickstart.sh installs it"; problems=$((problems+1)); fi
+
+  # Compose + image
+  [[ -f compose.yaml || -f docker-compose.yml ]] && ok "compose file present" || { fail "no compose.yaml in $PWD"; problems=$((problems+1)); }
+  if docker image inspect yodacode:local >/dev/null 2>&1; then ok "Image built (yodacode:local)"
+  else warn "Image not built yet — run: yodacode update"; fi
+
+  # .env keys
+  if [[ -f .env ]]; then
+    ok ".env present"
+    check_key CLAUDE_CODE_OAUTH_TOKEN sk-ant- "re-run sign-in via ./quickstart.sh"
+    check_key SLACK_BOT_TOKEN xoxb- "yodacode slack"
+    check_key SLACK_APP_TOKEN xapp- "yodacode slack"
+    if [[ -n "$(env_get YODA_DM_AUTHORIZED_USERS)" ]]; then ok "Your Slack member ID set"
+    else fail "YODA_DM_AUTHORIZED_USERS missing — the bot won't reply to anyone"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
+  else fail ".env missing"; note "   fix: ./quickstart.sh"; problems=$((problems+1)); fi
+
+  # Containers
+  ps="$(docker compose ps --status running --services 2>/dev/null || true)"
+  if grep -qx agent <<<"$ps"; then ok "agent container running"
+  else warn "agent container not running — start: yodacode start"; fi
+  grep -qx broker <<<"$ps" && ok "broker container running" || note "   (broker starts on demand — fine if idle)"
+
+  # Slack tokens live — but a network blip must not look like a bad token.
+  bt="$(env_get SLACK_BOT_TOKEN)"; at="$(env_get SLACK_APP_TOKEN)"
+  if [[ "$bt" == xoxb-* ]] && command -v curl >/dev/null 2>&1; then
+    rc=0; resp="$(curl -sS --connect-timeout 5 --max-time 10 -H "Authorization: Bearer $bt" https://slack.com/api/auth.test 2>/dev/null)" || rc=$?
+    if [[ $rc -ne 0 || -z "$resp" ]]; then warn "Couldn't reach Slack to verify the bot token (offline?) — skipping"
+    elif grep -q '"ok":true' <<<"$resp"; then ok "Slack bot token accepted by Slack"
+    else fail "Slack bot token rejected by Slack"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
+  fi
+  if [[ "$at" == xapp-* ]] && command -v curl >/dev/null 2>&1; then
+    rc=0; resp="$(curl -sS --connect-timeout 5 --max-time 10 -X POST -H "Authorization: Bearer $at" https://slack.com/api/apps.connections.open 2>/dev/null)" || rc=$?
+    if [[ $rc -ne 0 || -z "$resp" ]]; then warn "Couldn't reach Slack to verify the app token (offline?) — skipping"
+    elif grep -q '"ok":true' <<<"$resp"; then ok "Slack app token accepted (connections:write)"
+    else fail "Slack app token rejected — missing connections:write?"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
+  fi
+
+  # Claude sign-in (needs the agent up)
+  if grep -qx agent <<<"$ps"; then
+    tmp="$(mktemp)"
+    # Gate on the success envelope's is_error flag, not the reply text — a
+    # healthy agent may answer "OK." / "Okay" and vary run to run, and matching
+    # the word "ok" would false-positive on error bodies mentioning a "token".
+    if spin "Checking Claude sign-in (via the agent)…" "$tmp" docker compose exec -T agent claude -p "say OK" --output-format json \
+       && grep -qE '"is_error"[ ]*:[ ]*false' "$tmp"; then ok "Claude sign-in works"
+    else fail "Claude sign-in failed — the OAuth token may be expired"; note "   fix: re-run ./quickstart.sh to re-issue a token"; problems=$((problems+1)); fi
+    rm -f "$tmp"
+    # Slack connectivity
+    if docker compose logs --tail 200 agent 2>/dev/null | grep -q '"msg":"slack: ready"'; then ok "Slack connection established"
+    else warn "No recent 'slack: ready' in logs — check: yodacode logs"; fi
+  else
+    note "Skipped Claude + Slack-connection checks (agent not running)."
+  fi
+
+  echo ""
+  if (( problems == 0 )); then ok "All good — no problems found."; return 0
+  else fail "$problems problem(s) found — see the fixes above."; return 1; fi
+}
+
+cmd_update() {
+  title "Updating yodacode"
+  require_docker
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    fail "This isn't a git checkout, so I can't pull updates."
+    note "Re-download the latest from https://github.com/ProvanceMedia/yodacode"; return 1; }
+  note "Current: $(version_string)"
+  spin "Checking for updates…" "$(mktemp)" git fetch --quiet || { fail "git fetch failed — check your network."; return 1; }
+
+  local up behind
+  if ! up="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
+    if ! git symbolic-ref -q HEAD >/dev/null 2>&1; then
+      fail "You're on a detached HEAD (a checked-out tag/commit), not a branch."
+      note "Run: git checkout main   then re-run yodacode update."; return 1
+    fi
+    if git rev-parse --verify -q origin/main >/dev/null 2>&1; then up="origin/main"
+    else fail "No upstream configured and no origin/main to compare against."
+         note "Set one: git branch --set-upstream-to=origin/main"; return 1; fi
+  fi
+  behind="$(git rev-list --count "HEAD..$up" 2>/dev/null || echo 0)"
+  if [[ "$behind" == 0 ]]; then ok "Already up to date."; return 0; fi
+
+  echo "  $behind new commit(s):"
+  git log --oneline "HEAD..$up" 2>/dev/null | head -15 | sed 's/^/    /'
+  echo ""
+  local a; a="$(ask 'Pull and rebuild now? [Y/n]' 'Y')"
+  [[ "${a,,}" =~ ^n ]] && { note "Skipped."; return 0; }
+
+  if ! git pull --ff-only --quiet; then
+    fail "git pull failed — you may have local edits."
+    note "Check 'git status'; stash or commit them, then re-run yodacode update."; return 1; fi
+
+  local log; log="$(mktemp)"
+  if spin "Rebuilding & restarting (may take a few minutes)…" "$log" docker compose up -d --build; then
+    ok "Rebuilt and restarted."
+  else
+    fail "Rebuild failed — last lines:"; tail -8 "$log" 2>/dev/null | sed 's/^/    /'; return 1
+  fi
+  install_cli_wrapper   # self-heal the wrapper if this update added/moved it
+  ok "Updated to $(version_string)."
+}
+
+cmd_start()   { require_docker; if spin "Starting…" "$(mktemp)" docker compose up -d; then ok "Started. Watch it: yodacode logs"; else fail "Start failed — see: docker compose logs"; return 1; fi; }
+cmd_stop()    { require_docker; if docker compose down; then ok "Stopped."; else fail "Stop failed."; return 1; fi; }
+cmd_restart() { require_docker; if spin "Restarting…" "$(mktemp)" docker compose restart; then ok "Restarted."; else fail "Restart failed."; return 1; fi; }
+cmd_logs()    { require_docker; exec docker compose logs -f agent; }
+cmd_shell()   { require_docker; exec docker compose exec agent bash; }
+
+cmd_slack()   { title "Reconfigure Slack"; if configure_slack; then restart_if_running; else fail "Slack setup didn't complete — nothing saved past the last ✓."; return 1; fi; }
+cmd_persona() { title "Reconfigure persona"; configure_persona && restart_if_running; }
+cmd_addkey()  { exec ./quickstart.sh addkey; }
+
+cmd_model() {
+  local arg="${1:-}"
+  if [[ -z "$arg" ]]; then
+    title "Model"
+    local cur; cur="$(env_get YODA_CLAUDE_MODEL)"
+    if [[ -n "$cur" ]]; then echo "  Primary: $cur"; else echo -e "  Primary: ${D}(default — Claude Code picks)${X}"; fi
+    echo ""
+    note "Set:   yodacode model <name>   e.g. claude-sonnet-4-6 / claude-opus-4-7 / claude-haiku-4-5"
+    note "Reset: yodacode model default"
+    return 0
+  fi
+  local v="$arg"; [[ "$arg" == default ]] && v=""
+  set_env YODA_CLAUDE_MODEL "$v"
+  [[ -n "$v" ]] && ok "Primary model set to $v" || ok "Primary model reset to default"
+  restart_if_running
+}
+
+show_toggle() {  # key label desc default_on
+  local raw on; raw="$(env_get "$1")"
+  if [[ "$4" == 1 ]]; then [[ "$raw" == 0 ]] && on=0 || on=1; else [[ "$raw" == 1 ]] && on=1 || on=0; fi
+  if [[ "$on" == 1 ]]; then echo -e "  ${G}✓${X} $(printf '%-18s' "$2") ${D}$3${X}"
+  else echo -e "  ${R}✗${X} $(printf '%-18s' "$2") ${D}$3${X}"; fi
+}
+cmd_tools() {
+  local name="${1:-}" state="${2:-}" key
+  if [[ -z "$name" ]]; then
+    title "Tools"
+    show_toggle YODA_SKILL_REFLECTOR_ENABLED  skill-reflector  "Skill self-generation after notable conversations" 0
+    show_toggle YODA_MEMORY_REFLECTOR_ENABLED memory-reflector "Memory self-generation after notable conversations" 0
+    show_toggle YODA_GUARDRAIL_ENABLED        guardrails       "Repeat-failure / no-progress detection (default on)" 1
+    echo ""
+    note "Toggle: yodacode tools <name> on|off"
+    note "Names:  skill-reflector | memory-reflector | guardrails"
+    return 0
+  fi
+  case "$name" in
+    skill-reflector)  key=YODA_SKILL_REFLECTOR_ENABLED ;;
+    memory-reflector) key=YODA_MEMORY_REFLECTOR_ENABLED ;;
+    guardrails)       key=YODA_GUARDRAIL_ENABLED ;;
+    *) fail "Unknown tool: $name"; note "Try: skill-reflector | memory-reflector | guardrails"; return 1 ;;
+  esac
+  case "$state" in
+    on)  set_env "$key" 1; ok "$name → on" ;;
+    off) set_env "$key" 0; ok "$name → off" ;;
+    *)   fail "Need on|off, got: ${state:-(nothing)}"; return 1 ;;
+  esac
+  restart_if_running
+}
+
+cmd_status() {
+  title "yodacode status"
+  field() { echo -e "  $(printf '%-16s' "$1") ${2:-${D}(unset)${X}}"; }
+  field "Install dir" "$PWD"
+  field "Version"     "$(version_string)"
+  field "Bot name"    "$(env_get BOT_NAME)"
+  field "Your name"   "$(env_get USER_NAME)"
+  field "Timezone"    "$(env_get TZ)"
+  local auth slack_b slack_a
+  [[ "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" == sk-ant-* ]] && auth="✓ set" || auth="✗ missing"
+  [[ "$(env_get SLACK_BOT_TOKEN)" == xoxb-* ]] && slack_b="✓ set" || slack_b="✗ missing"
+  [[ "$(env_get SLACK_APP_TOKEN)" == xapp-* ]] && slack_a="✓ set" || slack_a="✗ missing"
+  field "Auth token"  "$auth"
+  field "Slack bot"   "$slack_b"
+  field "Slack app"   "$slack_a"
+  local ps; ps="$(docker compose ps --status running --services 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')"
+  field "Running"     "${ps:-${D}(nothing)${X}}"
+}
+
+cmd_version() { echo "yodacode $(version_string)"; }
+
+default_action() {
+  if is_configured; then
+    cmd_status; echo ""; note "Run 'yodacode help' for all commands."
+  else
+    note "Not set up yet — launching the guided installer…"; echo ""
+    exec ./quickstart.sh
+  fi
+}
+
+# ── dispatch ─────────────────────────────────────────────────────────────────
+CMD="${1:-}"; [[ $# -gt 0 ]] && shift
+case "$CMD" in
+  "")                   default_action ;;
+  help|-h|--help)       cmd_help ;;
+  doctor)               cmd_doctor ;;
+  update)               cmd_update ;;
+  start)                cmd_start ;;
+  stop)                 cmd_stop ;;
+  restart)              cmd_restart ;;
+  logs)                 cmd_logs ;;
+  shell)                cmd_shell ;;
+  slack)                cmd_slack ;;
+  persona)              cmd_persona ;;
+  model)                cmd_model "$@" ;;
+  tools)                cmd_tools "$@" ;;
+  addkey)               cmd_addkey ;;
+  status)               cmd_status ;;
+  version|-v|--version) cmd_version ;;
+  setup)                exec ./quickstart.sh "$@" ;;
+  *) fail "Unknown command: $CMD"; cmd_help; exit 1 ;;
+esac

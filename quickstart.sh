@@ -6,36 +6,11 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-# ── palette ───────────────────────────────────────────────────────────────────
-C='\033[38;5;43m'   # teal accent
-G='\033[32m'; Y='\033[33m'; R='\033[31m'
-B='\033[1m'; D='\033[2m'; X='\033[0m'
+# Shared palette, spinner, timezone resolver, .env helpers, and the
+# persona/Slack setup flows (also used by the `yodacode` CLI).
+source scripts/common.sh
 
-banner() {
-  echo ""
-  echo -e "${C}${B}  ╦ ╦╔═╗╔╦╗╔═╗╔═╗╔═╗╔╦╗╔═╗${X}"
-  echo -e "${C}${B}  ╚╦╝║ ║ ║║╠═╣║  ║ ║ ║║║╣ ${X}"
-  echo -e "${C}${B}   ╩ ╚═╝═╩╝╩ ╩╚═╝╚═╝═╩╝╚═╝${X}"
-  echo -e "  ${D}your own Claude, running on your server${X}"
-  echo ""
-}
-
-step()  { echo ""; echo -e "${C}${B}━━━ Step $1/6 · $2 ━━━${X}"; echo ""; }
-ok()    { echo -e "  ${G}✓${X} $1"; }
-warn()  { echo -e "  ${Y}!${X} $1"; }
-fail()  { echo -e "  ${R}✗${X} $1"; }
-note()  { echo -e "  ${D}$1${X}"; }
-ask()   { local p="$1" d="${2:-}" v; if [[ -n "$d" ]]; then read -r -p "  $(echo -e "${B}$p${X}") [${d}] " v; echo "${v:-$d}"; else read -r -p "  $(echo -e "${B}$p${X}") " v; echo "$v"; fi; }
-
-SUDO=""; [[ $EUID -ne 0 ]] && SUDO="sudo"
-ENVF=".env"
-set_env() {
-  if [[ -f "$ENVF" ]] && grep -q "^$1=" "$ENVF" 2>/dev/null; then
-    grep -v "^$1=" "$ENVF" > "$ENVF.tmp" || true   # grep -v exits 1 on empty output
-    mv "$ENVF.tmp" "$ENVF"
-  fi
-  printf '%s=%s\n' "$1" "$2" >> "$ENVF"
-}
+step() { echo ""; echo -e "${C}${B}━━━ Step $1/6 · $2 ━━━${X}"; echo ""; }
 
 # ── subcommand: addkey ────────────────────────────────────────────────────────
 # Securely register a service API key with the broker. The secret value is read
@@ -109,6 +84,10 @@ PY
   exit 0
 fi
 
+# Per-run log dir — fixed /tmp names collide with (and replay) a previous
+# user's stale logs, and root-owned leftovers would break the redirects.
+LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/yodacode.XXXXXX")"
+
 banner
 echo "  This sets up your assistant from scratch — about 5 minutes. You'll need:"
 echo "    • a Claude subscription (Max recommended) + a browser on your laptop/phone"
@@ -145,19 +124,23 @@ wait_for_apt() {
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   ok "Docker $(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) already installed."
 else
-  note "Installing Docker (runs the bot in an isolated container)…"
   [[ $EUID -ne 0 ]] && ! command -v sudo >/dev/null 2>&1 && { fail "Needs root: sudo ./quickstart.sh"; exit 1; }
   wait_for_apt || exit 1; installed=0
-  for a in 1 2; do curl -fsSL https://get.docker.com | $SUDO sh >/dev/null 2>&1 && { installed=1; break; }; warn "Retry…"; sleep 10; wait_for_apt || break; done
-  [[ "$installed" == 1 ]] || { fail "Docker install failed. Try: curl -fsSL https://get.docker.com | sh"; exit 1; }
+  for a in 1 2; do
+    # pipefail must be re-set inside bash -c (options don't inherit) — without
+    # it a failed curl leaves sh reading EOF and "succeeding".
+    spin "Installing Docker (runs the bot in an isolated container)…" "$LOGDIR/docker.log" \
+      bash -c "set -o pipefail; curl -fsSL https://get.docker.com | $SUDO sh" && { installed=1; break; }
+    (( a < 2 )) && { warn "Retry…"; sleep 10; wait_for_apt || break; }
+  done
+  [[ "$installed" == 1 ]] || { fail "Docker install failed — last lines:"; tail -5 "$LOGDIR/docker.log" 2>/dev/null | sed 's/^/    /'; note "Try manually: curl -fsSL https://get.docker.com | sh"; exit 1; }
   $SUDO systemctl enable --now docker 2>/dev/null || true; ok "Docker installed."
 fi
 
 # ── 2 · Build ─────────────────────────────────────────────────────────────────
 step 2 "Building"
-note "Building the image (3–5 min on a small server — grab a coffee)…"
-if docker compose build >/tmp/yc-build.log 2>&1; then ok "Image built."; else
-  fail "Build failed — last lines:"; tail -8 /tmp/yc-build.log | sed 's/^/    /'
+if spin "Building the image — may take a few minutes — grab a brew…" "$LOGDIR/build.log" docker compose build; then ok "Image built."; else
+  fail "Build failed — last lines:"; tail -8 "$LOGDIR/build.log" | sed 's/^/    /'
   note "Low memory? add swap: fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"; exit 1
 fi
 
@@ -180,117 +163,61 @@ for t in 1 2 3; do
   fail "Should start with sk-ant-oat01- ($((3-t)) left)"; CLAUDE_TOKEN=""
 done
 [[ -n "$CLAUDE_TOKEN" ]] || { fail "No valid token. Re-run ./quickstart.sh."; exit 1; }
-note "Checking it works…"
-if docker compose run --rm --no-deps -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN" -e ANTHROPIC_API_KEY= \
-     --entrypoint claude agent -p "say OK" --output-format json 2>/dev/null | grep -q '"result"[: ]*"OK"'; then
+if spin "Checking your sign-in works…" "$LOGDIR/auth.log" docker compose run --rm --no-deps \
+     -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_TOKEN" -e ANTHROPIC_API_KEY= \
+     --entrypoint claude agent -p "say OK" --output-format json \
+   && grep -qE '"is_error"[ ]*:[ ]*false' "$LOGDIR/auth.log"; then
   ok "Signed in to Claude."; else warn "Couldn't verify just now — continuing (may still work)."; fi
 
 # ── 4 · Personalise ───────────────────────────────────────────────────────────
 step 4 "Personalise your assistant"
 echo "  Let's give it a name and tell it who you are."
 echo ""
-BOT_NAME="$(ask 'What should your assistant be called?' 'Yoda')"
-BOT_NAME="$(echo "$BOT_NAME" | tr -cd '[:alnum:] ' | sed 's/^ *//;s/ *$//')"; [[ -z "$BOT_NAME" ]] && BOT_NAME="Yoda"
-USER_NAME="$(ask "What should ${BOT_NAME} call you?" 'friend')"
-USER_NAME="$(echo "$USER_NAME" | tr -cd '[:alnum:] ' | sed 's/^ *//;s/ *$//')"; [[ -z "$USER_NAME" ]] && USER_NAME="friend"
-echo ""
-echo -e "  ${B}Your Slack member ID${X} — so ${BOT_NAME} knows it's you and replies to your DMs."
-echo -e "  ${D}Find it: in Slack click your profile photo → Profile → the ⋮ (More) → Copy member ID.${X}"
-echo -e "  ${D}It starts with a U, e.g. U01ABC2DEF3.${X}"
-echo ""
-SLACK_UID=""
-for t in 1 2 3; do
-  read -r -p "  Paste your Slack member ID: " SLACK_UID; SLACK_UID="$(echo "$SLACK_UID" | tr -d '[:space:]')"
-  [[ "$SLACK_UID" =~ ^[UW][A-Z0-9]{6,}$ ]] && break
-  fail "That doesn't look like a member ID (starts with U). ($((3-t)) left)"; SLACK_UID=""
-done
-[[ -n "$SLACK_UID" ]] || { fail "Need your member ID so the bot will reply to you. Re-run ./quickstart.sh."; exit 1; }
-echo ""
-USER_CTX="$(ask "Anything ${BOT_NAME} should know about you? (one line, or Enter to skip)" '')"
-TZ_GUESS="$(cat /etc/timezone 2>/dev/null || timedatectl show -p Timezone --value 2>/dev/null || echo UTC)"
-
-# render persona files from templates into the workspace
-render() { sed -e "s/{{BOT_NAME}}/$BOT_NAME/g" -e "s/{{USER_NAME}}/$USER_NAME/g" -e "s|{{TIMEZONE}}|$TZ_GUESS|g" "templates/$1.template" > "workspace/$1"; }
-for f in CLAUDE.md IDENTITY.md USER.md MEMORY.md; do [[ -f "templates/$f.template" ]] && render "$f"; done
-if [[ -n "$USER_CTX" ]] && [[ -f workspace/USER.md ]]; then
-  # drop the context under the Context heading
-  awk -v c="$USER_CTX" '/^\*\(Fill this in/{print "- " c; next} {print}' workspace/USER.md > workspace/USER.md.tmp && mv workspace/USER.md.tmp workspace/USER.md
-fi
-ok "Persona written — ${BOT_NAME}, assisting ${USER_NAME} (${TZ_GUESS})."
+configure_persona   # bot name, your name, context, timezone → renders persona docs
 
 # ── 5 · Slack app ─────────────────────────────────────────────────────────────
 step 5 "Create the Slack app"
-echo "  Two minutes of clicking — fully guided."
-echo ""
-echo -e "    1. open  ${B}https://api.slack.com/apps?new_app=1${X}"
-echo -e "    2. choose ${B}\"From a manifest\"${X} → pick your workspace"
-echo -e "    3. clear the box, paste this (works on the JSON or YAML tab), ${B}Next${X} → ${B}Create${X}:"
-echo ""
-echo -e "  ${C}┄┄┄ copy from here ┄┄┄${X}"
-sed "s/\"YodaCode\"/\"$BOT_NAME\"/g" scripts/slack-app-manifest.json | sed 's/^/  /'
-echo -e "  ${C}┄┄┄ to here ┄┄┄┄┄┄┄┄┄${X}"
-echo ""
-echo -e "    4. left menu ${B}Install App${X} → ${B}Install to Workspace${X} → Allow"
-echo -e "       copy the ${B}Bot User OAuth Token${X} (xoxb-…)"
-echo ""
-SLACK_BOT=""
-for t in 1 2 3; do
-  read -r -p "  Paste the Bot token (xoxb-…): " SLACK_BOT; SLACK_BOT="$(echo "$SLACK_BOT" | tr -d '[:space:]')"
-  if [[ "$SLACK_BOT" == xoxb-* ]]; then
-    au=$(curl -s -H "Authorization: Bearer $SLACK_BOT" https://slack.com/api/auth.test || true)
-    grep -q '"ok":true' <<<"$au" && { ok "Connected to $(grep -o '"team":"[^"]*"' <<<"$au" | cut -d'"' -f4) ✓"; break; }
-    fail "Slack rejected it — re-copy from OAuth & Permissions. ($((3-t)) left)"
-  else fail "Bot tokens start with xoxb-. ($((3-t)) left)"; fi
-  SLACK_BOT=""
-done
-[[ -n "$SLACK_BOT" ]] || { fail "No valid bot token. Re-run ./quickstart.sh."; exit 1; }
-echo ""
-echo -e "    5. ${B}Basic Information${X} → ${B}App-Level Tokens${X} → ${B}Generate Token${X}"
-echo -e "       add scope ${B}connections:write${X} → Generate → copy it (xapp-…)"
-echo ""
-SLACK_APP=""
-for t in 1 2 3; do
-  read -r -p "  Paste the App-Level token (xapp-…): " SLACK_APP; SLACK_APP="$(echo "$SLACK_APP" | tr -d '[:space:]')"
-  if [[ "$SLACK_APP" == xapp-* ]]; then
-    cn=$(curl -s -X POST -H "Authorization: Bearer $SLACK_APP" https://slack.com/api/apps.connections.open || true)
-    grep -q '"ok":true' <<<"$cn" && { ok "App-level token works ✓"; break; }
-    fail "Rejected — needs the connections:write scope. ($((3-t)) left)"
-  else fail "App-level tokens start with xapp-. ($((3-t)) left)"; fi
-  SLACK_APP=""
-done
-[[ -n "$SLACK_APP" ]] || { fail "No valid app token. Re-run ./quickstart.sh."; exit 1; }
+configure_slack || { fail "Slack setup didn't complete. Re-run ./quickstart.sh."; exit 1; }   # member ID, manifest, tokens
 
 # ── write config ──────────────────────────────────────────────────────────────
-[[ -f "$ENVF" ]] || cp .env.example "$ENVF"; chmod 600 "$ENVF"
 set_env CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_TOKEN"
-set_env SLACK_BOT_TOKEN "$SLACK_BOT"
-set_env SLACK_APP_TOKEN "$SLACK_APP"
-set_env YODA_DM_AUTHORIZED_USERS "$SLACK_UID"
-set_env BOT_NAME "$BOT_NAME"
-set_env USER_NAME "$USER_NAME"
-set_env TZ "$TZ_GUESS"
 ok "Configuration saved."
 
 # ── 6 · Launch + smoke test ───────────────────────────────────────────────────
 step 6 "Launch"
-docker compose up -d >/dev/null 2>&1 || { fail "Start failed — check: docker compose logs"; exit 1; }
-note "Starting…"
-ready=0; for i in $(seq 1 30); do docker compose logs agent 2>/dev/null | grep -q '"msg":"slack: ready"' && { ready=1; break; }; sleep 2; done
-[[ "$ready" == 1 ]] && ok "Connected to Slack." || warn "No 'slack: ready' yet — check: docker compose logs -f agent"
+spin "Starting the containers…" "$LOGDIR/up.log" docker compose up -d || {
+  fail "Start failed — last lines:"; tail -8 "$LOGDIR/up.log" 2>/dev/null | sed 's/^/    /'
+  note "Full log: $LOGDIR/up.log — if containers started, also try: docker compose logs"; exit 1; }
+if spin "Waiting for ${BOT_NAME} to connect to Slack…" "$LOGDIR/ready.log" bash -c \
+  'for i in $(seq 1 30); do docker compose logs agent 2>/dev/null | grep -q "\"msg\":\"slack: ready\"" && exit 0; sleep 2; done; exit 1'; then
+  ok "Connected to Slack."
+else warn "No 'slack: ready' yet — check: docker compose logs -f agent"; fi
 
 echo ""
 note "Quick test — asking ${BOT_NAME} to say hello (proves Claude + the agent work):"
 echo ""
-reply=$(docker compose exec -T agent claude -p "You are ${BOT_NAME}. In one short, friendly sentence, introduce yourself to ${USER_NAME} and say you're ready." 2>/dev/null | head -c 400)
+reply=""
+if spin "${BOT_NAME} is thinking…" "$LOGDIR/hello.log" bash -c 'docker compose exec -T agent claude -p "$1" 2>/dev/null' _ \
+     "You are ${BOT_NAME}. In one short, friendly sentence, introduce yourself to ${USER_NAME} and say you're ready."; then
+  reply="$(head -c 400 "$LOGDIR/hello.log" 2>/dev/null)"
+fi
 if [[ -n "$reply" ]]; then echo -e "  ${C}${B}${BOT_NAME}:${X} ${reply}"; ok "${BOT_NAME} is responding."; else warn "No reply from the test — check: docker compose logs agent"; fi
+
+# Install the `yodacode` CLI so management commands work from anywhere.
+install_cli_wrapper
 
 echo ""
 echo -e "  ${G}${B}🎉 ${BOT_NAME} is live.${X}  Open Slack and DM ${BOT_NAME} — say hello."
 echo ""
-echo "  Manage it from this folder:"
-echo "    docker compose logs -f agent     # watch it think"
-echo "    docker compose restart           # after changing settings"
-echo "    docker compose down              # stop"
+echo "  Manage it with the ${B}yodacode${X} command (run ${B}yodacode help${X} for the full list):"
+echo "    yodacode logs       # watch it think"
+echo "    yodacode doctor     # check everything's healthy"
+echo "    yodacode update     # pull the latest version and rebuild"
+echo "    yodacode restart    # after changing settings"
 echo ""
-echo -e "  ${B}Add API keys any time:${X} in Slack, DM ${BOT_NAME} \`/yodacode\` — it'll walk you through it."
+if [[ "${YC_WRAPPER_PATH_ADDED:-0}" == 1 ]]; then
+  note "New command added to your PATH — run 'source ~/.bashrc' (or open a new shell) to use 'yodacode'."
+  note "Until then: ./yodacode help"
+fi
+echo -e "  ${B}Add API keys any time:${X} run ${B}yodacode addkey${X}, or DM ${BOT_NAME} \`/yodacode\` in Slack."
 echo "  Keys live in a separate broker container; ${BOT_NAME} itself never sees them."

@@ -9,7 +9,7 @@ Active long-term memory. Tidied daily by the consolidation cron.
 
 - Created {{DATE}} as a Claude Code personal agent for {{USER_NAME}}.
 - Lives at `{{INSTALL_DIR}}/` on the server.
-- Managed by systemd (`yodacode.service`, `yodacode-*.timer` for crons).
+- Runs in Docker; manage it with the `yodacode` command (start/stop/restart/logs/update).
 
 ---
 
