@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.5.2 — 2026-06-14
+
+- fix: point Opus references at claude-opus-4-8
+
 ## v1.5.1 — 2026-06-14
 
 - fix: self-install the yodacode launcher on first use
