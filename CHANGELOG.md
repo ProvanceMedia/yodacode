@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v1.5.1 — 2026-06-14
+
+- fix: self-install the yodacode launcher on first use
+
 ## v1.5.0 — 2026-06-13
 
 - feat: add maintainer release command to yodacode CLI
