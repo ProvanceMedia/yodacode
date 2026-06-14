@@ -346,6 +346,16 @@ default_action() {
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
 CMD="${1:-}"; [[ $# -gt 0 ]] && shift
+
+# Self-heal: the first time this runs as ./yodacode and the launcher isn't
+# installed yet, drop it onto PATH so every future call works without the ./.
+# Keyed off the launcher file so it acts once, then stays silent — existing
+# installs fix themselves on first use.
+if [[ ! -e "$HOME/.local/bin/yodacode" ]]; then
+  install_cli_wrapper
+  note "Installed the 'yodacode' command — run 'source ~/.bashrc' (or open a new shell) to use it without ./"
+fi
+
 case "$CMD" in
   "")                   default_action ;;
   help|-h|--help)       cmd_help ;;
