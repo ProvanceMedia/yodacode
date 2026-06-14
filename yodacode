@@ -195,7 +195,7 @@ cmd_model() {
     local cur; cur="$(env_get YODA_CLAUDE_MODEL)"
     if [[ -n "$cur" ]]; then echo "  Primary: $cur"; else echo -e "  Primary: ${D}(default — Claude Code picks)${X}"; fi
     echo ""
-    note "Set:   yodacode model <name>   e.g. claude-sonnet-4-6 / claude-opus-4-7 / claude-haiku-4-5"
+    note "Set:   yodacode model <name>   e.g. claude-sonnet-4-6 / claude-opus-4-8 / claude-haiku-4-5"
     note "Reset: yodacode model default"
     return 0
   fi

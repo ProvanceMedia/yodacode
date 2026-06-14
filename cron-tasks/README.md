@@ -34,7 +34,7 @@ See [`_template.yaml`](_template.yaml) for the full annotated example. Required 
 
 - `name` — must match the filename (without `.yaml`)
 - `prompt` — multi-line task description (use YAML `|` literal block)
-- `model` — every cron yaml must name its model explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Common: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-7`.
+- `model` — every cron yaml must name its model explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Common: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-opus-4-8`.
 
 Optional:
 

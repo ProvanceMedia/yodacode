@@ -22,7 +22,7 @@ schedule: "0 9 * * *"          # 09:00 daily  (min hour dom mon dow)
 
 # Model. REQUIRED — every cron yaml must state its model explicitly so you
 # can see at a glance what it runs on. No implicit defaults.
-# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (workhorse), claude-opus-4-7 (heavy judgement)
+# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (workhorse), claude-opus-4-8 (heavy judgement)
 model: claude-sonnet-4-6
 
 # Tools claude is allowed to use. Pick the smallest set the task actually needs.

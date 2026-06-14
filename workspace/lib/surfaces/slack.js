@@ -201,7 +201,7 @@ const slackSurface = {
     // becomes the thread root, then dispatch through the normal pipeline with
     // modelOverride set.
     const SLASH_MODELS = {
-      '/opus': { model: 'claude-opus-4-7', label: 'opus' },
+      '/opus': { model: 'claude-opus-4-8', label: 'opus' },
       '/sonnet': { model: 'claude-sonnet-4-6', label: 'sonnet' },
       '/haiku': { model: 'claude-haiku-4-5', label: 'haiku' },
     };
