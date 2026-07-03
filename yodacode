@@ -93,6 +93,23 @@ cmd_doctor() {
     else fail "YODA_DM_AUTHORIZED_USERS missing — the bot won't reply to anyone"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
   else fail ".env missing"; note "   fix: ./quickstart.sh"; problems=$((problems+1)); fi
 
+  # Memory / OOM — the #1 failure mode on tiny VMs: the kernel SIGKILLs the
+  # Claude engine mid-reply and the bot silently fails.
+  local mem_mb swap_mb
+  mem_mb="$(awk '/^MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+  swap_mb="$(awk '/^SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+  if (( mem_mb + swap_mb >= 1792 )); then ok "Memory headroom (${mem_mb}MB RAM + ${swap_mb}MB swap)"
+  else
+    fail "Low memory: ${mem_mb}MB RAM + ${swap_mb}MB swap — replies get OOM-killed"
+    note "   fix: resize to ≥1GB RAM, or add swap: fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
+    problems=$((problems+1))
+  fi
+  # Informational (not counted as a problem): the kernel log persists since
+  # boot, so an old unrelated kill shouldn't fail an otherwise healthy setup.
+  if dmesg 2>/dev/null | grep -qiE 'out of memory|oom-kill'; then
+    warn "Kernel OOM kills found in dmesg — if replies fail with SIGKILL, this is why (add RAM/swap)"
+  fi
+
   # Containers
   ps="$(docker compose ps --status running --services 2>/dev/null || true)"
   if grep -qx agent <<<"$ps"; then ok "agent container running"

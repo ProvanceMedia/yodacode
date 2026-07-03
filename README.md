@@ -27,7 +27,8 @@ The full feature list is in the [table below](#features).
 ## What you need
 
 - **A small always-on Linux server** — a cheap VPS, cloud droplet, or home server. (A laptop that
-  sleeps won't do; the bot needs to stay connected.) **1 GB RAM** is enough; that's it for specs.
+  sleeps won't do; the bot needs to stay connected.) **1 GB RAM minimum, 2 GB comfortable** —
+  under that, the kernel kills replies mid-run (the installer offers to add swap on small boxes).
 - **Docker** — if it's missing, the installer offers to install it for you.
 - **A Claude subscription** — Max recommended, Pro works with tighter limits. The installer signs
   you in; no API key.
@@ -55,7 +56,8 @@ A few minutes later, DM your bot in Slack.
 Adding API keys is optional and explained at the end. Re-running `./quickstart.sh` offers
 start-or-reconfigure.
 
-> On a 512 MB box the image build can stall — use 1 GB, or add swap first.
+> On a 512 MB box the build stalls and replies get OOM-killed — use 1 GB+, or accept the
+> installer's swapfile offer.
 
 ## You don't need to be technical
 

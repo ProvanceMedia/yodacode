@@ -117,6 +117,38 @@ fi
 
 # ── 1 · Docker ────────────────────────────────────────────────────────────────
 step 1 "Docker"
+
+# Memory preflight. The Claude engine needs several hundred MB per reply; on
+# tiny VMs (512MB–1GB) the kernel OOM-kills it mid-reply and the bot just
+# fails. Under ~1.75GB total (RAM+swap), offer to add a swapfile now.
+mem_mb="$(awk '/^MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+swap_mb="$(awk '/^SwapTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+if (( mem_mb > 0 && mem_mb + swap_mb < 1792 )); then
+  warn "This server has ${mem_mb}MB RAM + ${swap_mb}MB swap — too little headroom: the agent gets OOM-killed mid-reply."
+  avail_mb="$(df -Pm / 2>/dev/null | awk 'NR==2{print int($4)}')"
+  if (( ${avail_mb:-0} > 3072 )); then
+    swapans="$(ask 'Add a 2GB swapfile now (recommended)? [Y/n]' 'Y')"
+    if [[ ! "${swapans,,}" =~ ^n ]]; then
+      if { $SUDO fallocate -l 2G /yodacode-swap 2>/dev/null \
+           || $SUDO dd if=/dev/zero of=/yodacode-swap bs=1M count=2048 status=none 2>/dev/null; } \
+         && $SUDO chmod 600 /yodacode-swap \
+         && $SUDO mkswap /yodacode-swap >/dev/null 2>&1 \
+         && $SUDO swapon /yodacode-swap; then
+        grep -q '^/yodacode-swap' /etc/fstab 2>/dev/null \
+          || echo '/yodacode-swap none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+        ok "2GB swapfile active (/yodacode-swap) — survives reboots."
+      else
+        $SUDO rm -f /yodacode-swap 2>/dev/null
+        warn "Swapfile setup failed — strongly consider resizing to ≥1GB RAM."
+      fi
+    else
+      note "Skipping. A 1GB+ server (or swap) is strongly recommended — replies may be OOM-killed."
+    fi
+  else
+    warn "Not enough free disk for a swapfile — resize the server to ≥1GB RAM."
+  fi
+fi
+
 wait_for_apt() {
   command -v fuser >/dev/null 2>&1 || return 0
   local locks="/var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock" waited=0

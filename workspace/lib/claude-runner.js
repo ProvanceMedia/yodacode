@@ -327,7 +327,12 @@ export async function runClaude({
       surface, conversationId, err: queryError.message, stderr: stderr || '(empty)',
     });
     const detail = stderr ? `: ${stderr.split('\n').filter(Boolean).slice(-3).join(' / ')}` : '';
-    return { ok: false, error: `${queryError.message}${detail}` };
+    // An out-of-the-blue SIGKILL is almost always the kernel OOM killer —
+    // the Claude engine needs several hundred MB and tiny VMs run out.
+    const oomHint = /SIGKILL/.test(queryError.message)
+      ? ' (likely out of memory — check free RAM/swap, see `yodacode doctor`)'
+      : '';
+    return { ok: false, error: `${queryError.message}${detail}${oomHint}` };
   }
   if (finalResult) return finalResult;
   return { ok: false, error: 'no result from claude' };
