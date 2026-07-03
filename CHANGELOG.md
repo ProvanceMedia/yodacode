@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.0.0 — 2026-07-03
+
+- feat: per-thread session resume with delta prompts
+- feat: run agents through the Claude Agent SDK
+
 ## v1.5.2 — 2026-06-14
 
 - fix: point Opus references at claude-opus-4-8
