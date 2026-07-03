@@ -116,6 +116,29 @@ async function discoverBotUserId() {
  *   - File attachment with optional caption (subtype 'file_share')
  *   - Edited messages are NOT processed (avoid double-replying)
  */
+// ─── status card ────────────────────────────────────────────────────────────
+// The channel working-state: one line of small muted text (a context block),
+// e.g. "working · 24s · reading config.js". Kept deliberately plain — no
+// emoji — so it reads as a system indicator, not a chat message.
+
+function formatElapsed(startedAt) {
+  const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? `${s % 60}s` : ''}`;
+}
+
+function statusCardText(status, startedAt) {
+  const clean = String(status || '').trim() || 'working…';
+  const elapsed = startedAt ? ` · ${formatElapsed(startedAt)}` : '';
+  // The generic phases carry no detail of their own — show a bare
+  // "working · 4s" rather than "working · 4s · thinking…".
+  if (/^(thinking|starting up|working)/i.test(clean)) return `working${elapsed}…`;
+  return `working${elapsed} · ${clean}`;
+}
+
+function statusCardBlocks(cardText) {
+  return [{ type: 'context', elements: [{ type: 'mrkdwn', text: cardText }] }];
+}
+
 async function normalize(event) {
   if (!event || !event.user) return null;
   if (event.bot_id) return null;
@@ -393,7 +416,7 @@ const slackSurface = {
   },
 
   async postPlaceholder(replyTarget, text) {
-    const isThinking = typeof text === 'string' && /^_(💭|.*thinking).*_$/i.test(text.trim());
+    const isThinking = typeof text === 'string' && /thinking/i.test(text);
     // DMs: try the typing-indicator shimmer (assistant.threads.setStatus).
     // If the app doesn't have the assistant:write scope, that call fails
     // and we fall back to posting a normal placeholder.
@@ -416,9 +439,15 @@ const slackSurface = {
         logger.debug('slack: shimmer unavailable, using placeholder', { err: e.message });
       }
     }
+    // Channels (and DMs without the shimmer scope): a status card — a
+    // context block renders as small muted text, so the working state reads
+    // as a system indicator rather than a chat message. The card is edited
+    // in place by setStatus and replaced by the final reply.
+    const cardText = statusCardText('working…', null);
     const r = await web.chat.postMessage({
       channel: replyTarget.channel,
-      text,
+      text: cardText, // notification/accessibility fallback
+      blocks: statusCardBlocks(cardText),
       thread_ts: replyTarget.threadTs,
     });
     return {
@@ -427,24 +456,38 @@ const slackSurface = {
       ts: r.ts,
       threadTs: replyTarget.threadTs,
       conversationId: replyTarget.conversationId,
+      startedAt: Date.now(),
     };
   },
 
   // Live status update during a tick. For DMs in shimmer mode, uses
-  // assistant.threads.setStatus (the typing-indicator shimmer). For channels
-  // and oversized cases, falls back to editing the placeholder message.
+  // assistant.threads.setStatus (the typing-indicator shimmer). For channels,
+  // edits the muted status card in place, with elapsed time.
   async setStatus(handle, text) {
-    if (!handle || !handle.shimmer) {
-      return this.updateMessage(handle, text);
+    if (!handle || !handle.channel) return;
+    if (handle.shimmer) {
+      try {
+        await web.assistant.threads.setStatus({
+          channel_id: handle.channel,
+          thread_ts: handle.threadTs,
+          status: typeof text === 'string' ? text.slice(0, 250) : '',
+        });
+      } catch (e) {
+        logger.debug('slack: assistant.threads.setStatus failed', { err: e.message });
+      }
+      return;
     }
+    if (!handle.ts) return;
+    const cardText = statusCardText(text, handle.startedAt);
     try {
-      await web.assistant.threads.setStatus({
-        channel_id: handle.channel,
-        thread_ts: handle.threadTs,
-        status: typeof text === 'string' ? text.slice(0, 250) : '',
+      await web.chat.update({
+        channel: handle.channel,
+        ts: handle.ts,
+        text: cardText,
+        blocks: statusCardBlocks(cardText),
       });
     } catch (e) {
-      logger.debug('slack: assistant.threads.setStatus failed', { err: e.message });
+      logger.debug('slack: status card update failed', { err: e.message });
     }
   },
 
@@ -475,7 +518,9 @@ const slackSurface = {
 
     if (!handle.ts) return;
     try {
-      await web.chat.update({ channel: handle.channel, ts: handle.ts, text });
+      // blocks: [] clears the status card — without it Slack keeps rendering
+      // the old blocks and ignores the new text.
+      await web.chat.update({ channel: handle.channel, ts: handle.ts, text, blocks: [] });
     } catch (e) {
       // Don't crash on rate limits or transient failures — the next update
       // will retry.

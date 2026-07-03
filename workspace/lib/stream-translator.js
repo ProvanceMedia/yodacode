@@ -9,12 +9,14 @@
 // user, result, rate_limit_event), so the translation logic is unchanged —
 // only the transport moved from stdout-line parsing to SDK objects.
 //
-// Status text examples it produces:
-//   "💭 thinking…"
-//   "⚡ Slack post"
-//   "🌐 curl api.hubapi.com"
-//   "📖 reading SOUL.md"
-//   "✍️ Final reply preview…"
+// Status text examples it produces (plain lowercase verb phrases — surfaces
+// decide presentation: Slack renders them in a muted context-block card or
+// the native DM shimmer, WhatsApp as message edits):
+//   "thinking…"
+//   "slack post"
+//   "calling api.hubapi.com"
+//   "reading SOUL.md"
+//   "drafting: Final reply preview…"
 // Final text is the result message's text (or the assistant's text blocks).
 
 import path from 'node:path';
@@ -53,7 +55,7 @@ export async function translateMessages(messages, {
   const finalChunks = [];
   let finalText = '';
   let errorText = null;
-  let currentStatus = '💭 thinking…';
+  let currentStatus = 'thinking…';
   let retryCount = 0;
   let throttled = false;
   let usage = null;
@@ -111,7 +113,7 @@ export async function translateMessages(messages, {
         case 'system':
           if (ev.subtype === 'init') {
             model = ev.model || null;
-            currentStatus = '💭 starting up…';
+            currentStatus = 'starting up…';
             await send(currentStatus);
           } else if (ev.subtype === 'api_retry') {
             // Anthropic throttled us — show progress so the user knows we're
@@ -123,7 +125,7 @@ export async function translateMessages(messages, {
             // than saying it was a connection-level failure.
             const status = ev.error_status
               ?? (ev.error && ev.error !== 'unknown' ? ev.error : 'connection error');
-            currentStatus = `⏳ Anthropic throttled (${status}) — retry ${attempt}`;
+            currentStatus = `retrying — Anthropic throttled (${status}), attempt ${attempt}`;
             await send(currentStatus, true);
 
             // Bail out if we've exceeded our local cap. Continuing past this
@@ -152,7 +154,12 @@ export async function translateMessages(messages, {
               const txt = (block.text || '').trim();
               if (txt) {
                 finalChunks.push(txt);
-                currentStatus = `✍️ ${shorten(txt, 80)}`;
+                // Preview only the user-facing part of the draft (the reply
+                // contract wraps it in <say>…</say>; everything else is
+                // private scratchpad and must not flash up in the status).
+                const say = txt.match(/<say>([\s\S]*?)(?:<\/say>|$)/i);
+                const preview = say ? say[1].trim() : '';
+                currentStatus = preview ? `drafting: ${shorten(preview, 80)}` : 'drafting reply…';
                 await send(currentStatus);
               }
             } else if (block.type === 'tool_use') {
@@ -265,40 +272,40 @@ function describeToolUse(name, input) {
   if (name === 'Bash') {
     const cmd = input.command || '';
     const slackMatch = cmd.match(/\.\/slack-tools\.sh\s+(\S+)/);
-    if (slackMatch) return `⚡ Slack ${slackMatch[1]}`;
+    if (slackMatch) return `slack ${slackMatch[1]}`;
     if (cmd.startsWith('curl')) {
       const urlMatch = cmd.match(/https?:\/\/[^\s'"]+/);
       const host = urlMatch ? urlMatch[0].replace(/^https?:\/\//, '').split('/')[0] : '';
-      return host ? `🌐 curl ${host}` : '🌐 curl';
+      return host ? `calling ${host}` : 'calling an API';
     }
     if (cmd.startsWith('sudo ')) {
-      const rest = cmd.replace(/^sudos+-us+S+s+/, ''); return `⚡ ${shorten(rest, 60)}`;
+      const rest = cmd.replace(/^sudos+-us+S+s+/, ''); return `running: ${shorten(rest, 60)}`;
     }
     if (cmd.includes('./bin/browser-tools.sh')) {
       const m = cmd.match(/\.\/browser-tools\.sh\s+(\S+)/);
-      return m ? `🌐 browser ${m[1]}` : '🌐 browser';
+      return m ? `browser ${m[1]}` : 'using the browser';
     }
-    return `⚡ ${shorten(cmd, 60)}`;
+    return `running: ${shorten(cmd, 60)}`;
   }
   if (name === 'Read') {
     const p = input.file_path || '';
-    return `📖 reading ${path.basename(p) || p}`;
+    return `reading ${path.basename(p) || p}`;
   }
   if (name === 'Write') {
     const p = input.file_path || '';
-    return `✏️ writing ${path.basename(p) || p}`;
+    return `writing ${path.basename(p) || p}`;
   }
   if (name === 'Edit') {
     const p = input.file_path || '';
-    return `✏️ editing ${path.basename(p) || p}`;
+    return `editing ${path.basename(p) || p}`;
   }
-  if (name === 'Glob') return `🔎 glob ${input.pattern || ''}`;
-  if (name === 'Grep') return `🔎 grep ${shorten(input.pattern || '', 40)}`;
-  if (name === 'WebFetch') return `🌐 fetching ${shorten(input.url || '', 60)}`;
-  if (name === 'WebSearch') return `🔎 searching ${shorten(input.query || '', 50)}`;
+  if (name === 'Glob') return `scanning files: ${input.pattern || ''}`;
+  if (name === 'Grep') return `searching files: ${shorten(input.pattern || '', 40)}`;
+  if (name === 'WebFetch') return `fetching ${shorten(input.url || '', 60)}`;
+  if (name === 'WebSearch') return `searching the web: ${shorten(input.query || '', 50)}`;
   if (name === 'Task') {
     const subagent = input.subagent_type || 'agent';
-    return `🤖 spawn ${subagent}`;
+    return `delegating to ${subagent}`;
   }
-  return `🔧 ${name}`;
+  return `using ${name}`;
 }

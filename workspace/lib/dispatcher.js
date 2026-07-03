@@ -63,7 +63,7 @@ async function processReply(event, surface) {
   // 5. Post placeholder
   let placeholder;
   try {
-    placeholder = await surface.postPlaceholder(event.replyTarget, '_💭 thinking…_');
+    placeholder = await surface.postPlaceholder(event.replyTarget, '_thinking…_');
   } catch (e) {
     logger.error('failed to post placeholder', {
       err: e.message,
@@ -125,7 +125,7 @@ async function processReply(event, surface) {
       if (i > 0) {
         // Tell the user we're falling back
         try {
-          await surface.updateMessage(placeholder, `🔄 ${modelChain[i - 1] || 'default'} throttled, trying ${model}…`);
+          await surface.updateMessage(placeholder, `_${modelChain[i - 1] || 'default'} is overloaded — switching to ${model}…_`);
         } catch (_) {}
       }
       res = await runClaude({
