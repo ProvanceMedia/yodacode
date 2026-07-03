@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // @yoda-tool
 // name: cron-runner.js
-// summary: Run a declarative YAML cron task definition end-to-end (claude invoke + Slack delivery + reflectors).
+// summary: Run a declarative YAML cron task definition end-to-end (agent invoke + Slack delivery + reflectors).
 // tags: cron, infra
 // requires:
 // usage:
@@ -14,8 +14,8 @@
 //
 //   node ./bin/cron-runner.js <task-name>
 //
-// Reads ../cron-tasks/<task-name>.yaml, invokes `claude -p` with the
-// declared prompt, optionally posts the output to a Slack channel, and
+// Reads ../cron-tasks/<task-name>.yaml, runs the declared prompt through the
+// Claude Agent SDK, optionally posts the output to a Slack channel, and
 // optionally fires the skill + memory reflectors. One runner replaces
 // ~80 lines of per-cron bash boilerplate.
 //
@@ -24,7 +24,7 @@
 //   name: my-task                      # required
 //   description: ...                   # optional
 //   on_calendar: "..."                 # systemd OnCalendar (used by gen-timers.sh, not the runner)
-//   model: claude-haiku-4-5            # optional; empty → default
+//   model: claude-haiku-4-5            # required; every cron names its model
 //   timeout: 600                       # seconds, default 600
 //   allowed_tools: [Bash, Read, ...]   # default sensible
 //   effort: xhigh                      # low|medium|high|xhigh|max; omit = model default
@@ -40,10 +40,12 @@
 // and ${ENV_VAR} substitution.
 
 import { readFileSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { runAgentText } from '../lib/agent-query.js';
+import { reflectAfterCron } from '../lib/cron-reflect.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const BIN_DIR = path.dirname(__filename);
@@ -91,41 +93,6 @@ function logLine(logPath, line) {
   }
 }
 
-// Optional credential isolation: when a cron sets `deroot: true`, its `claude -p` runs as
-// the unprivileged agent user with a curated, secret-free environment — credentialed calls
-// go through the broker (`broker call …`). Everything else keeps the legacy root+env path.
-// See docs/BROKER.md.
-const DEROOT_USER = process.env.YODA_AGENT_USER || 'yodacode-agent';
-const BROKER_SOCK = process.env.YODA_BROKER_SOCK || '/run/yodacode-broker.sock';
-
-// The ONLY non-secret env the de-rooted agent inherits. CLAUDE_CODE_OAUTH_TOKEN is the
-// model's own auth (not a service secret); every API key is withheld and reached via the
-// broker instead.
-const DEROOT_ENV_ALLOWLIST = [
-  'PATH', 'HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'NODE_OPTIONS', 'TERM',
-  'CLAUDE_CODE_OAUTH_TOKEN', 'YODA_CLAUDE_MODEL', 'SLACK_TEST_CHANNEL_ID',
-];
-
-function buildDerootEnv() {
-  const env = {};
-  for (const k of DEROOT_ENV_ALLOWLIST) if (process.env[k] != null) env[k] = process.env[k];
-  env.HOME = `/home/${DEROOT_USER}`;
-  if (!env.PATH) env.PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
-  if (!env.LANG) env.LANG = 'C.UTF-8';
-  env.ANTHROPIC_API_KEY = '';
-  env.YODA_BROKER_SOCK = BROKER_SOCK;
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  env.YODA_DEROOTED = '1';
-  return env;
-}
-
-// Wrap a claude argv so it runs as the agent user. `env -i` guarantees NOTHING from the
-// root environment leaks in — only the allowlist passed after it.
-function derootWrap(claudeBin, claudeArgs, env) {
-  const envPairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
-  return { cmd: 'runuser', args: ['-u', DEROOT_USER, '--', 'env', '-i', ...envPairs, claudeBin, ...claudeArgs] };
-}
-
 function substitute(template, ctx) {
   if (!template) return '';
   let out = template
@@ -160,41 +127,7 @@ function deliverOutput(deliver, ctx, logPath) {
   }
 }
 
-function triggerReflection(taskName, prompt, output, logPath) {
-  // Librarian crons don't reflect on themselves.
-  if (taskName === 'memory-consolidate' || taskName === 'skill-review') {
-    logLine(logPath, `reflection skipped (librarian task)`);
-    return;
-  }
-  const skillOn = process.env.YODA_SKILL_REFLECTOR_ENABLED === '1';
-  const memoryOn = process.env.YODA_MEMORY_REFLECTOR_ENABLED === '1';
-  if (!skillOn && !memoryOn) {
-    logLine(logPath, `reflection skipped (both reflectors disabled)`);
-    return;
-  }
-  const helper = path.join(CRON_TASKS_DIR, 'lib', 'reflect-after.sh');
-  if (!existsSync(helper)) {
-    logLine(logPath, `reflection skipped (helper not found at ${helper})`);
-    return;
-  }
-  logLine(logPath, `reflection triggered (skill=${skillOn} memory=${memoryOn})`);
-  // bash -c invocation; the helper spawns its own detached children.
-  const child = spawn('bash', [
-    '-c',
-    `. "${helper}" && reflect_after_cron "$0" "$1" "$2"`,
-    taskName,
-    prompt,
-    output,
-  ], {
-    cwd: WORKSPACE,
-    env: { ...process.env, ANTHROPIC_API_KEY: '' },
-    stdio: 'ignore',
-    detached: true,
-  });
-  child.unref();
-}
-
-function main() {
+async function main() {
   const taskName = process.argv[2];
   if (!taskName) {
     console.error('usage: cron-runner.js <task-name>');
@@ -233,10 +166,10 @@ function main() {
 
   logLine(logPath, `${def.name} starting`);
 
-  // Optional pre_hook: bash command(s) run BEFORE the claude invocation.
+  // Optional pre_hook: bash command(s) run BEFORE the agent invocation.
   // Useful for jitter sleeps, queue topups, anything the agent shouldn't
   // wait on with its own turn quota. The hook runs in workspace/ with the
-  // same env as claude. Hook stdout/stderr go to the log.
+  // same env as the agent. Hook stdout/stderr go to the log.
   if (def.pre_hook) {
     logLine(logPath, `pre_hook running`);
     const hook = spawnSync('bash', ['-c', def.pre_hook], {
@@ -254,78 +187,78 @@ function main() {
   }
 
   const prompt = substitute(def.prompt, ctx);
-  const tools = (def.allowed_tools || [
-    'Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Glob', 'Grep'
-  ]).join(',');
-  const args = [
-    '-p', prompt,
-    '--output-format', 'text',
-    '--permission-mode', def.permission_mode || 'acceptEdits',
-    '--allowed-tools', tools,
+  const allowedTools = def.allowed_tools || [
+    'Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Glob', 'Grep',
   ];
-  // Every yaml must declare its model explicitly (validated above).
-  args.push('--model', def.model);
-  // Reasoning effort (low|medium|high|xhigh|max). Omit to use the model's
-  // default. Skipped for Haiku, which has no effort levels. The legacy
-  // `thinking:` field is now ignored — it was a no-op on adaptive-reasoning
-  // models, where effort is the real control.
-  if (def.effort && !/haiku/i.test(def.model || '')) args.push('--effort', def.effort);
-
   const timeoutMs = (def.timeout || 600) * 1000;
-  const claudeBin = process.env.CLAUDE_BIN || 'claude';
 
-  // Default (legacy) spawn: claude with full env minus the API key.
-  let spawnCmd = claudeBin;
-  let spawnArgs = args;
-  let spawnEnv = { ...process.env, ANTHROPIC_API_KEY: '' };
-
-  // Inside a container the boundary is the container itself (unprivileged user, no
-  // service keys) and there is no separate agent user to runuser into — honour
-  // `deroot:` only on a bare-metal host install.
+  // Optional credential isolation. Inside a container the boundary is the
+  // container itself (unprivileged user, no service keys) — honour `deroot:`
+  // only on a bare-metal host install, where the run gets a curated
+  // secret-free env (credentialed calls go through `broker call …`) and,
+  // when this runner is root, the SDK child is spawned as the unprivileged
+  // agent user. See docs/BROKER.md and lib/agent-query.js.
   const inContainer = process.env.YODA_IN_CONTAINER === '1' || existsSync('/.dockerenv');
-
-  if (def.deroot && !inContainer) {
-    const agentEnv = buildDerootEnv();
-    const wrapped = derootWrap(claudeBin, args, agentEnv);
-    spawnCmd = wrapped.cmd;
-    spawnArgs = wrapped.args;
-    // The runuser launcher must NOT carry the secret-laden root env; the agent's real
-    // env is the `env -i …` list inside the wrapped argv.
-    spawnEnv = { PATH: agentEnv.PATH };
-    logLine(logPath, `deroot: running as ${DEROOT_USER} via broker (sock ${BROKER_SOCK}); secrets withheld from agent`);
+  const deroot = !!def.deroot && !inContainer;
+  if (deroot) {
+    logLine(logPath, `deroot: curated secret-free env via broker; secrets withheld from agent`);
   }
 
-  const res = spawnSync(spawnCmd, spawnArgs, {
+  const stderrBuf = [];
+  const res = await runAgentText({
+    prompt,
+    model: def.model,
+    effort: def.effort,
+    allowedTools,
+    permissionMode: def.permission_mode || 'acceptEdits',
     cwd: WORKSPACE,
-    env: spawnEnv,
-    encoding: 'utf8',
-    timeout: timeoutMs,
-    maxBuffer: 50 * 1024 * 1024,
+    deroot,
+    timeoutMs,
+    stderr: (data) => { if (stderrBuf.join('').length < 16384) stderrBuf.push(String(data)); },
   });
 
-  const output = ((res.stdout || '') + (res.stderr ? `\n${res.stderr}` : '')).trim();
+  let output = (res.text || '').trim();
+  if (!res.ok) {
+    if (res.timedOut) {
+      logLine(logPath, `${def.name} TIMED OUT after ${Math.round(timeoutMs / 1000)}s`);
+    } else {
+      logLine(logPath, `${def.name} FAILED: ${res.error || 'unknown'}`);
+    }
+    const stderr = stderrBuf.join('').trim();
+    if (stderr) logLine(logPath, `agent stderr (tail):\n${stderr.split('\n').slice(-10).join('\n')}`);
+    if (!output) output = `(no output — ${res.error || 'run failed'})`;
+  }
   ctx.output = output;
   logLine(logPath, output);
 
-  // Even when claude exits non-zero, we may still have useful output — try to deliver.
-  if (res.status !== 0 && !res.stdout) {
-    logLine(logPath, `${def.name} FAILED (exit ${res.status ?? 'null'})`);
-  }
-
+  // Even on failure we may still have useful output — try to deliver.
   if (def.deliver) {
     try { deliverOutput(def.deliver, ctx, logPath); }
     catch (e) { logLine(logPath, `deliver failed: ${e.message}`); }
   }
 
   if (def.reflect) {
-    try { triggerReflection(def.name, prompt, output, logPath); }
-    catch (e) { logLine(logPath, `reflection trigger failed: ${e.message}`); }
+    try {
+      await reflectAfterCron({
+        taskName: def.name,
+        cronPrompt: prompt,
+        cronOutput: output,
+        cwd: WORKSPACE,
+        deroot,
+        log: (l) => logLine(logPath, l),
+      });
+    } catch (e) {
+      logLine(logPath, `reflection trigger failed: ${e.message}`);
+    }
   } else {
     logLine(logPath, `reflection skipped (reflect: false in yaml)`);
   }
 
-  logLine(logPath, `${def.name} finished (exit ${res.status ?? 'null'})`);
-  process.exit(res.status === 0 ? 0 : (res.status ?? 1));
+  logLine(logPath, `${def.name} finished (ok=${res.ok})`);
+  process.exit(res.ok ? 0 : 1);
 }
 
-main();
+main().catch((e) => {
+  console.error(`[cron-runner] fatal: ${e.message}`);
+  process.exit(1);
+});

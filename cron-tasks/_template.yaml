@@ -1,6 +1,6 @@
 # Yoda cron task definition. Copy this file to <task-name>.yaml and edit.
 # The runner is workspace/bin/cron-runner.js — it reads this YAML, invokes
-# `claude -p`, optionally posts the output to Slack, and optionally fires
+# the Claude Agent SDK, optionally posts the output to Slack, and optionally fires
 # the skill + memory reflectors.
 
 # Required

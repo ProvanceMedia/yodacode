@@ -84,13 +84,14 @@ export const config = {
     authorizedUsers: new Set(csv('YODA_STOP_AUTHORIZED_USERS', '')),
   },
 
-  // Claude runner
+  // Claude runner (Agent SDK). The SDK spawns its own bundled Claude Code
+  // runtime, so there is no CLAUDE_BIN knob any more — pin the runtime
+  // version via workspace/package.json instead.
   claude: {
-    bin: process.env.CLAUDE_BIN || 'claude',
     allowedTools: process.env.YODA_ALLOWED_TOOLS ||
       'Bash,Read,Write,Edit,WebFetch,WebSearch,Glob,Grep,Task',
     permissionMode: process.env.YODA_PERMISSION_MODE || 'acceptEdits',
-    // Idle watchdog per claude invocation (ms). The runner RESETS this timer on
+    // Idle watchdog per agent run (ms). The runner RESETS this timer on
     // every stream event (each status tick), so it only fires when claude has
     // gone genuinely SILENT this long — i.e. actually stuck on a hung API call
     // or tool. A legitimately long task (lots of curls + a browser verification,
@@ -134,7 +135,7 @@ export const config = {
     // throttled (529-style) failure. Empty = no fallback.
     fallbackModels: csv('YODA_CLAUDE_FALLBACK_MODELS', 'claude-haiku-4-5'),
     // Tool-loop guardrails. Apply only to surface ticks (Slack/WhatsApp) that
-    // go through runClaude. Crons spawn `claude -p` directly and are bounded
+    // go through runClaude. Crons run their own SDK query and are bounded
     // by their own timeouts.
     maxIterations: parseInt(process.env.YODA_MAX_ITERATIONS_SLACK || '60', 10),
     guardrailEnabled: process.env.YODA_GUARDRAIL_ENABLED !== '0',
@@ -143,7 +144,7 @@ export const config = {
   },
 
   // Skill self-generation. After a successful surface tick that crosses the
-  // duration/tool-count threshold, dispatcher spawns a background `claude -p`
+  // duration/tool-count threshold, dispatcher fires a background agent run
   // that decides whether to write a new skills/<slug>.md. Default OFF —
   // opt-in via YODA_SKILL_REFLECTOR_ENABLED=1.
   skills: {
@@ -170,6 +171,21 @@ export const config = {
   context: {
     threadFetchLimit: parseInt(process.env.YODA_THREAD_LIMIT || '50', 10),
     channelFetchLimit: parseInt(process.env.YODA_CHANNEL_LIMIT || '15', 10),
+  },
+
+  // Per-thread session resume (Agent SDK). Each conversation lane keeps its
+  // SDK session across ticks: the agent retains its own prior turns and tool
+  // results, and only NEW messages are sent each tick. Disable to get the
+  // old fully-stateless behaviour (full transcript rebuilt every tick).
+  sessions: {
+    resumeEnabled: process.env.YODA_SESSION_RESUME !== '0',
+    // Threads idle longer than this start a fresh session (ms, default 14 days).
+    maxAgeMs: msEnv('YODA_SESSION_MAX_AGE_MS', 14 * 24 * 3600 * 1000),
+    // Retire a thread's session once a tick's total input (fresh + cached)
+    // reaches this many tokens — long-lived threads then restart fresh with
+    // the recent transcript instead of dragging an ever-growing session.
+    // 0 disables rotation.
+    rotateInputTokens: parseInt(process.env.YODA_SESSION_ROTATE_TOKENS || '120000', 10),
   },
 
   // Sandbox — uses Claude Code's built-in bubblewrap/Seatbelt sandbox.

@@ -1,18 +1,19 @@
 // Skill self-generation. After a notable surface tick (≥ minDurationMs OR
-// ≥ minToolCount tool calls), spawn a detached background `claude -p` that
-// reviews the conversation and decides whether to write a SKILL.md.
+// ≥ minToolCount tool calls), run a background Agent SDK query that reviews
+// the conversation and decides whether to write a SKILL.md.
 //
 // Fire-and-forget: never blocks the reply path, never affects the response
-// the user sees. If the reflector spawn fails, we log and move on.
+// the user sees. Runs in-process now (no detached child), so a reflection
+// in flight during a yoda restart is lost — acceptable for best-effort work.
 //
-// Cost: each reflection burns one `claude -p` invocation against the Max
-// sub. Default model is haiku-4-5 (cheap). Disabled by default —
+// Cost: each reflection burns one agent run against the Max sub. Default
+// model is haiku-4-5 (cheap). Disabled by default —
 // opt in via YODA_SKILL_REFLECTOR_ENABLED=1.
 
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { agentSpawnOpts } from './deroot.js';
+import { runAgentText } from './agent-query.js';
 
 function buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs }) {
   const toolCount = tracker?.useCount || 0;
@@ -107,42 +108,26 @@ export function maybeReflect({ surface, conversationId, userText, replyText, tra
 
   const prompt = buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs });
 
-  const args = [
-    '-p', prompt,
-    '--output-format', 'text',
-    '--permission-mode', 'acceptEdits',
-    '--allowed-tools', 'Read,Write,Edit,Bash,Glob,Grep',
-  ];
-  if (cfg.reflectorModel) args.push('--model', cfg.reflectorModel);
+  logger.info('skill-reflector started', { surface, conversationId, toolCount, durationMs });
 
-  let child;
-  try {
-    child = spawn(config.claude.bin, args, {
-      cwd: config.workspace,
-      ...agentSpawnOpts(),
-      stdio: 'ignore',
-      detached: true,
-    });
-  } catch (e) {
-    logger.warn('skill-reflector spawn failed', { err: e.message });
-    return;
-  }
-
-  // Don't keep yoda alive on shutdown waiting for the reflector
-  child.unref();
-
-  // Hard timeout — reflector should complete in < 2 minutes
-  const timeout = setTimeout(() => {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch (_) {}
-    logger.warn('skill-reflector timed out', { surface, conversationId, ms: cfg.reflectorTimeoutMs });
-  }, cfg.reflectorTimeoutMs);
-  timeout.unref();
-
-  child.on('exit', (code) => {
-    clearTimeout(timeout);
+  // Fire-and-forget: the promise is deliberately not awaited so the reply
+  // path never blocks on reflection. The timeout is enforced inside
+  // runAgentText via its AbortController.
+  runAgentText({
+    prompt,
+    model: cfg.reflectorModel || undefined,
+    allowedTools: 'Read,Write,Edit,Bash,Glob,Grep',
+    permissionMode: 'acceptEdits',
+    cwd: config.workspace,
+    timeoutMs: cfg.reflectorTimeoutMs,
+  }).then(({ ok, error, timedOut }) => {
+    if (timedOut) {
+      logger.warn('skill-reflector timed out', { surface, conversationId, ms: cfg.reflectorTimeoutMs });
+      return;
+    }
     // Refresh FTS5 index so a newly-written skill is searchable immediately
     // rather than waiting for the nightly skill-review cron.
-    if (code === 0) {
+    if (ok) {
       try {
         const re = spawn('python3', ['./bin/memory-reindex.py'], {
           cwd: config.workspace, stdio: 'ignore', detached: true,
@@ -150,12 +135,8 @@ export function maybeReflect({ surface, conversationId, userText, replyText, tra
         re.unref();
       } catch (_) {}
     }
-    logger.info('skill-reflector finished', { surface, conversationId, code });
-  });
-  child.on('error', (e) => {
-    clearTimeout(timeout);
+    logger.info('skill-reflector finished', { surface, conversationId, ok, ...(error ? { error } : {}) });
+  }).catch((e) => {
     logger.warn('skill-reflector error', { err: e.message });
   });
-
-  logger.info('skill-reflector spawned', { surface, conversationId, toolCount, durationMs });
 }

@@ -1,10 +1,13 @@
-// Surface-agnostic stream translator. Reads Claude Code's `--output-format
-// stream-json` from a Readable stream and turns it into:
+// Surface-agnostic message translator. Consumes the Claude Agent SDK's
+// message stream (an async iterable of parsed message objects from query())
+// and turns it into:
 //   - throttled live status updates (called via onStatus(text))
 //   - a final reply text (called once via onFinal(text))
 //
-// Replaces translator.py with a pure-Node implementation so the same logic
-// powers both the Slack and WhatsApp surfaces (and any future ones).
+// The SDK message shapes mirror the old `claude -p --output-format
+// stream-json` events one-to-one (system/init, system/api_retry, assistant,
+// user, result, rate_limit_event), so the translation logic is unchanged —
+// only the transport moved from stdout-line parsing to SDK objects.
 //
 // Status text examples it produces:
 //   "💭 thinking…"
@@ -12,30 +15,30 @@
 //   "🌐 curl api.hubapi.com"
 //   "📖 reading SOUL.md"
 //   "✍️ Final reply preview…"
-// Final text is the assistant's last text block (or the result.result field).
+// Final text is the result message's text (or the assistant's text blocks).
 
-import readline from 'node:readline';
 import path from 'node:path';
 import { ToolTracker } from './tool-tracker.js';
+import { isAbortError } from './agent-query.js';
 
 const THROTTLE_MS = 800;
 
 /**
- * Translate a Claude Code stream-json stdout into live status + final text.
+ * Translate an Agent SDK message stream into live status + final text.
  *
- * @param {Readable} stdin              The claude process stdout
+ * @param {AsyncIterable<object>} messages   The query() message stream
  * @param {object}   handlers
- * @param {() => void} [handlers.onActivity] Called on every raw stream line, before the status throttle/dedupe — pure liveness signal (e.g. to reset an idle watchdog)
+ * @param {() => void} [handlers.onActivity] Called on every message, before the status throttle/dedupe — pure liveness signal (e.g. to reset an idle watchdog)
  * @param {(text: string) => Promise<void>} handlers.onStatus  Called for live updates (throttled)
- * @param {(text: string) => Promise<void>} handlers.onFinal   Called once with final text
+ * @param {(text: string, meta: { isError: boolean }) => Promise<void>} handlers.onFinal  Called once with final text; meta.isError distinguishes a run-failure message from a genuine reply
  * @param {number}   [handlers.maxRetries] Bail when Claude reports this many consecutive api_retry events
  * @param {() => void} [handlers.onMaxRetries] Called once when retry threshold is exceeded
  * @param {number}   [handlers.maxIterations] Cap on total tool_use events (Infinity = off)
  * @param {object}   [handlers.guardrails]   { enabled, repeatFailureThreshold, noProgressThreshold }
  * @param {(g: object) => void} [handlers.onGuardrail] Called when a guardrail trips (warning OR cap)
- * @returns {Promise<{ ok: boolean, finalText: string, error?: string, throttled?: boolean, tracker?: object }>}
+ * @returns {Promise<{ ok: boolean, finalText: string, error?: string, throttled?: boolean, tracker?: object, usage?: object, sessionId?: string|null }>}
  */
-export async function translateStream(stdin, {
+export async function translateMessages(messages, {
   onActivity,
   onStatus,
   onFinal,
@@ -54,6 +57,9 @@ export async function translateStream(stdin, {
   let retryCount = 0;
   let throttled = false;
   let usage = null;
+  let model = null;
+  let sessionId = null;
+  let stop = false;
 
   const send = async (text, force = false) => {
     if (text === lastTextSent && !force) return;
@@ -69,10 +75,8 @@ export async function translateStream(stdin, {
     }
   };
 
-  const rl = readline.createInterface({ input: stdin, crlfDelay: Infinity });
-
   // Tool-loop guardrails. Warnings surface as transient status lines;
-  // iteration_cap is escalated to the runner via onGuardrail so it can SIGTERM.
+  // iteration_cap is escalated to the runner via onGuardrail so it can abort.
   const tracker = guardrails && guardrails.enabled !== false
     ? new ToolTracker({
         maxIterations,
@@ -96,106 +100,129 @@ export async function translateStream(stdin, {
   // Send the initial "thinking" status immediately
   await send(currentStatus, true);
 
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    // Any line on the stream is proof of life — signal liveness before the
-    // throttle/dedupe in send() can swallow the resulting status update.
-    if (onActivity) { try { onActivity(); } catch (_) {} }
-    let ev;
-    try { ev = JSON.parse(line); } catch { continue; }
+  try {
+    for await (const ev of messages) {
+      // Any message on the stream is proof of life — signal liveness before
+      // the throttle/dedupe in send() can swallow the resulting status update.
+      if (onActivity) { try { onActivity(); } catch (_) {} }
+      if (ev.session_id) sessionId = ev.session_id;
 
-    switch (ev.type) {
-      case 'system':
-        if (ev.subtype === 'init') {
-          currentStatus = '💭 starting up…';
-          await send(currentStatus);
-        } else if (ev.subtype === 'api_retry') {
-          // Anthropic throttled us — show progress so the user knows we're
-          // not silently dead. Force the update through the throttle.
-          retryCount++;
-          const attempt = ev.attempt || retryCount;
-          const status = ev.error_status || ev.error || 'unknown';
-          currentStatus = `⏳ Anthropic throttled (${status}) — retry ${attempt}`;
-          await send(currentStatus, true);
+      switch (ev.type) {
+        case 'system':
+          if (ev.subtype === 'init') {
+            model = ev.model || null;
+            currentStatus = '💭 starting up…';
+            await send(currentStatus);
+          } else if (ev.subtype === 'api_retry') {
+            // Anthropic throttled us — show progress so the user knows we're
+            // not silently dead. Force the update through the throttle.
+            retryCount++;
+            const attempt = ev.attempt || retryCount;
+            // Prefer the HTTP status, then the SDK's error classification
+            // ('overloaded', 'rate_limit', …); its 'unknown' is less useful
+            // than saying it was a connection-level failure.
+            const status = ev.error_status
+              ?? (ev.error && ev.error !== 'unknown' ? ev.error : 'connection error');
+            currentStatus = `⏳ Anthropic throttled (${status}) — retry ${attempt}`;
+            await send(currentStatus, true);
 
-          // Bail out if we've exceeded our local cap. Continuing past this
-          // point just deepens the cooldown without helping.
-          if (retryCount >= maxRetries) {
-            throttled = true;
-            errorText = `Anthropic is overloaded (${status}). Bailed after ${retryCount} retries — try again in a minute or two.`;
-            if (onMaxRetries) {
-              try { onMaxRetries(); } catch (_) {}
+            // Bail out if we've exceeded our local cap. Continuing past this
+            // point just deepens the cooldown without helping.
+            if (retryCount >= maxRetries) {
+              throttled = true;
+              errorText = `Anthropic is overloaded (${status}). Bailed after ${retryCount} retries — try again in a minute or two.`;
+              if (onMaxRetries) {
+                try { onMaxRetries(); } catch (_) {}
+              }
+              stop = true;
             }
-            rl.close();
           }
-        }
-        break;
+          break;
 
-      case 'assistant': {
-        const content = ev.message?.content || [];
-        for (const block of content) {
-          if (block.type === 'text') {
-            const txt = (block.text || '').trim();
-            if (txt) {
-              finalChunks.push(txt);
-              currentStatus = `✍️ ${shorten(txt, 80)}`;
+        case 'assistant': {
+          // Subagent frames (Task tool internals) arrive on the same stream
+          // with parent_tool_use_id set. They already counted as liveness via
+          // onActivity above, but must not feed the reply text, the status
+          // line, or the guardrail tracker — a busy subagent would otherwise
+          // burn the top-level iteration cap.
+          if (ev.parent_tool_use_id) break;
+          const content = ev.message?.content || [];
+          for (const block of content) {
+            if (block.type === 'text') {
+              const txt = (block.text || '').trim();
+              if (txt) {
+                finalChunks.push(txt);
+                currentStatus = `✍️ ${shorten(txt, 80)}`;
+                await send(currentStatus);
+              }
+            } else if (block.type === 'tool_use') {
+              if (tracker) tracker.recordUse(block.id, block.name, block.input);
+              currentStatus = describeToolUse(block.name, block.input || {});
               await send(currentStatus);
             }
-          } else if (block.type === 'tool_use') {
-            if (tracker) tracker.recordUse(block.id, block.name, block.input);
-            currentStatus = describeToolUse(block.name, block.input || {});
-            await send(currentStatus);
           }
+          break;
         }
-        break;
-      }
 
-      case 'user':
-        // tool_result event(s) — parse for guardrail tracking, then append a
-        // tick to current status to indicate the tool returned.
-        if (tracker) {
-          const blocks = ev.message?.content || [];
-          for (const b of blocks) {
-            if (b.type === 'tool_result') {
-              tracker.recordResult(b.tool_use_id, !!b.is_error, b.content);
+        case 'user': {
+          // tool_result event(s) — parse for guardrail tracking, then append a
+          // tick to current status to indicate the tool returned. Subagent
+          // results are skipped for the same reason as above.
+          if (ev.parent_tool_use_id) break;
+          const blocks = ev.message?.content;
+          if (tracker && Array.isArray(blocks)) {
+            for (const b of blocks) {
+              if (b.type === 'tool_result') {
+                tracker.recordResult(b.tool_use_id, !!b.is_error, b.content);
+              }
             }
           }
+          await send(`${currentStatus} ✓`);
+          break;
         }
-        await send(`${currentStatus} ✓`);
-        break;
 
-      case 'result':
-        if (ev.is_error) {
-          errorText = ev.result || '(unknown error)';
-        } else {
-          finalText = (ev.result || '').trim();
-        }
-        // Token usage — claude -p emits these on the result event.
-        if (ev.usage) {
-          usage = {
-            input_tokens: ev.usage.input_tokens || 0,
-            output_tokens: ev.usage.output_tokens || 0,
-            cache_creation_input_tokens: ev.usage.cache_creation_input_tokens || 0,
-            cache_read_input_tokens: ev.usage.cache_read_input_tokens || 0,
-            model: ev.model || null,
-          };
-        }
-        // The result event marks the end of the stream
-        rl.close();
-        break;
+        case 'result':
+          if (ev.is_error) {
+            errorText = (ev.subtype === 'success' ? ev.result : (ev.errors || []).join('; '))
+              || ev.subtype || '(unknown error)';
+          } else if (ev.subtype === 'success') {
+            finalText = (ev.result || '').trim();
+          } else {
+            errorText = (ev.errors || []).join('; ') || ev.subtype || '(unknown error)';
+          }
+          if (ev.usage) {
+            usage = {
+              input_tokens: ev.usage.input_tokens || 0,
+              output_tokens: ev.usage.output_tokens || 0,
+              cache_creation_input_tokens: ev.usage.cache_creation_input_tokens || 0,
+              cache_read_input_tokens: ev.usage.cache_read_input_tokens || 0,
+              model,
+            };
+          }
+          // The result message marks the end of the stream
+          stop = true;
+          break;
 
-      case 'rate_limit_event': {
-        const info = ev.rate_limit_info || {};
-        if (info.status && info.status !== 'allowed') {
-          currentStatus = `⚠️ rate limited (${info.status})`;
-          await send(currentStatus, true);
+        case 'rate_limit_event': {
+          const info = ev.rate_limit_info || {};
+          if (info.status && info.status !== 'allowed') {
+            currentStatus = `⚠️ rate limited (${info.status})`;
+            await send(currentStatus, true);
+          }
+          break;
         }
-        break;
+
+        default:
+          break;
       }
 
-      default:
-        break;
+      if (stop) break;
     }
+  } catch (e) {
+    // The runner aborts the query on stop/timeout/guardrail — treat that as
+    // end-of-stream and return the partial result (tracker + usage intact);
+    // the runner classifies via its own flags. Real errors propagate.
+    if (!isAbortError(e)) throw e;
   }
 
   // Compose the final text
@@ -211,7 +238,7 @@ export async function translateStream(stdin, {
   }
 
   try {
-    await onFinal(final);
+    await onFinal(final, { isError: !!errorText });
   } catch (_) {
     // Final update failure is logged by the caller
   }
@@ -223,6 +250,7 @@ export async function translateStream(stdin, {
     throttled,
     tracker: tracker ? tracker.summary() : null,
     usage,
+    sessionId,
   };
 }
 

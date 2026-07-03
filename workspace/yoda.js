@@ -17,7 +17,7 @@
 //     │
 //     ├─ lib/stop-handler           (event-driven kill)
 //     ├─ lib/queue                  (per-conversation serial lanes)
-//     ├─ lib/claude-runner          (spawn claude -p, manage tick state)
+//     ├─ lib/claude-runner          (Agent SDK query(), manage tick state)
 //     ├─ lib/stream-translator      (live status updates)
 //     └─ lib/reply-policy           (generic policy + surface hooks)
 //
@@ -125,7 +125,7 @@ async function main() {
               const domains = new Set(config.sandbox.allowedDomains);
               // Always allow Slack (needed for slack-tools.sh in crons)
               // Always allow Slack + Anthropic so the agent can talk to Slack
-              // and any spawned `claude -p` (e.g. cron tests, reflectors) can
+              // and any agent run (e.g. cron tests, reflectors) can
               // reach the API.
               domains.add('slack.com');
               domains.add('files.slack.com');
@@ -203,11 +203,10 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('shutdown signal received', { sig });
-    // Kill any in-flight claude children — they're spawned with detached:true
-    // so they don't die with us automatically. Without this they leak across
-    // restarts.
+    // Abort any in-flight SDK runs so their children exit promptly rather
+    // than racing the process teardown.
     const killed = killAllTicks();
-    if (killed) logger.info('killed in-flight ticks on shutdown', { count: killed });
+    if (killed) logger.info('aborted in-flight ticks on shutdown', { count: killed });
     stopUI();
     await Promise.allSettled(startedSurfaces.map((s) => s.stop()));
     setTimeout(() => process.exit(0), 1000).unref();

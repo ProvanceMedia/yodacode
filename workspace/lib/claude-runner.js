@@ -1,42 +1,49 @@
-// Surface-agnostic Claude runner. Spawns `claude -p` with stream-json output
-// and pipes its stdout into the Node stream-translator, which calls back into
-// the caller with throttled status updates and a final reply text.
+// Surface-agnostic Claude runner. Runs each reply turn through the Claude
+// Agent SDK (query()) and pipes the SDK's message stream into the
+// stream-translator, which calls back into the caller with throttled status
+// updates and a final reply text.
 //
-// Tracks active runs in `state/current-ticks.json` so the stop handler can
-// kill the right process when "stop" comes in for a given conversation.
+// Active runs are tracked in-memory (conversationId → AbortController) so the
+// stop handler can abort the right run when "stop" comes in; a JSON mirror in
+// `state/current-ticks.json` feeds the dashboard. SDK children die with their
+// AbortController, so unlike the old detached `claude -p` processes nothing
+// can leak across restarts.
 
-import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { translateStream } from './stream-translator.js';
-import { agentSpawnOpts, derootEnabled } from './deroot.js';
+import { translateMessages } from './stream-translator.js';
+import { buildAgentOptions, isAbortError } from './agent-query.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
 const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
 const TOOL_RUNS_MAX_ENTRIES = 100;
 const USAGE_FILE = path.join(config.stateDir, 'usage.jsonl');
+const STDERR_BUF_MAX = 8192;
 
-// PIDs killed by an explicit user "stop" (via killTick). The runner's exit
-// handler consults this so a user stop is classified as 'killed' even if a
-// watchdog timer fired in the same instant — the user's intent wins over a
-// racing timeout. Entries are removed by the owning run's exit handler.
-const userStoppedPids = new Set();
+// conversationId → { conversationId, surface, placeholder, startedAt,
+//                    controller, userStopped, killed, timedOut, timeoutKind }
+const activeTicks = new Map();
 
+// Runs live and die with this process (the SDK child is aborted, never
+// detached), so anything left in the mirror file is stale from a previous
+// process — reset it at startup.
 mkdirSync(config.stateDir, { recursive: true });
-if (!existsSync(TICKS_FILE)) writeFileSync(TICKS_FILE, '{}');
+writeFileSync(TICKS_FILE, '{}');
 
-function loadTicks() {
-  try {
-    return JSON.parse(readFileSync(TICKS_FILE, 'utf8'));
-  } catch {
-    return {};
+function persistTicks() {
+  const out = {};
+  for (const [id, t] of activeTicks) {
+    out[id] = { surface: t.surface, placeholder: t.placeholder, startedAt: t.startedAt };
   }
-}
-function saveTicks(t) {
-  writeFileSync(TICKS_FILE, JSON.stringify(t, null, 2));
+  try {
+    writeFileSync(TICKS_FILE, JSON.stringify(out, null, 2));
+  } catch (e) {
+    logger.warn('ticks persist failed', { err: e.message });
+  }
 }
 
 function appendUsage(surface, model, usage) {
@@ -84,12 +91,13 @@ function appendToolRuns(conversationId, surface, summary) {
  * @param {string}   args.surface         Surface name (for logging + tick tracking)
  * @param {string}   args.conversationId  Stable lane key (used by stop-handler)
  * @param {any}      args.placeholder     Opaque handle from surface.postPlaceholder
- * @param {string}   args.prompt          The full prompt to send to claude -p
+ * @param {string}   args.prompt          The full prompt for this turn
  * @param {string}   [args.model]         Optional model override (e.g. claude-haiku-4-5)
  * @param {string}   [args.effort]        Optional effort level (low|medium|high|xhigh|max)
+ * @param {string}   [args.resume]        SDK session id to resume (persistent thread sessions)
  * @param {(text: string) => Promise<void>} args.onStatus  Live update callback
  * @param {(text: string) => Promise<void>} args.onFinal   Final text callback
- * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean }>}
+ * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean, tracker?: object, usage?: object, sessionId?: string|null, guardrailMessage?: string }>}
  */
 export async function runClaude({
   surface,
@@ -98,157 +106,139 @@ export async function runClaude({
   prompt,
   model,
   effort,
+  resume,
   onStatus,
   onFinal,
 }) {
-  return new Promise((resolve) => {
-    const args = [
-      '-p', prompt,
-      '--output-format', 'stream-json',
-      '--verbose',
-      '--permission-mode', config.claude.permissionMode,
-      '--allowed-tools', config.claude.allowedTools,
-    ];
-    // Reasoning effort. Models default to 'high' (Opus 4.7/4.8, Sonnet 4.6)
-    // when unset; a per-tick override (e.g. xhigh from an "ultrathink"/"xhigh"
-    // message) beats the global YODA_CLAUDE_EFFORT default. Skip for Haiku,
-    // which has no effort levels; Opus/Sonnet auto-clamp an unsupported level
-    // (xhigh → high on Sonnet 4.6) so passing it there is safe. (--thinking was
-    // dropped: a no-op on adaptive-reasoning models, where effort is the lever.)
-    const eff = effort || config.claude.effort;
-    if (eff && !/haiku/i.test(model || '')) args.push('--effort', eff);
-    if (model) args.push('--model', model);
-    // Sandbox is configured via .claude/settings.json (written by yoda.js
-    // at startup based on YODA_SANDBOX). Newer claude CLI no longer accepts
-    // a --sandbox flag.
+  const controller = new AbortController();
+  const tick = {
+    conversationId,
+    surface,
+    placeholder,
+    startedAt: Date.now(),
+    controller,
+    userStopped: false, // explicit user "stop" via killTick
+    killed: false,      // internal abort: throttle fail-fast, guardrail, shutdown
+    timedOut: false,
+    timeoutKind: null,  // 'idle' | 'hard'
+  };
+  activeTicks.set(conversationId, tick);
+  persistTicks();
 
-    // De-rooted when YODA_DEROOT=1: child runs as the agent user (uid/gid spawn options)
-    // with a curated secret-free env — credentials only via the broker. Legacy path
-    // otherwise: full env minus the API key. Either way the PID is claude itself, so the
-    // stop-handler's process-group SIGTERM works unchanged.
-    if (derootEnabled()) logger.info('spawning claude de-rooted', { surface, conversationId });
-    const claude = spawn(
-      config.claude.bin,
-      args,
-      {
-        cwd: config.workspace,
-        ...agentSpawnOpts(),
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true, // own process group so we can SIGTERM the whole tree on stop
-      },
-    );
+  let settled = false;
+  let iterationCap = null; // populated when the guardrail trips
 
-    // Register tick state for stop-handler
-    const ticks = loadTicks();
-    ticks[conversationId] = {
-      surface,
-      pid: claude.pid,
-      placeholder,
-      startedAt: Date.now(),
-    };
-    saveTicks(ticks);
+  // Idle watchdog. Reset on every SDK message (bumpIdle, wired to the
+  // translator's onActivity below), so it only fires when the run has gone
+  // genuinely SILENT for timeoutMs — i.e. stuck on a hung API call or tool.
+  // Caveat: a SINGLE long tool call (a slow curl, a long build) emits nothing
+  // between its tool_use and tool_result, so its whole runtime reads as
+  // silence; one tool that runs longer than timeoutMs will still be aborted.
+  // (Task subagents are fine — the SDK streams their tool frames, which keep
+  // the watchdog fed.) Raise YODA_CLAUDE_TIMEOUT_MS if you legitimately need
+  // longer single operations. Runaway fast tool-loops are bounded separately
+  // by maxIterations.
+  let idleTimer = null;
+  let hardTimer = null;
 
-    let killed = false;
-    let timedOut = false;
-    let settled = false;      // true once the process has exited/errored
-    let finalResult = null;
-    let iterationCap = null;  // populated when guardrail trips
+  const disarm = () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+  };
 
-    // Idle watchdog. The original implementation was a single wall-clock cap
-    // that fired a fixed timeoutMs after the run STARTED regardless of progress,
-    // so a legitimately long task (steady tool calls, all advancing) got killed
-    // mid-stream. Instead we reset this timer on every parsed stream line
-    // (bumpIdle, wired to the translator's onActivity below), and only kill a
-    // run that has gone genuinely SILENT for timeoutMs — i.e. stuck on a hung
-    // API call or tool. Caveat: a SINGLE long tool call (a slow curl, a heavy
-    // Task subagent, a long build) emits nothing between its tool_use and
-    // tool_result, so its whole runtime reads as silence; one tool that runs
-    // longer than timeoutMs will still be killed. Raise YODA_CLAUDE_TIMEOUT_MS
-    // if you legitimately need longer single operations. Runaway fast tool-loops
-    // are bounded separately by maxIterations.
-    let timeoutKind = null;   // 'idle' | 'hard' — which watchdog fired
-    let idleTimer = null;
-    let hardTimer = null;
+  // Single-fire: whichever watchdog trips first wins, disarms its sibling, and
+  // a user-stop / fail-fast that already aborted pre-empts both.
+  const fireTimeout = (kind) => {
+    if (settled || tick.userStopped || tick.killed || tick.timedOut) return;
+    tick.timedOut = true;
+    tick.timeoutKind = kind;
+    disarm();
+    logger.warn('claude watchdog timeout, aborting', {
+      surface, conversationId, kind,
+      ms: kind === 'hard' ? config.claude.hardTimeoutMs : config.claude.timeoutMs,
+    });
+    controller.abort();
+  };
 
-    const disarm = () => {
-      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-      if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
-    };
-    const clearTimers = () => { settled = true; disarm(); };
-
-    // Single-fire: whichever watchdog trips first wins, disarms its sibling, and
-    // a user-stop / fail-fast that already set `killed` pre-empts both. Prevents
-    // a double SIGTERM + duplicate logs when the idle and hard deadlines coincide.
-    const fireTimeout = (kind) => {
-      if (settled || killed || timedOut) return;
-      timedOut = true;
-      timeoutKind = kind;
-      disarm();
-      logger.warn('claude watchdog timeout, killing', {
-        surface, conversationId, kind,
-        ms: kind === 'hard' ? config.claude.hardTimeoutMs : config.claude.timeoutMs,
-      });
-      try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
-    };
-
+  idleTimer = setTimeout(() => fireTimeout('idle'), config.claude.timeoutMs);
+  idleTimer.unref();
+  const bumpIdle = () => {
+    // Reset the silence timer on any stream activity. Don't re-arm once the
+    // run has settled/timed-out/been-stopped.
+    if (settled || tick.timedOut || tick.userStopped || tick.killed || !idleTimer) return;
+    clearTimeout(idleTimer);
     idleTimer = setTimeout(() => fireTimeout('idle'), config.claude.timeoutMs);
     idleTimer.unref();
-    const bumpIdle = () => {
-      // Reset the silence timer on any stream activity. Don't re-arm once the run
-      // has settled/timed-out/been-killed — a buffered event can arrive after
-      // exit and a stray timer could later SIGTERM a recycled PID.
-      if (settled || timedOut || killed || !idleTimer) return;
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => fireTimeout('idle'), config.claude.timeoutMs);
-      idleTimer.unref();
-    };
+  };
 
-    // Optional absolute ceiling — disabled by default (hardTimeoutMs === 0).
-    // Guards against a run that keeps emitting activity forever (never idle)
-    // from burning unbounded quota.
-    if (config.claude.hardTimeoutMs > 0) {
-      hardTimer = setTimeout(() => fireTimeout('hard'), config.claude.hardTimeoutMs);
-      hardTimer.unref();
-    }
+  // Optional absolute ceiling — disabled by default (hardTimeoutMs === 0).
+  // Guards against a run that keeps emitting activity forever (never idle)
+  // from burning unbounded quota.
+  if (config.claude.hardTimeoutMs > 0) {
+    hardTimer = setTimeout(() => fireTimeout('hard'), config.claude.hardTimeoutMs);
+    hardTimer.unref();
+  }
 
-    // Buffer stderr — emit at debug for normal runs, escalate to warn on
-    // non-zero exit so the user actually sees why claude died (auth errors,
-    // missing OAuth token, etc.) without needing to flip YODA_LOG_LEVEL=debug.
-    const stderrBuf = [];
-    const STDERR_BUF_MAX = 8192;
-    claude.stderr.on('data', (chunk) => {
-      const line = chunk.toString();
-      logger.debug('claude stderr', { surface, line: line.trim() });
-      if (stderrBuf.join('').length < STDERR_BUF_MAX) stderrBuf.push(line);
+  // Buffer the SDK child's stderr — logged at debug for normal runs,
+  // escalated to error when the run fails so the user can see WHY (auth
+  // errors, missing OAuth token, etc.) without flipping YODA_LOG_LEVEL=debug.
+  const stderrBuf = [];
+  const onStderr = (data) => {
+    const line = String(data);
+    logger.debug('claude stderr', { surface, line: line.trim() });
+    if (stderrBuf.join('').length < STDERR_BUF_MAX) stderrBuf.push(line);
+  };
+
+  const stopped = () => tick.userStopped || tick.killed || tick.timedOut;
+
+  let finalResult = null;
+  let queryError = null;
+  try {
+    const q = query({
+      prompt,
+      options: buildAgentOptions({
+        model: model || undefined,
+        effort,
+        allowedTools: config.claude.allowedTools,
+        permissionMode: config.claude.permissionMode,
+        cwd: config.workspace,
+        abortController: controller,
+        stderr: onStderr,
+        resume,
+      }),
     });
 
-    // Run the translator over claude's stdout. Status updates and the final
-    // text both go through the surface-supplied callbacks. If Claude hits
-    // too many api_retry events (Anthropic 529 throttling), the translator
-    // calls onMaxRetries → we kill claude to fail fast and avoid deepening
-    // the cooldown by sustaining concurrent load.
-    const translatorDone = translateStream(claude.stdout, {
-      // Fired on every raw stream line, BEFORE the user-facing throttle/dedupe in
-      // the translator can swallow it — so the idle watchdog tracks true stream
-      // liveness, not just distinct status changes.
+    // Run the translator over the SDK message stream. Status updates and the
+    // final text both go through the surface-supplied callbacks. If Claude
+    // hits too many api_retry events (Anthropic 529 throttling), the
+    // translator calls onMaxRetries → we abort to fail fast and avoid
+    // deepening the cooldown by sustaining concurrent load.
+    const translator = translateMessages(q, {
+      // Fired on every SDK message, BEFORE the user-facing throttle/dedupe in
+      // the translator can swallow it — so the idle watchdog tracks true
+      // stream liveness, not just distinct status changes.
       onActivity: () => bumpIdle(),
       onStatus: async (text) => {
-        if (killed || timedOut) return;
+        if (stopped()) return;
         try { await onStatus(text); }
         catch (e) { logger.debug('onStatus failed', { err: e.message }); }
       },
-      onFinal: async (text) => {
-        if (killed || timedOut) return;
-        try { await onFinal(text); }
+      onFinal: async (text, meta) => {
+        if (stopped()) return;
+        // Stream complete, reply composed — delivery has begun. Disarm the
+        // watchdogs so a slow surface post (Slack 429s/retries) can't be
+        // misclassified as a timeout and overwrite the delivered reply.
+        disarm();
+        try { await onFinal(text, meta); }
         catch (e) { logger.warn('onFinal failed', { err: e.message }); }
       },
       maxRetries: config.claude.maxRetries,
       onMaxRetries: () => {
-        logger.warn('claude api retries exceeded, killing fast', {
+        logger.warn('claude api retries exceeded, aborting fast', {
           surface, conversationId, maxRetries: config.claude.maxRetries,
         });
-        killed = true;
-        try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
+        tick.killed = true;
+        controller.abort();
       },
       maxIterations: config.claude.maxIterations,
       guardrails: {
@@ -259,116 +249,97 @@ export async function runClaude({
       onGuardrail: (g) => {
         if (g.type === 'iteration_cap') {
           iterationCap = g;
-          logger.warn('iteration cap hit, killing', {
+          logger.warn('iteration cap hit, aborting', {
             surface, conversationId, count: g.count, max: g.max,
           });
-          killed = true;
-          try { process.kill(-claude.pid, 'SIGTERM'); } catch (_) {}
+          tick.killed = true;
+          controller.abort();
         } else {
           logger.info('guardrail tripped', { surface, conversationId, ...g });
         }
       },
-    }).then((res) => {
-      finalResult = res;
-      if (res?.tracker) appendToolRuns(conversationId, surface, res.tracker);
-      if (res?.usage) appendUsage(surface, model, res.usage);
-    }).catch((e) => {
-      logger.error('translator error', { err: e.message });
-      finalResult = { ok: false, error: e.message };
     });
 
-    claude.on('exit', (code, signal) => {
-      clearTimers();
-      // SIGTERM/SIGKILL via process.kill on a pgid sometimes lands as
-      // {code: 143|137, signal: null} rather than {code: null, signal: 'SIGTERM'}
-      // depending on how the syscall propagated. Treat both as "killed".
-      if (signal === 'SIGTERM' || signal === 'SIGKILL' || code === 143 || code === 137) {
-        killed = true;
-      }
-
-      // Remove tick state
-      const t = loadTicks();
-      delete t[conversationId];
-      saveTicks(t);
-
-      // Was this an explicit user stop? (vs. a watchdog SIGTERM that also set
-      // `killed`.) Consume the flag now so it can't leak to a recycled PID.
-      const userStopped = userStoppedPids.delete(claude.pid);
-
-      const finish = () => {
-        if (iterationCap) {
-          resolve({
-            ok: false,
-            error: 'iteration_cap',
-            killed: true,
-            guardrailMessage: `🛑 Iteration cap hit (${iterationCap.count}/${iterationCap.max}), claude was looping. See logs/yoda.log and state/tool-runs.json.`,
-          });
-        } else if (userStopped) {
-          // Explicit user "stop" wins even if a watchdog fired in the same
-          // instant. The stop-handler already updated the placeholder, so the
-          // dispatcher's 'killed' branch is a deliberate no-op.
-          resolve({ ok: false, error: 'killed', killed: true });
-        } else if (timedOut) {
-          // 'idle' = went silent (stuck); 'hard' = hit the absolute ceiling
-          // while still active. Distinct codes so the dispatcher can explain
-          // accurately which one happened.
-          resolve({ ok: false, error: timeoutKind === 'hard' ? 'hard_timeout' : 'timeout', killed: true });
-        } else if (killed) {
-          // killed could be fail-fast on throttle. If the translator already
-          // produced a result (throttled === true), surface that so dispatcher
-          // can fall back to a different model.
-          if (finalResult && finalResult.throttled) {
-            resolve({ ...finalResult, killed: true });
-          } else {
-            resolve({ ok: false, error: 'killed', killed: true });
-          }
-        } else if (finalResult) {
-          resolve(finalResult);
-        } else {
-          // Non-zero exit with no result from the translator — surface the
-          // buffered stderr at warn level so the user can see WHY claude died.
-          if (code !== 0) {
-            const stderr = stderrBuf.join('').trim();
-            logger.warn('claude exited non-zero', {
-              surface, conversationId, code, stderr: stderr || '(empty)',
-            });
-            const detail = stderr ? `: ${stderr.split('\n').slice(-3).join(' / ')}` : '';
-            resolve({ ok: false, error: `claude exit ${code}${detail}` });
-          } else {
-            resolve({ ok: true });
-          }
-        }
-      };
-
-      // Resolve once the translator has fully drained buffered stdout — it may
-      // still be awaiting its final onFinal call, and finalResult/throttled/
-      // tracker/usage aren't populated until it returns. (On a kill/timeout,
-      // onFinal is gated off so the translator settles immediately.) A fixed
-      // delay would race a slow onFinal and drop finalText; instead we wait on
-      // the translator promise, with a generous backstop in case onFinal wedges.
-      let finished = false;
-      const finishOnce = () => { if (finished) return; finished = true; finish(); };
-      Promise.resolve(translatorDone).then(finishOnce, finishOnce);
-      setTimeout(finishOnce, 5000).unref();
+    // Abort backstop. controller.abort() interrupts the translator's iterator
+    // await, but NOT an await stuck inside a surface callback (a hung Slack
+    // call in onStatus/onFinal has no timeout of its own). Every recovery
+    // path — killTick, watchdogs, throttle fail-fast, shutdown — funnels
+    // through abort(), so racing the translator against abort+5s guarantees
+    // runClaude settles, the queue lane unblocks, and the tick is cleared.
+    // The stopped() gates keep a late-settling translator from posting.
+    translator.catch(() => {}); // no unhandled rejection if the backstop wins
+    const backstop = new Promise((resolve) => {
+      // Deliberately NOT unref'd: this timer only exists for ≤5s after an
+      // abort, and it must be allowed to fire even if nothing else holds the
+      // event loop open — it is what guarantees the run settles.
+      const arm = () => { setTimeout(() => resolve(null), 5000); };
+      if (controller.signal.aborted) arm();
+      else controller.signal.addEventListener('abort', arm, { once: true });
     });
+    finalResult = await Promise.race([translator, backstop]);
+  } catch (e) {
+    queryError = e;
+  } finally {
+    settled = true;
+    disarm();
+    activeTicks.delete(conversationId);
+    persistTicks();
+  }
 
-    claude.on('error', (err) => {
-      logger.error('claude spawn error', { err: err.message });
-      clearTimers();
-      const t = loadTicks();
-      delete t[conversationId];
-      saveTicks(t);
-      resolve({ ok: false, error: err.message });
+  if (finalResult?.tracker) appendToolRuns(conversationId, surface, finalResult.tracker);
+  if (finalResult?.usage) appendUsage(surface, model, finalResult.usage);
+
+  // Classification mirrors the old process-exit handler: an explicit user
+  // stop wins over a watchdog that fired in the same instant, then timeouts,
+  // then internal aborts (throttle fail-fast surfaces the translator's
+  // throttled result so the dispatcher can fall back to another model).
+  if (iterationCap) {
+    return {
+      ok: false,
+      error: 'iteration_cap',
+      killed: true,
+      guardrailMessage: `🛑 Iteration cap hit (${iterationCap.count}/${iterationCap.max}), claude was looping. See logs/yoda.log and state/tool-runs.json.`,
+    };
+  }
+  if (tick.userStopped) {
+    // The stop-handler already updated the placeholder, so the dispatcher's
+    // 'killed' branch is a deliberate no-op.
+    return { ok: false, error: 'killed', killed: true };
+  }
+  if (tick.timedOut) {
+    // 'idle' = went silent (stuck); 'hard' = hit the absolute ceiling while
+    // still active. Distinct codes so the dispatcher can explain accurately.
+    return { ok: false, error: tick.timeoutKind === 'hard' ? 'hard_timeout' : 'timeout', killed: true };
+  }
+  if (tick.killed) {
+    // Fail-fast on throttle: surface the translator's result so the
+    // dispatcher can fall back to a different model.
+    if (finalResult && finalResult.throttled) {
+      return { ...finalResult, killed: true };
+    }
+    return { ok: false, error: 'killed', killed: true };
+  }
+  if (queryError && !isAbortError(queryError)) {
+    // The query itself failed (runtime missing, auth error, crash). Surface
+    // the buffered stderr so the user can see WHY.
+    const stderr = stderrBuf.join('').trim();
+    logger.error('claude query failed', {
+      surface, conversationId, err: queryError.message, stderr: stderr || '(empty)',
     });
-  });
+    const detail = stderr ? `: ${stderr.split('\n').filter(Boolean).slice(-3).join(' / ')}` : '';
+    return { ok: false, error: `${queryError.message}${detail}` };
+  }
+  if (finalResult) return finalResult;
+  return { ok: false, error: 'no result from claude' };
 }
 
 /**
- * Look up a tick by conversationId. Returns the stored tick record or null.
+ * Look up a tick by conversationId. Returns a snapshot of the tick or null.
  */
 export function findTick(conversationId) {
-  const ticks = loadTicks();
-  return ticks[conversationId] || null;
+  const t = activeTicks.get(conversationId);
+  if (!t) return null;
+  return { conversationId: t.conversationId, surface: t.surface, placeholder: t.placeholder, startedAt: t.startedAt };
 }
 
 /**
@@ -376,45 +347,41 @@ export function findTick(conversationId) {
  * the user types "stop" outside the original conversation.
  */
 export function findTickWhere(predicate) {
-  const ticks = loadTicks();
-  for (const [id, tick] of Object.entries(ticks)) {
-    if (predicate(id, tick)) return { conversationId: id, ...tick };
+  for (const [id, t] of activeTicks) {
+    if (predicate(id, t)) {
+      return { conversationId: id, surface: t.surface, placeholder: t.placeholder, startedAt: t.startedAt };
+    }
   }
   return null;
 }
 
 /**
- * Kill an in-flight tick. Sends SIGTERM to the claude process group.
+ * Stop an in-flight tick (explicit user "stop"). Aborts the SDK run.
  */
 export function killTick(tick) {
-  if (!tick || !tick.pid) return false;
-  try {
-    process.kill(-tick.pid, 'SIGTERM');
-    // Flag only after a successful signal — the group exists, so the owning
-    // run's exit handler will fire and consume the flag (no leak). On failure
-    // the process is already gone, so we deliberately don't add it.
-    userStoppedPids.add(tick.pid);
-    logger.info('killed tick', { surface: tick.surface, pid: tick.pid });
-    return true;
-  } catch (e) {
-    logger.warn('killTick failed', { err: e.message, pid: tick.pid });
+  const t = tick && tick.conversationId ? activeTicks.get(tick.conversationId) : null;
+  if (!t) return false;
+  // Flag BEFORE aborting so the owning run classifies this as a user stop
+  // even if a watchdog fires in the same instant — the user's intent wins.
+  t.userStopped = true;
+  try { t.controller.abort(); } catch (e) {
+    logger.warn('killTick abort failed', { err: e.message, conversationId: t.conversationId });
     return false;
   }
+  logger.info('stopped tick', { surface: t.surface, conversationId: t.conversationId });
+  return true;
 }
 
 /**
- * Kill ALL in-flight claudes recorded in current-ticks.json. Used on
- * shutdown so claude children don't outlive the yoda parent (because
- * they're spawned with detached:true and would otherwise leak).
- *
- * Also cleans up the ticks file.
+ * Abort ALL in-flight runs. Used on shutdown so SDK children don't outlive
+ * the yoda parent.
  */
 export function killAllTicks() {
-  const ticks = loadTicks();
   let killed = 0;
-  for (const tick of Object.values(ticks)) {
-    if (killTick(tick)) killed++;
+  for (const t of activeTicks.values()) {
+    t.killed = true; // internal abort, not a user stop — no final text is posted
+    try { t.controller.abort(); killed++; } catch (_) {}
   }
-  saveTicks({});
+  persistTicks();
   return killed;
 }

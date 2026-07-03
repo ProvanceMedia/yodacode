@@ -1,21 +1,23 @@
-// Memory self-generation. After a notable surface tick, spawn a detached
-// background `claude -p` that reviews the conversation and decides whether
-// a durable FACT emerged worth appending to MEMORY.md (or memory/<slug>.md).
+// Memory self-generation. After a notable surface tick, run a background
+// Agent SDK query that reviews the conversation and decides whether a
+// durable FACT emerged worth appending to MEMORY.md (or memory/<slug>.md).
 //
 // Mirrors lib/skill-reflector.js but with a different prompt: skills capture
 // reusable PROCEDURES, memory captures durable FACTS (about the user,
 // projects, references, feedback rules).
 //
-// After the child writes, kick off an FTS5 reindex so the new fact is
+// After a successful write, kick off an FTS5 reindex so the new fact is
 // searchable immediately rather than waiting for the 03:00 cron.
 //
-// Fire-and-forget: never blocks the reply path. Disabled by default —
+// Fire-and-forget: never blocks the reply path. Runs in-process now (no
+// detached child), so a reflection in flight during a yoda restart is lost —
+// acceptable for best-effort work. Disabled by default —
 // opt in via YODA_MEMORY_REFLECTOR_ENABLED=1.
 
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { agentSpawnOpts } from './deroot.js';
+import { runAgentText } from './agent-query.js';
 
 function buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -94,43 +96,26 @@ export function maybeReflectMemory({ surface, conversationId, userText, replyTex
 
   const prompt = buildPrompt({ surface, conversationId, userText, replyText, tracker, durationMs });
 
-  const args = [
-    '-p', prompt,
-    '--output-format', 'text',
-    '--permission-mode', 'acceptEdits',
-    '--allowed-tools', 'Read,Write,Edit,Bash,Glob,Grep',
-  ];
-  if (cfg.reflectorModel) args.push('--model', cfg.reflectorModel);
+  logger.info('memory-reflector started', { surface, conversationId, toolCount, durationMs });
 
-  let child;
-  try {
-    child = spawn(config.claude.bin, args, {
-      cwd: config.workspace,
-      ...agentSpawnOpts(),
-      stdio: 'ignore',
-      detached: true,
-    });
-  } catch (e) {
-    logger.warn('memory-reflector spawn failed', { err: e.message });
-    return;
-  }
-  child.unref();
-
-  const timeout = setTimeout(() => {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch (_) {}
-    logger.warn('memory-reflector timed out', { surface, conversationId, ms: cfg.reflectorTimeoutMs });
-  }, cfg.reflectorTimeoutMs);
-  timeout.unref();
-
-  child.on('exit', (code) => {
-    clearTimeout(timeout);
-    if (code === 0) triggerReindex();
-    logger.info('memory-reflector finished', { surface, conversationId, code });
-  });
-  child.on('error', (e) => {
-    clearTimeout(timeout);
+  // Fire-and-forget: the promise is deliberately not awaited so the reply
+  // path never blocks on reflection. The timeout is enforced inside
+  // runAgentText via its AbortController.
+  runAgentText({
+    prompt,
+    model: cfg.reflectorModel || undefined,
+    allowedTools: 'Read,Write,Edit,Bash,Glob,Grep',
+    permissionMode: 'acceptEdits',
+    cwd: config.workspace,
+    timeoutMs: cfg.reflectorTimeoutMs,
+  }).then(({ ok, error, timedOut }) => {
+    if (timedOut) {
+      logger.warn('memory-reflector timed out', { surface, conversationId, ms: cfg.reflectorTimeoutMs });
+      return;
+    }
+    if (ok) triggerReindex();
+    logger.info('memory-reflector finished', { surface, conversationId, ok, ...(error ? { error } : {}) });
+  }).catch((e) => {
     logger.warn('memory-reflector error', { err: e.message });
   });
-
-  logger.info('memory-reflector spawned', { surface, conversationId, toolCount, durationMs });
 }

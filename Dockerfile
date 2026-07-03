@@ -11,7 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git openssh-client python3 bash curl jq gosu tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Claude Code, installed globally → /usr/local/bin/claude (world-executable).
+# Claude Code CLI, installed globally → /usr/local/bin/claude (world-executable).
+# Used for auth setup (`claude setup-token`) and health checks; the runtime
+# agent runs through the Claude Agent SDK, which bundles its own pinned engine
+# (see workspace/package.json).
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
 # Unprivileged runtime user/group (uid/gid remappable at runtime via PUID/PGID).

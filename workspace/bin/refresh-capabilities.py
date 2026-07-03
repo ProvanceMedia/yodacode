@@ -96,7 +96,7 @@ SERVICE_MAP: dict[str, tuple[str, str, str, str, str]] = {
     "SLACK_TEST_CHANNEL_ID":("Slack","Test channel ID","", "", "Test channel id (optional)."),
 
     # ─── Auth ──────────────────────────────────────────────────────
-    "CLAUDE_CODE_OAUTH_TOKEN": ("Auth", "Claude Code OAuth", "(internal)", "internal", "Claude Code Max-sub OAuth token. NEVER expose. Routes `claude -p` calls to the subscription instead of API billing."),
+    "CLAUDE_CODE_OAUTH_TOKEN": ("Auth", "Claude Code OAuth", "(internal)", "internal", "Claude Code Max-sub OAuth token. NEVER expose. Routes agent runs to the subscription instead of API billing."),
 }
 
 

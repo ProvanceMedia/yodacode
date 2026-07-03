@@ -13,7 +13,8 @@ ExecStart={{NODE_BIN}} {{INSTALL_DIR}}/workspace/bin/cron-runner.js %i
 StandardOutput=append:{{INSTALL_DIR}}/logs/%i.log
 StandardError=append:{{INSTALL_DIR}}/logs/%i.log
 TimeoutStartSec=7200
-# Critical: reflectors are detached children that need to survive past
-# the main process exit. Default KillMode=control-group would SIGTERM
-# the whole cgroup. KillMode=process only kills the main process.
-KillMode=process
+# Reflections are awaited in-process by cron-runner.js (lib/cron-reflect.js);
+# nothing detaches any more. The default KillMode=control-group is correct:
+# stop/timeout SIGTERMs the whole cgroup, reaping the Agent SDK's Claude
+# Code child too. (Existing installs: regenerate units via gen-units.sh and
+# `systemctl daemon-reload`.)

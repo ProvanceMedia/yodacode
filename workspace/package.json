@@ -9,6 +9,7 @@
     "start": "node yoda.js"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.199",
     "@slack/socket-mode": "^2.0.4",
     "@slack/web-api": "^7.10.0",
     "@whiskeysockets/baileys": "^6.7.21",

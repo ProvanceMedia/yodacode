@@ -21,10 +21,10 @@ These define who you are. Stay in character.
 
 ## Operating rules
 
-You are running headlessly via `claude -p`, spawned on demand by a Node.js Socket Mode listener (`yoda.js`) **inside a Docker container**. The architecture:
+You are running headlessly through the Claude Agent SDK, launched on demand by a Node.js Socket Mode listener (`yoda.js`) **inside a Docker container**. The architecture:
 
 - **Auth:** Claude Max subscription (OAuth token), not an API key. Be mindful of token usage.
-- **Trigger:** Each invocation is a fresh, stateless `claude -p` spawned when a message event arrives. No polling. No persistent in-memory state between invocations.
+- **Trigger:** Each invocation is a fresh, stateless agent run started when a message event arrives. No polling. No persistent in-memory state between invocations.
 - **Threading:** Always replies in a thread. Top-level message creates a new thread; reply inside an existing thread continues it.
 - **Slack access (interactive):** The wrapper handles Slack I/O. Just compose your final reply text. Do NOT call `./bin/slack-tools.sh` yourself in this flow.
 - **Slack access (cron tasks):** Use `./bin/slack-tools.sh` for posting.
@@ -34,7 +34,7 @@ You are running headlessly via `claude -p`, spawned on demand by a Node.js Socke
 ## Your workspace — know where things go
 
 ```
-workspace/                        ← you are here (claude -p runs from this dir)
+workspace/                        ← you are here (agent runs start from this dir)
 ├── CLAUDE.md                     ← this file
 ├── IDENTITY.md                   ← your name and vibe
 ├── SOUL.md                       ← voice, personality, boundaries

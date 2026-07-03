@@ -2,7 +2,7 @@
 
 Reusable procedures Yoda has learnt. Each pointer below maps to a `skills/<slug>.md` file with frontmatter + numbered steps.
 
-Curated by the **skill-reflector** (background `claude -p` after long/multi-tool ticks) and tidied by the nightly **skill-review** cron.
+Curated by the **skill-reflector** (background agent run after long/multi-tool ticks) and tidied by the nightly **skill-review** cron.
 
 This file is `@-imported` into `CLAUDE.md` so Yoda always knows what skills exist. Skill *bodies* are NOT imported — read the file when you need the steps. Use `./bin/skill-tools.sh list` or `./bin/skill-tools.sh search <query>` to discover.
 

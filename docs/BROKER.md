@@ -39,8 +39,8 @@ most prompts and docs need no change.
 
 > Honest scope: the agent container does hold the **Slack** bot token and the **Claude OAuth**
 > token, because the supervisor needs them to run. The high-value service keys (money, CRM,
-> cloud, data) are what the broker removes from the agent entirely. Hiding the Slack token too
-> is possible with the bare-metal de-root path below (separate uid).
+> cloud, data) are what the broker removes from the agent entirely. The bare-metal de-root path
+> below additionally hides the Slack token from the agent's environment.
 
 ## Configuring services
 
@@ -82,6 +82,13 @@ Basic auth, fixed paths) use `services.policy.json` — see the `.example` files
 If you run YodaCode as a host systemd install instead of containers, `sudo scripts/setup-broker.sh`
 sets up the same isolation without Docker: it creates an unprivileged `yodacode-agent` user, locks
 the secret files root-only, installs a `yodacode-brokerd` systemd service, and sets `YODA_DEROOT=1`
-so the agent (and crons) spawn as that user with a scrubbed environment. This path additionally
-hides the Slack token from the spawned agent (it runs as a separate uid). Roll back with
-`YODA_DEROOT=0` and a restart. The mechanism lives in `workspace/lib/deroot.js`.
+so every agent run (surface ticks and crons) gets a scrubbed, secret-free environment AND is
+spawned as the `yodacode-agent` user (via the Agent SDK's custom spawn hook), so the root-only
+file permissions remain a real boundary — service keys are reachable only via `broker call`, and
+the Slack token is hidden from the agent too. Roll back with `YODA_DEROOT=0` and a restart. The
+mechanism lives in `workspace/lib/deroot.js` + `workspace/lib/agent-query.js`.
+
+> Fail-safe: if `YODA_DEROOT=1` is set but the `yodacode-agent` user doesn't exist (e.g. a
+> bare-metal `.env` reused inside the container), runs log an error and fall back to the legacy
+> env rather than breaking. A non-root supervisor with the flag set gets the curated env without
+> the uid switch — it is already unprivileged.

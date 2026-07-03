@@ -14,7 +14,7 @@
 #   ./bin/skill-tools.sh mark-used enrich-hubspot-from-domain
 # @end
 #
-# Skills are auto-written by the skill-reflector (background `claude -p`
+# Skills are auto-written by the skill-reflector (background agent run
 # after notable ticks) and tidied by cron-tasks/skill-review.sh.
 
 set -uo pipefail

@@ -1,8 +1,8 @@
 // Surface-agnostic stop handler.
 //
 // When an authorised user posts a "stop" message via any surface, find the
-// in-flight tick (across any surface), kill its claude process group, and
-// edit the placeholder via the right surface adapter.
+// in-flight tick (across any surface), abort its Agent SDK run, and edit
+// the placeholder via the right surface adapter.
 
 import { isStopMessage } from './reply-policy.js';
 import { findTick, findTickWhere, killTick } from './claude-runner.js';

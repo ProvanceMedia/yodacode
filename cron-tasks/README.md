@@ -75,9 +75,7 @@ cron-tasks/
 ├── README.md                          ← this file
 ├── _template.yaml                     ← annotated template for new tasks
 ├── <task>.yaml                        ← your task definitions
-├── examples/                          ← starter task YAMLs (memory-consolidate, skill-review)
-└── lib/
-    └── reflect-after.sh               ← reflector helper (called by the runner)
+└── examples/                          ← starter task YAMLs (memory-consolidate, skill-review)
 ```
 
 The in-container scheduler (`workspace/bin/scheduler.js`) reads every `*.yaml` here on startup,

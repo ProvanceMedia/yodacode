@@ -1,35 +1,16 @@
-// De-rooted agent spawning (optional credential-isolation mode). When YODA_DEROOT=1,
-// every `claude -p` child runs as an unprivileged agent user with a curated, secret-free
-// environment: it reaches credentials only through the broker socket. When the flag is
-// off (default), callers fall back to the legacy spawn (full env minus the API key), so
-// existing installs are byte-for-byte unchanged.
-//
-// The supervisor process stays as-is (it needs the Slack socket-mode tokens and signs
-// process-group kills); only the agent children are de-rooted. See docs/BROKER.md.
-import { execFileSync } from 'node:child_process';
-import { logger } from './logger.js';
+// De-rooted agent runs (optional credential-isolation mode). When
+// YODA_DEROOT=1, every agent run gets a curated, secret-free environment —
+// it reaches credentials only through the broker socket — and, when the
+// supervisor runs as root (the bare-metal systemd install), the SDK child is
+// additionally spawned as the unprivileged agent user via the SDK's custom
+// spawn hook (see lib/agent-query.js), so root-only file permissions remain
+// an effective boundary. When the flag is off (default), callers fall back
+// to the legacy env (full env minus the API key). See docs/BROKER.md.
 
-const AGENT_USER = process.env.YODA_AGENT_USER || 'yodacode-agent';
-const AGENT_GROUP = process.env.YODA_AGENT_GROUP || 'yodacode';
-const BROKER_SOCK = process.env.YODA_BROKER_SOCK || '/run/yodacode-broker.sock';
-const BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || '';
+import { execFileSync } from 'node:child_process';
 
 export function derootEnabled() {
   return process.env.YODA_DEROOT === '1';
-}
-
-let ids = null; // {uid, gid} resolved once
-function resolveIds() {
-  if (ids) return ids;
-  const uid = parseInt(execFileSync('id', ['-u', AGENT_USER], { encoding: 'utf8' }).trim(), 10);
-  // Primary gid for the child = the shared broker group: grants the broker socket
-  // (0660 root:<group>) and the group-writable workspace, and stamps agent-created
-  // files with the group the rest of the install shares.
-  const groupLine = execFileSync('getent', ['group', AGENT_GROUP], { encoding: 'utf8' }).trim();
-  const gid = parseInt(groupLine.split(':')[2], 10);
-  if (!Number.isInteger(uid) || !Number.isInteger(gid)) throw new Error(`cannot resolve ${AGENT_USER}/${AGENT_GROUP}`);
-  ids = { uid, gid };
-  return ids;
 }
 
 // The ONLY env the de-rooted agent inherits. CLAUDE_CODE_OAUTH_TOKEN is the model's own
@@ -41,33 +22,54 @@ const ENV_ALLOWLIST = [
 ];
 
 export function buildAgentEnv() {
+  // Env vars are read at call time (not import time) so values loaded late —
+  // e.g. cron-runner's loadEnvFile('.env') — still make it into the agent env.
+  const agentUser = process.env.YODA_AGENT_USER || 'yodacode-agent';
   const env = {};
   for (const k of ENV_ALLOWLIST) if (process.env[k] != null) env[k] = process.env[k];
-  env.HOME = `/home/${AGENT_USER}`;
+  env.HOME = `/home/${agentUser}`;
   if (!env.PATH) env.PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
   if (!env.LANG) env.LANG = 'C.UTF-8';
   env.ANTHROPIC_API_KEY = '';                // never API-key auth
-  env.YODA_BROKER_SOCK = BROKER_SOCK;        // how the agent reaches credentials
-  if (BROWSERS_PATH) env.PLAYWRIGHT_BROWSERS_PATH = BROWSERS_PATH; // shared browser binaries
+  env.YODA_BROKER_SOCK = process.env.YODA_BROKER_SOCK || '/run/yodacode-broker.sock';
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH; // shared browser binaries
+  }
   env.YODA_DEROOTED = '1';                   // marker tools/prompts can check
   return env;
 }
 
+let ids = null;       // {uid, gid} resolved once
+let idsFailed = false;
+
 /**
- * Spawn options for a `claude -p` child. De-rooted when YODA_DEROOT=1, legacy otherwise.
- * Merge over the caller's own options (cwd, stdio, detached…).
+ * Resolve the agent user's uid + shared broker gid. Returns null (and caches
+ * the failure) when the agent user/group doesn't exist — e.g. inside the
+ * container, or on a host where setup-broker.sh never ran — so callers can
+ * degrade gracefully instead of crashing every run.
  */
-export function agentSpawnOpts() {
-  if (!derootEnabled()) {
-    return { env: { ...process.env, ANTHROPIC_API_KEY: '' } };
-  }
+export function resolveAgentIds() {
+  if (ids) return ids;
+  if (idsFailed) return null;
+  const agentUser = process.env.YODA_AGENT_USER || 'yodacode-agent';
+  const agentGroup = process.env.YODA_AGENT_GROUP || 'yodacode';
   try {
-    const { uid, gid } = resolveIds();
-    return { env: buildAgentEnv(), uid, gid };
-  } catch (e) {
-    // Fail SAFE for availability: if the agent user is missing, log loudly and fall
-    // back to the legacy spawn rather than taking the bot down.
-    logger.error('deroot requested but unavailable — falling back to legacy spawn', { err: e.message });
-    return { env: { ...process.env, ANTHROPIC_API_KEY: '' } };
+    // stderr piped (not inherited) so a missing user doesn't spray "id: no
+    // such user" onto the supervisor's stderr — the caller logs the outcome.
+    const opts = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
+    const uid = parseInt(execFileSync('id', ['-u', agentUser], opts).trim(), 10);
+    // Primary gid for the child = the shared broker group: grants the broker socket
+    // (0660 root:<group>) and the group-writable workspace, and stamps agent-created
+    // files with the group the rest of the install shares.
+    const groupLine = execFileSync('getent', ['group', agentGroup], opts).trim();
+    const gid = parseInt(groupLine.split(':')[2], 10);
+    if (!Number.isInteger(uid) || !Number.isInteger(gid)) {
+      throw new Error(`cannot resolve ${agentUser}/${agentGroup}`);
+    }
+    ids = { uid, gid };
+    return ids;
+  } catch {
+    idsFailed = true;
+    return null;
   }
 }
