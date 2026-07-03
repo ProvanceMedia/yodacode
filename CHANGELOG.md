@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.2.2 — 2026-07-03
+
+- fix: personalise slash-command descriptions in the printed manifest
+
 ## v2.2.1 — 2026-07-03
 
 - fix(slack): never fail slash-command help silently; refresh its text
