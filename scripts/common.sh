@@ -250,7 +250,12 @@ configure_slack() {
   echo -e "    3. clear the box, paste this (works on the JSON or YAML tab), ${B}Next${X} → ${B}Create${X}:"
   echo ""
   echo -e "  ${C}┄┄┄ copy from here ┄┄┄${X}"
-  sed "s/\"YodaCode\"/\"$BOT_NAME\"/g" scripts/slack-app-manifest.json | sed 's/^/  /'
+  # Personalise every "YodaCode" (app name, bot display name, and the slash
+  # command descriptions — "Ask YodaCode using…"). Case-sensitive, so the
+  # /yodacode command names themselves are untouched (the bot matches them
+  # literally). Escape sed specials in case the name contains & or /.
+  local bn_esc="${BOT_NAME//&/\\&}"; bn_esc="${bn_esc//\//\\/}"
+  sed "s/YodaCode/$bn_esc/g" scripts/slack-app-manifest.json | sed 's/^/  /'
   echo -e "  ${C}┄┄┄ to here ┄┄┄┄┄┄┄┄┄${X}"
   echo ""
   echo -e "    4. left menu ${B}Install App${X} → ${B}Install to Workspace${X} → Allow"
