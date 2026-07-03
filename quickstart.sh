@@ -222,6 +222,8 @@ echo ""
 if [[ "${YC_WRAPPER_PATH_ADDED:-0}" == 1 ]]; then
   note "New command added to your PATH — run 'source ~/.bashrc' (or open a new shell) to use 'yodacode'."
   note "Until then: ./yodacode help"
+else
+  note "The 'yodacode' command is ready to use — try: yodacode help"
 fi
 echo -e "  ${B}Add API keys any time:${X} run ${B}yodacode addkey${X}, or DM ${BOT_NAME} \`/yodacode\` in Slack."
 echo "  Keys live in a separate broker container; ${BOT_NAME} itself never sees them."

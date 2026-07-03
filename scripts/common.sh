@@ -4,9 +4,12 @@
 # repo root — the functions use repo-relative paths (.env, templates/, workspace/).
 
 # ── palette ─────────────────────────────────────────────────────────────────
-C='\033[38;5;43m'   # teal accent
-G='\033[32m'; Y='\033[33m'; R='\033[31m'
-B='\033[1m'; D='\033[2m'; X='\033[0m'
+# ANSI-C quoting ($'…') stores real escape BYTES, so the colours render with
+# plain echo/printf too — a literal '\033[1m' string only renders under
+# `echo -e` and prints as garbage everywhere else.
+C=$'\033[38;5;43m'   # teal accent
+G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'
+B=$'\033[1m'; D=$'\033[2m'; X=$'\033[0m'
 
 banner() {
   echo ""
@@ -299,15 +302,24 @@ require_docker() {
 }
 
 # ── CLI wrapper install ──────────────────────────────────────────────────────
-# Drop a `yodacode` shim into ~/.local/bin pointing at this repo's ./yodacode,
-# and ensure that dir is on PATH (this shell + future shells). Idempotent. Sets
-# YC_WRAPPER_PATH_ADDED=1 when it had to add the dir to PATH (so the caller can
-# tell the user to open a new shell).
+# Drop a `yodacode` shim pointing at this repo's ./yodacode. Prefers
+# /usr/local/bin when writable (root installs — already on every shell's
+# PATH, so the command works IMMEDIATELY, no `source ~/.bashrc` dance);
+# falls back to ~/.local/bin + shell-rc PATH persistence otherwise.
+# Idempotent. Sets YC_WRAPPER_PATH_ADDED=1 when it had to add a dir to PATH
+# (so the caller can tell the user to open a new shell).
 YC_WRAPPER_PATH_ADDED=0
 install_cli_wrapper() {
   local bindir="$HOME/.local/bin" target rcf persisted=0
   target="$(readlink -f ./yodacode 2>/dev/null || echo "$PWD/yodacode")"
   [[ -f "$target" ]] || return 0
+  if [[ -d /usr/local/bin && -w /usr/local/bin ]]; then
+    printf '#!/usr/bin/env bash\n# yodacode-shim: docker\nexec "%s" "$@"\n' "$target" > /usr/local/bin/yodacode
+    chmod +x /usr/local/bin/yodacode
+    # Remove a stale ~/.local/bin shim so there's exactly one launcher.
+    rm -f "$HOME/.local/bin/yodacode" 2>/dev/null || true
+    return 0
+  fi
   mkdir -p "$bindir"
   # If an existing shim belongs to the legacy bundled-node installer, say so
   # rather than silently flipping the user between install modes.

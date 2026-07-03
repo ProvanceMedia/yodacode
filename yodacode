@@ -349,11 +349,15 @@ CMD="${1:-}"; [[ $# -gt 0 ]] && shift
 
 # Self-heal: the first time this runs as ./yodacode and the launcher isn't
 # installed yet, drop it onto PATH so every future call works without the ./.
-# Keyed off the launcher file so it acts once, then stays silent — existing
+# Keyed off the launcher files so it acts once, then stays silent — existing
 # installs fix themselves on first use.
-if [[ ! -e "$HOME/.local/bin/yodacode" ]]; then
+if [[ ! -e /usr/local/bin/yodacode && ! -e "$HOME/.local/bin/yodacode" ]]; then
   install_cli_wrapper
-  note "Installed the 'yodacode' command — run 'source ~/.bashrc' (or open a new shell) to use it without ./"
+  if [[ "${YC_WRAPPER_PATH_ADDED:-0}" == 1 ]]; then
+    note "Installed the 'yodacode' command — run 'source ~/.bashrc' (or open a new shell) to use it without ./"
+  else
+    note "Installed the 'yodacode' command — available in this and every shell."
+  fi
 fi
 
 case "$CMD" in
