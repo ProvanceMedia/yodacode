@@ -65,8 +65,10 @@ services:
       - ./cron-tasks:/app/cron-tasks        # add/edit crons from the host
       - ./logs:/app/logs
       - yc_node_modules:/app/workspace/node_modules
+      - yc_agent_home:/home/yoda            # Claude state (per-thread sessions) survives recreation
       - broker_sock:/run/yodacode-broker
 
 volumes:
   yc_node_modules:    # keeps the image's baked workspace deps over the bind mount
+  yc_agent_home:      # agent's ~/.claude — session transcripts for per-thread resume
   broker_sock:        # shared unix-socket dir between broker and agent

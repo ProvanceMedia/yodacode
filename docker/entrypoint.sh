@@ -54,7 +54,9 @@ if [[ "$(id -u)" == "0" ]]; then
   chgrp -R yodacode /app/logs 2>/dev/null || true
   chmod -R g+w /app/logs 2>/dev/null || true
   chmod g+s /app/logs 2>/dev/null || true
-  chown yoda:yodacode /home/yoda 2>/dev/null || true
+  # Recursive: /home/yoda is a named volume holding Claude session state, and
+  # a PUID change between deployments must not strand it under the old uid.
+  chown -R yoda:yodacode /home/yoda 2>/dev/null || true
   exec gosu yoda "$0" "$@"
 fi
 

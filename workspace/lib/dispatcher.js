@@ -21,6 +21,7 @@ import { logger } from './logger.js';
 import { parseFinalReply } from './reply-policy.js';
 import { maybeReflect } from './skill-reflector.js';
 import { maybeReflectMemory } from './memory-reflector.js';
+import { sessionStore } from './session-store.js';
 
 /**
  * @param {object} event Normalised event (see lib/surface.js for shape)
@@ -78,16 +79,25 @@ async function processReply(event, surface) {
     userId: event.userId,
   });
 
-  // 6. Build prompt with surface-specific hints
-  const prompt = buildPrompt(event, ctx, surface);
+  // 6. Per-thread session resume. If this conversation already has an SDK
+  // session, resume it: the agent keeps its own prior turns and tool results,
+  // and the prompt only carries messages that arrived since its last turn.
+  // The store is an optimisation, never truth — a failed resume (session
+  // file gone, e.g. recreated container) falls back to a fresh session with
+  // the full transcript below.
+  const sess = config.sessions.resumeEnabled ? sessionStore.get(event.conversationId) : null;
 
-  // 6b. Thread-sticky effort escalation. There's no persistent session (each
-  // tick is a fresh `claude -p`), so "stay in deep mode for this thread" is
-  // simulated by re-scanning the conversation each tick: if the most recent
-  // deep-think signal from a human ("ultrathink"/"xhigh") is newer than any
-  // "xhigh off"/"normal effort" signal, run this tick at xhigh. Sticks while
-  // the trigger message is still in the fetched window. The runner skips effort
-  // on Haiku fallbacks automatically.
+  // 6a. Build prompt with surface-specific hints (delta-only when resuming)
+  let sel = selectContext(event, ctx, sess);
+  let prompt = buildPrompt(event, ctx, surface, sel);
+
+  // 6b. Thread-sticky effort escalation, re-derived from the fetched
+  // transcript each tick (independent of session resume, which doesn't see
+  // messages the agent wasn't invoked for): if the most recent deep-think
+  // signal from a human ("ultrathink"/"xhigh") is newer than any "xhigh off"/
+  // "normal effort" signal, run this tick at xhigh. Sticks while the trigger
+  // message is still in the fetched window. The runner skips effort on Haiku
+  // fallbacks automatically.
   const effort = resolveEffort(event, ctx);
   if (effort === 'xhigh') {
     logger.info('effort escalated to xhigh (thread-sticky)', {
@@ -106,42 +116,94 @@ async function processReply(event, surface) {
   let result = null;
   let modelUsed = null;
   const tickStartMs = Date.now();
-  for (let i = 0; i < modelChain.length; i++) {
-    const model = modelChain[i];
-    modelUsed = model || '(default)';
-    if (i > 0) {
-      // Tell the user we're falling back
-      try {
-        await surface.updateMessage(placeholder, `🔄 ${modelChain[i - 1] || 'default'} throttled, trying ${model}…`);
-      } catch (_) {}
+
+  const runChain = async (promptText, resumeId) => {
+    let res = null;
+    for (let i = 0; i < modelChain.length; i++) {
+      const model = modelChain[i];
+      modelUsed = model || '(default)';
+      if (i > 0) {
+        // Tell the user we're falling back
+        try {
+          await surface.updateMessage(placeholder, `🔄 ${modelChain[i - 1] || 'default'} throttled, trying ${model}…`);
+        } catch (_) {}
+      }
+      res = await runClaude({
+        surface: event.surface,
+        conversationId: event.conversationId,
+        placeholder,
+        prompt: promptText,
+        model: model || undefined,
+        effort,
+        resume: resumeId,
+        onStatus: (text) => (surface.setStatus
+          ? surface.setStatus(placeholder, text)
+          : surface.updateMessage(placeholder, text)),
+        onFinal: async (text, meta) => {
+          // A failed resume must not flash its error at the user — the
+          // dispatcher retries on a fresh session and that run delivers.
+          // Gated on the translator's error flag so a GENUINE reply that
+          // happens to contain the phrase can never be swallowed.
+          if (resumeId && meta?.isError && isResumeFailure(text)) return;
+          // Post ONLY the <say>-tagged part of the model's final output; everything
+          // else is scratchpad (see parseFinalReply). <silent/> posts nothing.
+          const parsed = parseFinalReply(text);
+          if (parsed.kind === 'text') return surface.updateMessage(placeholder, parsed.text);
+          if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
+          return surface.updateMessage(placeholder, '·');
+        },
+      });
+      if (res.ok) break;
+      // Only retry on transient throttle. Stops/timeouts/other errors → fail.
+      if (!res.throttled) break;
+      logger.warn('claude throttled, falling back', {
+        surface: event.surface,
+        from: model || '(default)',
+        next: modelChain[i + 1] || '(none)',
+      });
     }
-    result = await runClaude({
+    return res;
+  };
+
+  result = await runChain(prompt, sess?.sessionId);
+
+  // Resume failed (session file gone or pruned) → forget it, rebuild the
+  // prompt with the full transcript, and run once more on a fresh session.
+  if (!result.ok && sess && isResumeFailure(result.error)) {
+    logger.warn('session resume failed — starting a fresh session', {
       surface: event.surface,
       conversationId: event.conversationId,
-      placeholder,
-      prompt,
-      model: model || undefined,
-      effort,
-      onStatus: (text) => (surface.setStatus
-        ? surface.setStatus(placeholder, text)
-        : surface.updateMessage(placeholder, text)),
-      onFinal: async (text) => {
-        // Post ONLY the <say>-tagged part of the model's final output; everything
-        // else is scratchpad (see parseFinalReply). <silent/> posts nothing.
-        const parsed = parseFinalReply(text);
-        if (parsed.kind === 'text') return surface.updateMessage(placeholder, parsed.text);
-        if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
-        return surface.updateMessage(placeholder, '·');
-      },
+      sessionId: sess.sessionId,
     });
-    if (result.ok) break;
-    // Only retry on transient throttle. Stops/timeouts/other errors → fail.
-    if (!result.throttled) break;
-    logger.warn('claude throttled, falling back', {
-      surface: event.surface,
-      from: model || '(default)',
-      next: modelChain[i + 1] || '(none)',
-    });
+    sessionStore.clear(event.conversationId);
+    sel = selectContext(event, ctx, null);
+    prompt = buildPrompt(event, ctx, surface, sel);
+    result = await runChain(prompt, undefined);
+  }
+
+  // Remember the session that served this thread (also on <silent/> — the
+  // session still advanced) plus the delta cutoff for the next tick. When
+  // the session's context has grown past the rotation threshold, retire it
+  // instead: the next tick starts fresh with the full transcript (the store
+  // is an optimisation, never truth), capping per-tick input cost and
+  // pre-empting in-session auto-compaction quietly eating early context.
+  if (config.sessions.resumeEnabled && result.ok && result.sessionId) {
+    const u = result.usage || {};
+    const inputTotal = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
+      + (u.cache_creation_input_tokens || 0);
+    if (config.sessions.rotateInputTokens > 0 && inputTotal >= config.sessions.rotateInputTokens) {
+      logger.info('rotating thread session (context grew large)', {
+        surface: event.surface,
+        conversationId: event.conversationId,
+        inputTokens: inputTotal,
+      });
+      sessionStore.clear(event.conversationId);
+    } else {
+      sessionStore.set(event.conversationId, {
+        sessionId: result.sessionId,
+        lastTs: nextLastTs(sess, sel, ctx, event),
+      });
+    }
   }
 
   if (!result.ok && !result.killed) {
@@ -233,12 +295,93 @@ function resolveEffort(event, ctx) {
   return config.claude.effort || undefined;
 }
 
-function buildPrompt(event, ctx, surface) {
-  const transcript = formatTranscript(ctx.messages, ctx.replyTargetTs || event.messageId);
+// True when a failed run's error indicates the SDK couldn't find the session
+// we asked it to resume.
+function isResumeFailure(error) {
+  return /no conversation found with session id/i.test(error || '');
+}
+
+// Strictly-orderable timestamp: only all-digit (optionally dotted) strings
+// qualify. parseFloat alone is a trap — opaque ids like WhatsApp's
+// "3EB0C767…" parse to a bogus finite 3, silently corrupting the cutoff.
+function orderableTs(v) {
+  const s = String(v ?? '');
+  return /^\d+(\.\d+)?$/.test(s) ? parseFloat(s) : null;
+}
+
+// Pick which messages this tick sends. Fresh lane → the full fetched
+// context. Resumed lane → only what's new since the stored cutoff: the
+// agent already holds the earlier conversation, its own posts are dropped
+// (it said them), messages EDITED since the cutoff are re-shown (Slack keeps
+// the original ts on edits), and anything non-orderable is kept rather than
+// guessed about. If the cutoff itself isn't orderable, fall back to the
+// full transcript with a dedupe note.
+function selectContext(event, ctx, sess) {
+  const all = ctx.messages || [];
+  if (!sess) return { resumed: false, messages: all, contextNote: '' };
+
+  const repeatNote = 'The transcript below may repeat messages already in your context.';
+  const cutoff = orderableTs(sess.lastTs);
+  if (cutoff === null) return { resumed: true, messages: all, contextNote: repeatNote };
+
+  const targetId = ctx.replyTargetTs || event.messageId;
+  const isSelf = (m) => config.botUserId && m.user === config.botUserId;
+  const delta = all.filter((m) => {
+    if (isSelf(m)) return false;
+    if ((m.ts || m.id) === targetId) return true; // always keep the marked message
+    const ts = orderableTs(m.ts || m.id);
+    if (ts === null || ts > cutoff) return true;
+    const editedTs = orderableTs(m.edited?.ts);
+    return editedTs !== null && editedTs > cutoff; // edited since last turn → re-show
+  });
+  if (delta.length) {
+    return {
+      resumed: true,
+      messages: delta,
+      contextNote: 'Only messages since your last turn are shown — the earlier conversation is already in your context.',
+    };
+  }
+  return { resumed: true, messages: all, contextNote: repeatNote };
+}
+
+// Cutoff for the NEXT tick's delta. First tick of a lane anchors to the
+// marked message — not the max of the fetched view, because a root tick sees
+// channel history while later ticks see thread replies, and a channel-wide
+// max would silently skip replies that landed in between. Resumed ticks
+// advance to the newest orderable ts (message or edit) actually SENT this
+// tick, and never regress (a >fetch-limit thread returns its oldest page,
+// whose max is older than what the agent has already seen).
+function nextLastTs(sess, sel, ctx, event) {
+  if (!sess) {
+    const target = String(ctx.replyTargetTs || event.messageId || '');
+    return orderableTs(target) !== null ? target : null;
+  }
+  let bestVal = orderableTs(sess.lastTs);
+  let bestStr = bestVal !== null ? String(sess.lastTs) : null;
+  for (const m of sel.messages) {
+    for (const v of [m.ts || m.id, m.edited?.ts]) {
+      const ts = orderableTs(v);
+      if (ts !== null && (bestVal === null || ts > bestVal)) {
+        bestVal = ts;
+        bestStr = String(v);
+      }
+    }
+  }
+  return bestStr;
+}
+
+function buildPrompt(event, ctx, surface, sel) {
+  const transcript = formatTranscript(sel.messages, ctx.replyTargetTs || event.messageId);
   const surfaceHints = surface.formatPromptHints ? surface.formatPromptHints() : '';
   const attachmentsBlock = formatAttachments(ctx.attachments || []);
+  const resumedIntro = sel.resumed
+    ? `, continuing a conversation you already hold in session memory. ${sel.contextNote}`
+    : '.';
+  const resumedInstruction = sel.resumed
+    ? '\n- You already have the earlier conversation and your own previous tool results in context — build on them instead of re-deriving; still re-check anything time-sensitive or likely to have changed since. A message marked (edited) was changed after you last saw it — the version here supersedes your memory of it.'
+    : '';
 
-  return `You are responding in real time to a ${event.surface} message.
+  return `You are responding in real time to a ${event.surface} message${resumedIntro}
 
 Conversation: ${ctx.convName || event.conversationId}${event.isDirect ? ' (direct/IM)' : ' (channel)'}
 Recent messages (chronological, last is most recent):
@@ -247,7 +390,7 @@ ${attachmentsBlock}
 ${surfaceHints}
 
 Instructions:
-- Compose a single in-character reply to the marked message, taking the prior messages as context for continuity.
+- Compose a single in-character reply to the marked message, taking the prior messages as context for continuity.${resumedInstruction}
 - Do whatever tool calls you need (curl, bash, browser-tools, subagents, etc.) to gather information.
 - If the user attached files, USE THE Read TOOL on the local paths above to actually look at them. Images, PDFs, text files — Read can handle all of them. Don't refer to attachments without reading them first.
 - **Output contract (important):** Think, plan, and decide as much as you like — the user ONLY ever sees the text you put inside \`<say>…</say>\` tags. Everything outside those tags is private scratchpad and is never shown. Wrap just the user-facing reply in \`<say>…</say>\`, e.g. \`<say>hey, what's up?</say>\`. Do NOT call any bin/slack-tools.sh post/update yourself — the wrapper handles delivery.
@@ -276,8 +419,9 @@ function formatTranscript(messages, replyTargetId) {
     const user = m.user || m.bot_id || '?';
     const id = m.ts || m.id || '';
     const text = (m.text || '').replace(/\n/g, ' ');
+    const edited = m.edited ? ' (edited)' : '';
     const marker = id === replyTargetId ? ' <-- THIS IS THE NEW MESSAGE TO RESPOND TO' : '';
-    lines.push(`  [${id}] <@${user}>: ${text}${marker}`);
+    lines.push(`  [${id}] <@${user}>: ${text}${edited}${marker}`);
   }
   return lines.join('\n');
 }

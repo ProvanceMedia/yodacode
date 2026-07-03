@@ -15,7 +15,7 @@ One guided command installs everything; DM your bot a few minutes later.
 ## What is this?
 
 YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in
-Slack. Every reply runs through Claude Code (`claude -p`), so the agent has real tools: Read,
+Slack. Every reply runs through the Claude Agent SDK (Claude Code's engine), so the agent has real tools: Read,
 Write, Edit, web search, browser automation, subagents, and a full Bash shell. It runs as two
 Docker containers — a **broker** that holds your API keys, and the **agent** itself, which never
 sees them (see [Security](#security-de-rooted-by-default)).
@@ -132,10 +132,10 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
    ║  agent container  (unprivileged, no keys)  ║
    ║   yoda.js ─ surfaces                        ║
    ║     ├─ dispatcher (policy + context)        ║
-   ║     ├─ claude-runner → claude -p (stream)   ║
+   ║     ├─ claude-runner → Agent SDK query()    ║
    ║     │     ├─ live status streaming          ║
    ║     │     └─ model fallback (529 → Haiku)   ║
-   ║     ├─ stop-handler (kill mid-tick)         ║
+   ║     ├─ stop-handler (abort mid-tick)        ║
    ║     └─ scheduler (in-container crons)       ║
    ╚════════════════════╤═══════════════════════╝
                         │ broker call (unix socket)
@@ -196,8 +196,23 @@ higher means deeper reasoning at the cost of more tokens per turn. YodaCode wire
   at the default.
 
 Notes: `xhigh` is supported on Opus only; other models clamp it to `high`, and Haiku ignores effort.
-Each reply is a fresh `claude -p`, so thread stickiness is re-derived from recent thread history —
-in a very long thread, just say the word again.
+Effort stickiness is re-derived from recent thread history each reply — in a very long thread,
+just say the word again.
+
+## Persistent thread sessions
+
+Each conversation thread keeps its own Agent SDK session: every reply resumes the agent's prior
+session, so its earlier turns, tool results, and working memory carry over, and each tick only
+sends the messages that arrived since its last turn (cheaper, faster, and the agent doesn't
+re-derive what it already worked out). Session pointers live in `state/sessions.json`; the
+transcripts live in the agent's `~/.claude` (persisted across container recreation by the
+`yc_agent_home` volume). If a session goes missing — pruned, or a fresh volume — the next reply
+transparently starts a new session with the full thread history. A thread idle longer than
+`YODA_SESSION_MAX_AGE_MS` (default 14 days) also starts fresh, and a very long-lived thread
+rotates to a fresh session once a reply's total input reaches `YODA_SESSION_ROTATE_TOKENS`
+(default 120k), so per-reply cost stays bounded. Edited messages are re-shown to the agent on
+its next reply; deleted messages stay in its session memory until the session rotates. Set
+`YODA_SESSION_RESUME=0` for the old fully-stateless behaviour.
 
 ## Adding a cron task
 
@@ -244,7 +259,7 @@ for the interface). Add `<name>` to `YODA_SURFACES` in `.env` and `docker compos
 ## Closed-loop self-improvement (opt-in)
 
 Two background reflectors can run after any successful conversation that crosses a threshold
-(default: ≥30 seconds OR ≥5 tool calls). Both spawn a separate detached `claude -p` (Haiku by
+(default: ≥30 seconds OR ≥5 tool calls). Both fire a separate background agent run (Haiku by
 default, so it's cheap), look at the just-completed transcript, and decide whether to persist
 anything:
 
@@ -267,7 +282,7 @@ YODA_MEMORY_REFLECTOR_ENABLED=1
 
 ## Loop guardrails
 
-Every tick is wrapped by a tool tracker that watches the `stream-json` event stream and detects
+Every tick is wrapped by a tool tracker that watches the agent's live event stream and detects
 three failure modes:
 
 - **`repeat_failure`:** the same tool + same input errored ≥2× in a row → warning in the placeholder.
