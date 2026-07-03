@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.1.0 — 2026-07-03
+
+- feat(slack): muted status card for the working state
+
 ## v2.0.0 — 2026-07-03
 
 - feat: per-thread session resume with delta prompts
