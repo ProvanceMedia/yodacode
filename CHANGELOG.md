@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.1.1 — 2026-07-03
+
+- fix: install the yodacode launcher onto a live PATH
+
 ## v2.1.0 — 2026-07-03
 
 - feat(slack): muted status card for the working state
