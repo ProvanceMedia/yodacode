@@ -247,22 +247,29 @@ const slackSurface = {
             '*Give me an API key* (GitHub, Stripe, Google, …)',
             'For your safety, secrets are added on the *server*, never typed into Slack. SSH in and run:',
             '```',
-            'cd ~/yodacode        # wherever you installed me',
-            './quickstart.sh addkey',
+            'yodacode addkey',
             '```',
             'It asks for the service, the key name, and the value, stores it in a separate broker',
             'container (I never see it), and reloads. After that, just ask me to use the service.',
             '',
             '*Run a scheduled task now*  Just ask me — e.g. "run the prospecting cron now".',
             '',
-            '*Manage me* (run in the install folder on your server)',
-            '`docker compose logs -f agent` — watch me · `docker compose restart` — apply changes · `docker compose down` — stop',
+            '*Manage me* (run anywhere on your server)',
+            '`yodacode logs` — watch me · `yodacode restart` — apply changes · `yodacode doctor` — health check · `yodacode help` — everything else',
             '',
-            '*Change my name or your details:* run `./quickstart.sh` again and choose Reconfigure.',
+            '*Change my name or your details:* run `yodacode persona`.',
           ].join('\n');
+          // Ephemeral first (private to the caller); if that fails (some DM
+          // surfaces reject it), fall back to a normal message rather than
+          // silently doing nothing.
           try {
             await web.chat.postEphemeral({ channel: body.channel_id, user: body.user_id, text: help });
-          } catch (e) { logger.warn('slack: /help postEphemeral failed', { err: e.message }); }
+          } catch (e) {
+            logger.warn('slack: /help postEphemeral failed — falling back to postMessage', { err: e.message });
+            try {
+              await web.chat.postMessage({ channel: body.channel_id, text: help });
+            } catch (e2) { logger.error('slack: /help fallback postMessage failed', { err: e2.message }); }
+          }
           return;
         }
 
@@ -270,14 +277,12 @@ const slackSurface = {
         if (!spec) return;
         const text = (body.text || '').trim();
         if (!text) {
+          const usage = `Usage: \`${body.command} <your question>\``;
           try {
-            await web.chat.postEphemeral({
-              channel: body.channel_id,
-              user: body.user_id,
-              text: `Usage: \`${body.command} <your question>\``,
-            });
+            await web.chat.postEphemeral({ channel: body.channel_id, user: body.user_id, text: usage });
           } catch (e) {
-            logger.warn('slack: postEphemeral failed', { err: e.message });
+            logger.warn('slack: postEphemeral failed — falling back to postMessage', { err: e.message });
+            try { await web.chat.postMessage({ channel: body.channel_id, text: usage }); } catch (_) {}
           }
           return;
         }
