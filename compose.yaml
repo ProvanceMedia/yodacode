@@ -60,6 +60,8 @@ services:
       YODA_MENTION_CHANNELS: ${YODA_MENTION_CHANNELS:-}
       YODA_SKILL_REFLECTOR_ENABLED: ${YODA_SKILL_REFLECTOR_ENABLED:-0}
       YODA_MEMORY_REFLECTOR_ENABLED: ${YODA_MEMORY_REFLECTOR_ENABLED:-0}
+      YODA_UPDATE_CHECK: ${YODA_UPDATE_CHECK:-1}
+      YODA_UPDATE_REPO: ${YODA_UPDATE_REPO:-}
     volumes:
       - ./workspace:/app/workspace          # persona, memory, state, skills — host-editable
       - ./cron-tasks:/app/cron-tasks        # add/edit crons from the host

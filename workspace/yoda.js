@@ -31,6 +31,7 @@ import { config } from './lib/config.js';
 import { handleMessage } from './lib/dispatcher.js';
 import { registerSurface } from './lib/surface.js';
 import { killAllTicks } from './lib/claude-runner.js';
+import { startUpdateNotifier } from './lib/update-notifier.js';
 import { startUI, stopUI } from './ui/server.js';
 
 const startedSurfaces = [];
@@ -195,6 +196,13 @@ async function main() {
     startUI();
   } catch (e) {
     logger.warn('ui: failed to start (non-fatal)', { err: e.message });
+  }
+
+  // Daily update check → DMs the operator when a new version is tagged.
+  try {
+    startUpdateNotifier();
+  } catch (e) {
+    logger.warn('update notifier failed to start (non-fatal)', { err: e.message });
   }
 
   // Graceful shutdown

@@ -533,6 +533,21 @@ const slackSurface = {
     }
   },
 
+  // Out-of-band operator message (update notices etc.): DM the FIRST entry
+  // of YODA_DM_AUTHORIZED_USERS — by convention the operator/owner (document
+  // multi-user installs accordingly). Returns true when delivered.
+  async notifyOperator(text) {
+    const uid = [...config.policy.dmAuthorizedUsers][0];
+    if (!uid) return false;
+    const r = await web.conversations.open({ users: uid });
+    const channel = r.channel?.id;
+    if (!channel) return false;
+    // No unfurls: the text can quote changelog links; a notice shouldn't
+    // balloon into link previews.
+    await web.chat.postMessage({ channel, text, unfurl_links: false, unfurl_media: false });
+    return true;
+  },
+
   // Remove the placeholder without posting anything (a <silent/> final).
   async suppressPlaceholder(handle) {
     if (!handle || !handle.channel) return;

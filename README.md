@@ -120,6 +120,11 @@ It pulls the newest version, rebuilds the image, and restarts the stack — paus
 incoming commits first. (By hand it's `git pull && docker compose up -d --build` from the install
 folder.)
 
+**You'll know when there's something to update:** the bot checks for new releases once a day and
+DMs you (once per version) with the highlights, and every `yodacode` command shows a one-line
+banner when a newer version exists. The DM goes to the first `YODA_DM_AUTHORIZED_USERS` entry —
+put the operator first. Disable both with `YODA_UPDATE_CHECK=0` in `.env`.
+
 Your workspace (memory, skills, cron definitions) is **bind-mounted**, so you can read and edit it
 on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those files owned by you.
 

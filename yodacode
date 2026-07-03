@@ -93,6 +93,17 @@ cmd_doctor() {
     else fail "YODA_DM_AUTHORIZED_USERS missing — the bot won't reply to anyone"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
   else fail ".env missing"; note "   fix: ./quickstart.sh"; problems=$((problems+1)); fi
 
+  # Version — live check against the repo's release tags (short timeout).
+  local cur latest
+  cur="v$(grep -m1 '"version"' package.json 2>/dev/null | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+  latest="$(timeout 8 git ls-remote --tags origin 'v*' 2>/dev/null | sed 's#.*refs/tags/##' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+  if [[ -z "$latest" ]]; then note "   (couldn't check for updates — offline?)"
+  elif [[ "$latest" == "$cur" ]]; then ok "Up to date ($cur)"
+  elif [[ "$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -1)" == "$latest" ]]; then
+    warn "Update available: $latest (installed $cur)"; note "   fix: yodacode update"
+  else ok "Running $cur (ahead of the latest tag $latest)"; fi
+
   # Memory / OOM — the #1 failure mode on tiny VMs: the kernel SIGKILLs the
   # Claude engine mid-reply and the bot silently fails.
   local mem_mb swap_mb
@@ -363,6 +374,45 @@ default_action() {
 
 # ── dispatch ─────────────────────────────────────────────────────────────────
 CMD="${1:-}"; [[ $# -gt 0 ]] && shift
+
+# ── update banner ────────────────────────────────────────────────────────────
+# npm-style update-notifier: THIS run prints from the cached result and, when
+# the cache is stale (>24h), refreshes it in the background for the NEXT run —
+# no command ever waits on the network. The cache lives in the agent-writable
+# state dir, so parse it defensively (never source it into this root shell).
+maybe_update_banner() {
+  # Honour YODA_UPDATE_CHECK from the shell env OR .env (docs say .env works).
+  local upd; upd="${YODA_UPDATE_CHECK:-$(env_get YODA_UPDATE_CHECK)}"
+  [[ "${upd:-1}" == 0 ]] && return 0
+  [[ "$CMD" == update || "$CMD" == release ]] && return 0
+  [[ -t 2 ]] || return 0
+  local cache="workspace/state/.cli-update-check" now checked latest cur newest
+  now="$(date +%s)"
+  checked="$(grep -m1 '^CHECKED_AT=' "$cache" 2>/dev/null | cut -d= -f2- | tr -dc '0-9')"
+  latest="$(grep -m1 '^LATEST=' "$cache" 2>/dev/null | cut -d= -f2- | tr -dc 'v0-9.')"
+  if (( now - ${checked:-0} > 86400 )); then
+    # trap '' HUP: survive the terminal closing right after the command exits.
+    # timeout + no-prompt: a stalled network or credential-less origin must
+    # neither hang the detached child nor read from the tty. On failure,
+    # advance CHECKED_AT (keeping the old LATEST) so offline hosts don't
+    # respawn a checker on every command. Temp-file + mv keeps concurrent
+    # refreshers from ever exposing a torn cache to a reader.
+    ( trap '' HUP; { mkdir -p workspace/state 2>/dev/null
+        t="$(GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND='ssh -oBatchMode=yes' timeout 15 \
+             git ls-remote --tags origin 'v*' 2>/dev/null </dev/null | sed 's#.*refs/tags/##' \
+             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+        tmp="$(mktemp workspace/state/.cli-update-check.XXXXXX 2>/dev/null)" || exit 0
+        printf 'CHECKED_AT=%s\nLATEST=%s\n' "$(date +%s)" "${t:-$latest}" > "$tmp" && mv -f "$tmp" "$cache"
+      } & ) >/dev/null 2>&1
+  fi
+  [[ "$latest" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+  cur="v$(grep -m1 '"version"' package.json 2>/dev/null | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+  [[ "$cur" == "$latest" || "$cur" == v ]] && return 0
+  newest="$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -1)"
+  [[ "$newest" == "$latest" ]] || return 0
+  echo -e "  ${Y}▲ Update available: ${latest} (installed ${cur}) — run: yodacode update${X}" >&2
+}
+maybe_update_banner
 
 # Self-heal: the first time this runs as ./yodacode and the launcher isn't
 # installed yet, drop it onto PATH so every future call works without the ./.
