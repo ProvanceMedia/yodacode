@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.4.0 — 2026-07-07
+
+- feat(addkey): chat-guided API key setup via the broker
+
 ## v2.3.0 — 2026-07-03
 
 - feat: tell the user when an update is available
