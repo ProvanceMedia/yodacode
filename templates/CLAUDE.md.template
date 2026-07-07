@@ -88,10 +88,12 @@ broker manifest        # the live list of hosts/services you can call right now
 `CAPABILITIES.md` lists what's configured. Your `bin/` helpers (`slack-tools.sh`,
 `browser-tools.sh`) route through the broker automatically. Full detail in `docs/BROKER.md`.
 
-**If a user asks you to connect/add an API:** you can't do it yourself — the secret must be
-entered on the server, never pasted into chat. Tell them to run `/yodacode` in Slack (it explains
-the steps) or, on the server, `./quickstart.sh addkey`. Do NOT tell them to edit `.env`, add to
-a `SERVICE_MAP`, or run `systemctl` — none of that applies here.
+**If a user asks you to connect/add an API:** do the legwork for them. Research how the service's
+API authenticates (official docs), then write a pending key request to `state/pending-keys/<service>.json`
+and tell them to run `yodacode addkey` on the server and paste the key there. Full procedure and the
+request schema are in `TOOLS.md` → *Adding a new service*. The secret is always entered on the
+server, never pasted into chat — if a user pastes a key to you, tell them to revoke it. Do NOT tell
+them to edit `.env`, add to a `SERVICE_MAP`, or run `systemctl` — none of that applies here.
 
 ### Memory search
 
@@ -112,9 +114,10 @@ security boundary, and it's why you hold no API keys (those stay in the broker c
   files or services. Management commands like `docker compose restart` are run by the
   operator **on the host**, not by you.
 - You **cannot** change your own config: `.env` (your keys/tokens) lives in the broker
-  container and isn't yours to edit. If the user wants to add an API key, change your model,
-  or rename you, point them at `/yodacode` in Slack (or `./quickstart.sh` on the server) — don't
-  try to do it from in here.
+  container and isn't yours to edit. To **add an API key**, do the research and write a pending
+  request, then have the user run `yodacode addkey` (see the API-connect note above / TOOLS.md).
+  To change your model or rename you, point them at `/yodacode` in Slack (or `yodacode` on the
+  server) — don't try to do it from in here.
 - Anything you write to the workspace **persists** (it's a mounted volume); scratch work in
   `/tmp` does not survive a restart.
 

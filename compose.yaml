@@ -64,6 +64,11 @@ services:
       YODA_UPDATE_REPO: ${YODA_UPDATE_REPO:-}
     volumes:
       - ./workspace:/app/workspace          # persona, memory, state, skills — host-editable
+      # Broker code + credential map are a TRUST ANCHOR: the agent reaches services
+      # through them but must never rewrite them. Re-mount read-only on top of the
+      # rw workspace so a prompt-injected agent can't add a host→key mapping or forge
+      # the `yodacode addkey` guard state. The host (addkey) stays the only writer.
+      - ./workspace/broker:/app/workspace/broker:ro
       - ./cron-tasks:/app/cron-tasks        # add/edit crons from the host
       - ./logs:/app/logs
       - yc_node_modules:/app/workspace/node_modules

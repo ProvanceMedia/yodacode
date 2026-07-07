@@ -47,6 +47,20 @@ find "$WORKSPACE" -type d -not -path "*/.ssh*" -exec chmod g+rwxs {} + 2>/dev/nu
 find "$WORKSPACE" -type f -not -path "*/.ssh*" -not -name 'secrets.json' -exec chmod g+rw {} + 2>/dev/null || true
 mkdir -p "$ROOT/logs"; chgrp "$AGENT_GROUP" "$ROOT/logs"; chmod g+rwxs "$ROOT/logs"
 
+# The broker's code + credential map are a TRUST ANCHOR. The agent may READ them
+# (refresh-capabilities.py lists configured hosts) but must NEVER write them: a
+# prompt-injected agent that could edit auth-hosts.json would add a host→key mapping
+# and exfiltrate a secret (the broker reloads the file live over its socket, no
+# restart needed), bypassing `yodacode addkey` and its typed-hostname challenge.
+# This is the bare-metal equivalent of the container's read-only broker mount.
+echo "==> lock the broker registry + code (agent group: read-only)"
+if [[ -d "$WORKSPACE/broker" ]]; then
+  chown -R "root:$AGENT_GROUP" "$WORKSPACE/broker" 2>/dev/null || true
+  find "$WORKSPACE/broker" -type d -exec chmod 2750 {} + 2>/dev/null || true   # rwxr-s--- : root writes, group reads
+  find "$WORKSPACE/broker" -type f -exec chmod 640 {} + 2>/dev/null || true    # rw-r----- : group read-only
+  [[ -f "$WORKSPACE/broker/secrets.json" ]] && chmod 600 "$WORKSPACE/broker/secrets.json"
+fi
+
 echo "==> broker service"
 SVC=/etc/systemd/system/yodacode-brokerd.service
 sed -e "s#{{INSTALL_DIR}}#$ROOT#g" -e "s#{{NODE_BIN}}#$NODE_BIN#g" -e "s#{{LOCAL_BIN}}#$LOCAL_BIN#g" \

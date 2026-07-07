@@ -214,7 +214,7 @@ cmd_shell()   { require_docker; exec docker compose exec agent bash; }
 
 cmd_slack()   { title "Reconfigure Slack"; if configure_slack; then restart_if_running; else fail "Slack setup didn't complete — nothing saved past the last ✓."; return 1; fi; }
 cmd_persona() { title "Reconfigure persona"; configure_persona && restart_if_running; }
-cmd_addkey()  { exec ./quickstart.sh addkey; }
+cmd_addkey()  { exec ./quickstart.sh addkey "$@"; }
 
 cmd_model() {
   local arg="${1:-}"
@@ -442,7 +442,7 @@ case "$CMD" in
   model)                cmd_model "$@" ;;
   tools)                cmd_tools "$@" ;;
   release)              cmd_release "$@" ;;
-  addkey)               cmd_addkey ;;
+  addkey)               cmd_addkey "$@" ;;
   status)               cmd_status ;;
   version|-v|--version) cmd_version ;;
   setup)                exec ./quickstart.sh "$@" ;;

@@ -68,8 +68,9 @@ own workspace. Just ask it in Slack:
 - *"Change your name to Jarvis"* → edits its identity files.
 - *"Write a cron that checks my inbox every 30 minutes"* → drops a task file in `cron-tasks/`; the
   scheduler picks it up.
-- *"Connect my GitHub"* → it points you to `/yodacode` in Slack (or `./quickstart.sh addkey` on the
-  server), because keys are added on the server, never pasted into chat.
+- *"Connect my GitHub"* → it researches how the service authenticates, prepares everything, and
+  tells you to run `yodacode addkey` on the server — where you just paste the key at a hidden
+  prompt. Keys are added on the server, never pasted into chat.
 
 ## Security: de-rooted by default
 
@@ -106,9 +107,13 @@ yodacode addkey      # give the bot an API key (via the broker)
 `yodacode` command is a thin wrapper. If it isn't found yet, run `source ~/.bashrc` once, or use
 `./yodacode` from the repo.)
 
-**Adding an API key** (GitHub, Stripe, Google, …): run `yodacode addkey`, or DM your bot
-`/yodacode` in Slack for the walkthrough — it stores the key in the broker (the agent never sees
-it) and reloads. The new host then shows up in the agent's `CAPABILITIES.md`.
+**Adding an API key** (GitHub, Stripe, Notion, …): the easy way is to ask the bot — *"set up
+Notion"* — it researches the service's API and prepares the request; then `yodacode addkey` on the
+server shows what it prepared, you paste the key at a hidden prompt, and — when the service has a
+known test endpoint — it verifies the connection with a live call. Well-known services also work
+directly (`yodacode addkey github`), and
+`yodacode addkey --help` covers the manual options. Either way the key is stored in the broker
+(the agent never sees it) and the new host shows up in the agent's `CAPABILITIES.md`.
 
 ## Updating
 

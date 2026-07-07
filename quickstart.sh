@@ -13,76 +13,12 @@ source scripts/common.sh
 step() { echo ""; echo -e "${C}${B}━━━ Step $1/6 · $2 ━━━${X}"; echo ""; }
 
 # ── subcommand: addkey ────────────────────────────────────────────────────────
-# Securely register a service API key with the broker. The secret value is read
-# here on the server and written only to .env (mounted into the broker container);
-# the agent never sees it. The host→key mapping goes into broker/auth-hosts.json.
-if [[ "${1:-}" == "addkey" ]]; then
-  echo ""
-  echo -e "${C}${B}Add an API key${X}"
-  echo "  Pick a service (the key stays on this server — the bot never sees it):"
-  echo "    1) GitHub      2) Stripe      3) OpenAI"
-  echo "    4) Anything else (you provide the host + scheme)"
-  echo ""
-  pick="$(ask 'Choice' '1')"
-  HEADERNAME=""; QUERYPARAM=""; EXTRAHEADERS=""
-  case "$pick" in
-    1) HOST=api.github.com;  SCHEME=bearer; KEYNAME=GITHUB_PAT;     EXTRAHEADERS='{"Accept":"application/vnd.github+json","User-Agent":"yodacode"}' ;;
-    2) HOST=api.stripe.com;  SCHEME=basic;  KEYNAME=STRIPE_API_KEY ;;
-    3) HOST=api.openai.com;  SCHEME=bearer; KEYNAME=OPENAI_API_KEY ;;
-    *) HOST="$(ask 'API host (e.g. api.example.com)' '')"
-       echo "  Auth style:  1) Bearer token   2) custom header   3) ?query= param   4) HTTP basic"
-       st="$(ask 'Style' '1')"
-       case "$st" in
-         2) SCHEME=header; HEADERNAME="$(ask 'Header name (e.g. X-API-Key)' 'X-API-Key')" ;;
-         3) SCHEME=query;  QUERYPARAM="$(ask 'Query param name (e.g. api_key)' 'api_key')" ;;
-         4) SCHEME=basic ;;
-         *) SCHEME=bearer ;;
-       esac
-       KEYNAME="$(ask 'Name this key (UPPER_SNAKE, e.g. EXAMPLE_API_KEY)' 'EXAMPLE_API_KEY')"
-       KEYNAME="$(echo "$KEYNAME" | tr '[:lower:] -' '[:upper:]__' | tr -cd 'A-Z0-9_')" ;;
-  esac
-  [[ -z "${HOST:-}" || -z "${KEYNAME:-}" ]] && { fail "Need a host and a key name."; exit 1; }
-  echo ""
-  read -r -s -p "  Paste the secret value for $KEYNAME (hidden): " SECRET; echo ""
-  [[ -z "$SECRET" ]] && { fail "No value entered."; exit 1; }
-
-  [[ -f "$ENVF" ]] || cp .env.example "$ENVF"; chmod 600 "$ENVF"
-  set_env "$KEYNAME" "$SECRET"
-  AH="workspace/broker/auth-hosts.json"
-  [[ -f "$AH" ]] || echo '{}' > "$AH"
-  # Edit the JSON with python3 (present on the host); the host has no node — that
-  # lives in the container. Fall back to running node inside the container if needed.
-  json_edit() {
-    HOST="$HOST" SCHEME="$SCHEME" KEYNAME="$KEYNAME" HEADERNAME="$HEADERNAME" \
-    QUERYPARAM="$QUERYPARAM" EXTRAHEADERS="$EXTRAHEADERS" python3 - "$AH" <<'PY'
-import json, os, sys
-f = sys.argv[1]
-try:
-    o = json.load(open(f))
-except Exception:
-    o = {}
-e = {"scheme": os.environ["SCHEME"], "vaultKey": os.environ["KEYNAME"]}
-if os.environ.get("HEADERNAME"): e["headerName"] = os.environ["HEADERNAME"]
-if os.environ.get("QUERYPARAM"): e["queryParam"] = os.environ["QUERYPARAM"]
-if os.environ["SCHEME"] == "basic": e["basicPassword"] = ""
-if os.environ.get("EXTRAHEADERS"): e["extraHeaders"] = json.loads(os.environ["EXTRAHEADERS"])
-o[os.environ["HOST"]] = e
-json.dump(o, open(f, "w"), indent=2); open(f, "a").write("\n")
-PY
-  }
-  if command -v python3 >/dev/null 2>&1; then
-    json_edit || { fail "Failed to update auth-hosts.json"; exit 1; }
-  else
-    fail "python3 not found on this host and node lives only in the container."
-    note "Install python3 ($SUDO apt-get install -y python3) and re-run, or add the host to $AH by hand."
-    exit 1
-  fi
-  ok "Stored $KEYNAME and mapped $HOST (scheme: $SCHEME)."
-  note "Reloading the broker…"
-  docker compose restart broker >/dev/null 2>&1 || docker compose up -d >/dev/null 2>&1 || true
-  ok "Done. Ask the bot to use $HOST."
-  exit 0
-fi
+# Guided key setup lives in scripts/addkey.sh: it consumes requests the bot
+# prepared in chat (workspace/state/pending-keys/), knows well-known services
+# via scripts/service-catalog.json, and reads the secret here on the server —
+# it is written only to .env (mounted into the broker container); the agent
+# never sees it.
+if [[ "${1:-}" == "addkey" ]]; then shift; exec bash scripts/addkey.sh "$@"; fi
 
 # Per-run log dir — fixed /tmp names collide with (and replay) a previous
 # user's stale logs, and root-owned leftovers would break the redirects.
@@ -257,5 +193,6 @@ if [[ "${YC_WRAPPER_PATH_ADDED:-0}" == 1 ]]; then
 else
   note "The 'yodacode' command is ready to use — try: yodacode help"
 fi
-echo -e "  ${B}Add API keys any time:${X} run ${B}yodacode addkey${X}, or DM ${BOT_NAME} \`/yodacode\` in Slack."
+echo -e "  ${B}Connect services any time:${X} ask ${BOT_NAME} in Slack (\"set up Notion\") — it prepares"
+echo -e "  everything; then run ${B}yodacode addkey${X} here and paste the key."
 echo "  Keys live in a separate broker container; ${BOT_NAME} itself never sees them."

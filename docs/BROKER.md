@@ -44,7 +44,22 @@ most prompts and docs need no change.
 
 ## Configuring services
 
-`workspace/broker/auth-hosts.json` — one line per host, the common case:
+The normal path is `yodacode addkey` — ask the bot in chat to set a service up (it researches
+the API and writes a pending request), then run `addkey` on the server and paste the key at a
+hidden prompt. It validates the request, refuses agent-proposed rewrites of known services'
+auth mechanics (the built-in catalog wins), and challenges any attempt to point an *existing*
+vault key at a new host — that shape is what credential exfiltration looks like, so it requires
+you to type the hostname to proceed.
+
+That guard's integrity depends on `auth-hosts.json` being writable only by you, not the agent.
+The container deployment enforces this: `workspace/broker` is mounted **read-only** into the
+agent, so a prompt-injected agent can neither add a host→key mapping nor forge the guard's
+"already approved" state — the host-side `addkey` is the only writer. On a **bare-metal**
+(`YODA_DEROOT`) install there is no such mount, so make sure the broker's config dir is owned by
+the broker user and not writable by the agent user.
+
+Under the hood it maintains `workspace/broker/auth-hosts.json` — one line per host, which you
+can also edit by hand:
 
 ```json
 {

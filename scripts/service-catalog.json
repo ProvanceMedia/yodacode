@@ -1,0 +1,332 @@
+{
+  "airtable": {
+    "label": "Airtable",
+    "aliases": [
+      "air table"
+    ],
+    "host": "api.airtable.com",
+    "scheme": "bearer",
+    "keyName": "AIRTABLE_PAT",
+    "docsUrl": "https://airtable.com/create/tokens",
+    "keyHint": "airtable.com/create/tokens → Create new token → name it, pick scopes, add your bases → copy the token (shown once)",
+    "testPath": "v0/meta/whoami"
+  },
+  "brave-search": {
+    "label": "Brave Search",
+    "aliases": [
+      "brave",
+      "brave api",
+      "brave search",
+      "brave_search",
+      "bravesearch"
+    ],
+    "host": "api.search.brave.com",
+    "scheme": "header",
+    "headerName": "X-Subscription-Token",
+    "keyName": "BRAVE_SEARCH_API_KEY",
+    "docsUrl": "https://api-dashboard.search.brave.com/app/keys",
+    "keyHint": "api-dashboard.search.brave.com → sign up (email verification + credit card required) → subscribe to a plan (no free plan for new signups since ~Feb 2026; all pl",
+    "testPath": "res/v1/web/search?q=hello&count=1"
+  },
+  "cloudflare": {
+    "label": "Cloudflare",
+    "aliases": [
+      "cf",
+      "cloud flare",
+      "cloudflare api"
+    ],
+    "host": "api.cloudflare.com",
+    "scheme": "bearer",
+    "keyName": "CLOUDFLARE_API_TOKEN",
+    "docsUrl": "https://dash.cloudflare.com/profile/api-tokens",
+    "keyHint": "Cloudflare dashboard → My Profile → API Tokens → Create Token (copy it immediately — it is shown only once)",
+    "testPath": "client/v4/user/tokens/verify"
+  },
+  "digitalocean": {
+    "label": "DigitalOcean",
+    "aliases": [
+      "digital ocean",
+      "do",
+      "doctl"
+    ],
+    "host": "api.digitalocean.com",
+    "scheme": "bearer",
+    "keyName": "DIGITALOCEAN_TOKEN",
+    "docsUrl": "https://cloud.digitalocean.com/account/api/tokens",
+    "keyHint": "Control Panel → Account → API → Tokens → Generate New Token",
+    "testPath": "v2/account"
+  },
+  "elevenlabs": {
+    "label": "ElevenLabs",
+    "aliases": [
+      "11labs",
+      "eleven",
+      "eleven labs",
+      "elevenlabs.io"
+    ],
+    "host": "api.elevenlabs.io",
+    "scheme": "header",
+    "headerName": "xi-api-key",
+    "keyName": "ELEVENLABS_API_KEY",
+    "docsUrl": "https://elevenlabs.io/app/settings/api-keys",
+    "keyHint": "ElevenLabs dashboard → Developers (left sidebar) → API Keys → Create API Key (shown once — copy it immediately)",
+    "testPath": "v1/user"
+  },
+  "firecrawl": {
+    "label": "Firecrawl",
+    "aliases": [
+      "fc",
+      "fire crawl",
+      "firecrawl.dev"
+    ],
+    "host": "api.firecrawl.dev",
+    "scheme": "bearer",
+    "keyName": "FIRECRAWL_API_KEY",
+    "docsUrl": "https://www.firecrawl.dev/app/api-keys",
+    "keyHint": "Log in at firecrawl.dev → Dashboard → API Keys → create/copy key (starts with fc-)",
+    "testPath": "v2/team/credit-usage"
+  },
+  "github": {
+    "label": "GitHub",
+    "aliases": [
+      "gh",
+      "github.com"
+    ],
+    "host": "api.github.com",
+    "scheme": "bearer",
+    "extraHeaders": {
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "yodacode-broker"
+    },
+    "keyName": "GITHUB_PAT",
+    "docsUrl": "https://github.com/settings/tokens",
+    "keyHint": "GitHub → Settings → Developer settings → Personal access tokens → Generate new token",
+    "testPath": "user"
+  },
+  "groq": {
+    "label": "Groq",
+    "aliases": [
+      "groq api",
+      "groq cloud",
+      "groqcloud"
+    ],
+    "host": "api.groq.com",
+    "scheme": "bearer",
+    "keyName": "GROQ_API_KEY",
+    "docsUrl": "https://console.groq.com/keys",
+    "keyHint": "GroqCloud Console → API Keys (console.groq.com/keys) → Create API Key",
+    "testPath": "openai/v1/models"
+  },
+  "hubspot": {
+    "label": "HubSpot",
+    "aliases": [
+      "hs",
+      "hubapi",
+      "hubspot crm"
+    ],
+    "host": "api.hubapi.com",
+    "scheme": "bearer",
+    "keyName": "HUBSPOT_ACCESS_TOKEN",
+    "docsUrl": "https://developers.hubspot.com/docs/apps/legacy-apps/private-apps/overview",
+    "keyHint": "HubSpot portal → Settings (gear) → Integrations → Private Apps (newer portals: Development → Legacy apps) → Create app → Auth tab → Show token",
+    "testPath": "account-info/v3/details"
+  },
+  "linear": {
+    "label": "Linear",
+    "aliases": [
+      "linear.app",
+      "linearapp"
+    ],
+    "host": "api.linear.app",
+    "scheme": "header",
+    "headerName": "Authorization",
+    "keyName": "LINEAR_API_KEY",
+    "docsUrl": "https://linear.app/settings/account/security",
+    "keyHint": "Linear → Settings → Security & access → Personal API keys → New API key"
+  },
+  "mistral": {
+    "label": "Mistral",
+    "aliases": [
+      "la plateforme",
+      "mistral ai",
+      "mistral-ai",
+      "mistralai"
+    ],
+    "host": "api.mistral.ai",
+    "scheme": "bearer",
+    "keyName": "MISTRAL_API_KEY",
+    "docsUrl": "https://console.mistral.ai/api-keys/",
+    "keyHint": "console.mistral.ai (Studio) → API Keys in the left sidebar → Create new key",
+    "testPath": "v1/models"
+  },
+  "netlify": {
+    "label": "Netlify",
+    "aliases": [
+      "ntl"
+    ],
+    "host": "api.netlify.com",
+    "scheme": "bearer",
+    "keyName": "NETLIFY_AUTH_TOKEN",
+    "docsUrl": "https://app.netlify.com/user/applications#personal-access-tokens",
+    "keyHint": "Netlify app → avatar → User settings → Applications → Personal access tokens → New access token",
+    "testPath": "api/v1/user"
+  },
+  "notion": {
+    "label": "Notion",
+    "aliases": [
+      "notion api",
+      "ntn"
+    ],
+    "host": "api.notion.com",
+    "scheme": "bearer",
+    "extraHeaders": {
+      "Notion-Version": "2026-03-11"
+    },
+    "keyName": "NOTION_API_KEY",
+    "docsUrl": "https://www.notion.so/developers/tokens",
+    "keyHint": "Notion → Developer portal → Personal access tokens → + New token (copy the ntn_… token; shown only once)",
+    "testPath": "v1/users/me"
+  },
+  "openai": {
+    "label": "OpenAI",
+    "aliases": [
+      "chatgpt",
+      "gpt",
+      "oai",
+      "open ai"
+    ],
+    "host": "api.openai.com",
+    "scheme": "bearer",
+    "keyName": "OPENAI_API_KEY",
+    "docsUrl": "https://platform.openai.com/api-keys",
+    "keyHint": "platform.openai.com → log in → Settings → API keys → \"Create new secret key\" (copy the sk-... key immediately; it is shown once)",
+    "testPath": "v1/models"
+  },
+  "openweathermap": {
+    "label": "OpenWeatherMap",
+    "aliases": [
+      "open weather map",
+      "openweather",
+      "owm",
+      "weather"
+    ],
+    "host": "api.openweathermap.org",
+    "scheme": "query",
+    "queryParam": "appid",
+    "keyName": "OPENWEATHERMAP_API_KEY",
+    "docsUrl": "https://home.openweathermap.org/api_keys",
+    "keyHint": "Sign in at openweathermap.org → My API keys (home.openweathermap.org/api_keys) → copy or generate a key",
+    "testPath": "data/2.5/weather?lat=51.5074&lon=-0.1278"
+  },
+  "perplexity": {
+    "label": "Perplexity",
+    "aliases": [
+      "perplexity ai",
+      "perplexity sonar",
+      "pplx",
+      "sonar"
+    ],
+    "host": "api.perplexity.ai",
+    "scheme": "bearer",
+    "keyName": "PERPLEXITY_API_KEY",
+    "docsUrl": "https://console.perplexity.ai",
+    "keyHint": "Sign in at console.perplexity.ai, create an API group if you don't have one, then open API Keys and click Create key (copy it immediately — it's shown only once",
+    "testPath": "v1/async/sonar"
+  },
+  "replicate": {
+    "label": "Replicate",
+    "aliases": [
+      "replicate ai",
+      "replicate.com"
+    ],
+    "host": "api.replicate.com",
+    "scheme": "bearer",
+    "keyName": "REPLICATE_API_TOKEN",
+    "docsUrl": "https://replicate.com/account/api-tokens",
+    "keyHint": "Sign in at replicate.com → Account → API tokens → Create token",
+    "testPath": "v1/account"
+  },
+  "resend": {
+    "label": "Resend",
+    "aliases": [
+      "resend email",
+      "resend.com"
+    ],
+    "host": "api.resend.com",
+    "scheme": "bearer",
+    "extraHeaders": {
+      "User-Agent": "yodacode-broker/1.0"
+    },
+    "keyName": "RESEND_API_KEY",
+    "docsUrl": "https://resend.com/api-keys",
+    "keyHint": "Resend dashboard → API Keys → Create API Key (key starts with \"re_\", shown only once)",
+    "testPath": "domains"
+  },
+  "sendgrid": {
+    "label": "SendGrid",
+    "aliases": [
+      "sg",
+      "twilio sendgrid"
+    ],
+    "host": "api.sendgrid.com",
+    "scheme": "bearer",
+    "keyName": "SENDGRID_API_KEY",
+    "docsUrl": "https://app.sendgrid.com/settings/api_keys",
+    "keyHint": "SendGrid dashboard → Settings → API Keys → Create API Key (shown once, copy it immediately)",
+    "testPath": "v3/scopes"
+  },
+  "serper": {
+    "label": "Serper",
+    "aliases": [
+      "google serper",
+      "serper api",
+      "serper.dev",
+      "serperdev"
+    ],
+    "host": "google.serper.dev",
+    "scheme": "header",
+    "headerName": "X-API-KEY",
+    "keyName": "SERPER_API_KEY",
+    "docsUrl": "https://serper.dev/api-keys",
+    "keyHint": "Sign up at serper.dev (2,500 free queries), then Dashboard → API Keys"
+  },
+  "stripe": {
+    "label": "Stripe",
+    "aliases": [
+      "stripe api",
+      "stripe.com"
+    ],
+    "host": "api.stripe.com",
+    "scheme": "bearer",
+    "keyName": "STRIPE_SECRET_KEY",
+    "docsUrl": "https://dashboard.stripe.com/apikeys",
+    "keyHint": "Stripe Dashboard → Developers → API keys → reveal or create a Secret key (sk_live_... / sk_test_...)",
+    "testPath": "v1/balance"
+  },
+  "todoist": {
+    "label": "Todoist",
+    "aliases": [
+      "td"
+    ],
+    "host": "api.todoist.com",
+    "scheme": "bearer",
+    "keyName": "TODOIST_API_TOKEN",
+    "docsUrl": "https://app.todoist.com/app/settings/integrations/developer",
+    "keyHint": "Todoist → Settings → Integrations → Developer tab → copy your API token",
+    "testPath": "api/v1/user"
+  },
+  "vercel": {
+    "label": "Vercel",
+    "aliases": [
+      "vc",
+      "zeit"
+    ],
+    "host": "api.vercel.com",
+    "scheme": "bearer",
+    "keyName": "VERCEL_TOKEN",
+    "docsUrl": "https://vercel.com/account/tokens",
+    "keyHint": "Vercel dashboard → Account Settings → Tokens → Create (pick a scope and expiry, copy the token immediately — it's shown once)",
+    "testPath": "v2/user"
+  }
+}
