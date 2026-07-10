@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.5.0 — 2026-07-10
+
+- feat(watch): background watches that wake a thread on completion
+
 ## v2.4.0 — 2026-07-07
 
 - feat(addkey): chat-guided API key setup via the broker
