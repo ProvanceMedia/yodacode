@@ -95,6 +95,9 @@ function appendToolRuns(conversationId, surface, summary) {
  * @param {string}   [args.model]         Optional model override (e.g. claude-haiku-4-5)
  * @param {string}   [args.effort]        Optional effort level (low|medium|high|xhigh|max)
  * @param {string}   [args.resume]        SDK session id to resume (persistent thread sessions)
+ * @param {string}   [args.userId]        Triggering user id — injected so a background
+ *   watch the agent sets can record who to wake later.
+ * @param {any}      [args.replyTarget]   Surface reply target — injected (JSON) for the same reason.
  * @param {(text: string) => Promise<void>} args.onStatus  Live update callback
  * @param {(text: string) => Promise<void>} args.onFinal   Final text callback
  * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean, tracker?: object, usage?: object, sessionId?: string|null, guardrailMessage?: string }>}
@@ -107,6 +110,8 @@ export async function runClaude({
   model,
   effort,
   resume,
+  userId,
+  replyTarget,
   onStatus,
   onFinal,
 }) {
@@ -205,6 +210,25 @@ export async function runClaude({
         abortController: controller,
         stderr: onStderr,
         resume,
+        // Hand the child its conversation identity so a background watch it sets
+        // (bin/watch.js) knows which thread + user to wake when its condition
+        // fires, plus the operator's live sizing knobs so the CLI enforces the
+        // real limits (the de-rooted child's curated env strips YODA_* otherwise,
+        // which is why these are forwarded explicitly). Non-secret values only.
+        // Gated on the feature flag so a disabled install can't accumulate orphan
+        // watch files.
+        extraEnv: config.watches.enabled ? {
+          YODA_CONVERSATION_ID: conversationId || '',
+          YODA_SURFACE: surface || '',
+          YODA_USER_ID: userId || '',
+          YODA_REPLY_TARGET: replyTarget ? JSON.stringify(replyTarget) : '',
+          YODA_WATCH_ENABLED: '1',
+          YODA_WATCH_DEFAULT_INTERVAL_MS: String(config.watches.defaultIntervalMs),
+          YODA_WATCH_MIN_INTERVAL_MS: String(config.watches.minIntervalMs),
+          YODA_WATCH_DEFAULT_TIMEOUT_MS: String(config.watches.defaultTimeoutMs),
+          YODA_WATCH_MAX_TIMEOUT_MS: String(config.watches.maxTimeoutMs),
+          YODA_WATCH_MAX_ACTIVE: String(config.watches.maxActive),
+        } : { YODA_WATCH_ENABLED: '0' },
       }),
     });
 

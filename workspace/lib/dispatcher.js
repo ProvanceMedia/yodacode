@@ -28,17 +28,23 @@ import { sessionStore } from './session-store.js';
  * @param {object} surface The surface adapter that produced the event
  */
 export async function handleMessage(event, surface) {
-  // 1. Stop command? Handle inline and short-circuit.
-  if (await tryHandleStop(event)) return;
+  // Synthetic wake events (from the background watcher) are pre-trusted: the
+  // watch was created by an authorised turn and only ever wakes that same
+  // thread, so they skip the stop-check (a system wake is never "stop") and the
+  // surface re-authorisation (which would reject a message with no @-mention).
+  if (!event.synthetic) {
+    // 1. Stop command? Handle inline and short-circuit.
+    if (await tryHandleStop(event)) return;
 
-  // 2. Authorisation
-  if (!surface.isAuthorized(event)) {
-    logger.debug('not authorized, ignoring', {
-      surface: event.surface,
-      userId: event.userId,
-      conversationId: event.conversationId,
-    });
-    return;
+    // 2. Authorisation
+    if (!surface.isAuthorized(event)) {
+      logger.debug('not authorized, ignoring', {
+        surface: event.surface,
+        userId: event.userId,
+        conversationId: event.conversationId,
+      });
+      return;
+    }
   }
 
   // 3. Queue per conversation. Rapid messages coalesce — the worker picks up
@@ -87,9 +93,13 @@ async function processReply(event, surface) {
   // the full transcript below.
   const sess = config.sessions.resumeEnabled ? sessionStore.get(event.conversationId) : null;
 
-  // 6a. Build prompt with surface-specific hints (delta-only when resuming)
+  // 6a. Build prompt with surface-specific hints (delta-only when resuming).
+  // A watcher wake (event.wake) gets a tailored prompt describing what fired;
+  // everything else — session resume, effort, delivery — is identical.
   let sel = selectContext(event, ctx, sess);
-  let prompt = buildPrompt(event, ctx, surface, sel);
+  let prompt = event.wake
+    ? buildWakePrompt(event, ctx, surface, sel)
+    : buildPrompt(event, ctx, surface, sel);
 
   // 6b. Thread-sticky effort escalation, re-derived from the fetched
   // transcript each tick (independent of session resume, which doesn't see
@@ -131,6 +141,8 @@ async function processReply(event, surface) {
       res = await runClaude({
         surface: event.surface,
         conversationId: event.conversationId,
+        userId: event.userId,
+        replyTarget: event.replyTarget,
         placeholder,
         prompt: promptText,
         model: model || undefined,
@@ -177,7 +189,9 @@ async function processReply(event, surface) {
     });
     sessionStore.clear(event.conversationId);
     sel = selectContext(event, ctx, null);
-    prompt = buildPrompt(event, ctx, surface, sel);
+    prompt = event.wake
+      ? buildWakePrompt(event, ctx, surface, sel)
+      : buildPrompt(event, ctx, surface, sel);
     result = await runChain(prompt, undefined);
   }
 
@@ -370,6 +384,45 @@ function nextLastTs(sess, sel, ctx, event) {
   return bestStr;
 }
 
+// Prompt for a background-watch wake (event.wake). Not driven by a new user
+// message — the trigger is the watch firing — so it frames the outcome and asks
+// for a single in-thread report. Reuses the same <say>/<silent/> contract,
+// surface hints, and resumed-session continuity as buildPrompt.
+function buildWakePrompt(event, ctx, surface, sel) {
+  const w = event.wake || {};
+  const transcript = formatTranscript(sel.messages, ctx.replyTargetTs || event.messageId);
+  const surfaceHints = surface.formatPromptHints ? surface.formatPromptHints() : '';
+  const resumedLine = sel.resumed
+    ? 'You are resuming the session in which you set this watch — you already hold the earlier conversation and your own tool results; build on them.'
+    : 'You do NOT have the original session (it expired or rotated). Reconstruct what you need from the watch details and the recent thread below.';
+  const outcomeLine = {
+    met: 'The condition you were waiting for is now TRUE.',
+    timeout: `The watch hit its deadline (${Math.round((w.elapsedMs || 0) / 1000)}s) WITHOUT the condition becoming true — the thing may have failed, stalled, or just be slow.`,
+    error: `The watch's check command kept erroring (${w.errorCount || 0}×) and was given up on — treat the state as unknown and verify directly.`,
+  }[w.outcome] || 'The watch fired.';
+  const outputBlock = w.outputTail
+    ? `\nLast output from the check:\n\`\`\`\n${w.outputTail}\n\`\`\``
+    : '';
+
+  return `You are responding on ${event.surface}, woken by a BACKGROUND WATCH you set earlier — not by a new user message. ${resumedLine}
+
+Watch: ${w.label || w.id}
+Outcome: ${outcomeLine}
+Check command: \`${w.command || '(unknown)'}\` → exit ${w.exitCode ?? '?'}${outputBlock}
+
+Conversation: ${ctx.convName || event.conversationId}${event.isDirect ? ' (direct/IM)' : ' (channel)'}
+Recent messages (chronological, last is most recent):
+${transcript}
+${surfaceHints}
+
+Instructions:
+- Report back to THIS thread about what you were watching.${w.report ? ` Specifically: ${w.report}` : ''}
+- The one-line condition above is a trigger, not the whole story — do any quick verification you need (re-run a check, curl the endpoint, read a log) before you report.
+- **Output contract:** the user ONLY sees text inside \`<say>…</say>\`; everything else is private scratchpad. Emit exactly ONE \`<say>…</say>\` with your update, in character, using the surface's markdown.
+- If the watcher is now stale and there is genuinely nothing worth saying (e.g. you already reported this, or the user cancelled), emit \`<silent/>\` and nothing else.
+`;
+}
+
 function buildPrompt(event, ctx, surface, sel) {
   const transcript = formatTranscript(sel.messages, ctx.replyTargetTs || event.messageId);
   const surfaceHints = surface.formatPromptHints ? surface.formatPromptHints() : '';
@@ -392,6 +445,7 @@ ${surfaceHints}
 Instructions:
 - Compose a single in-character reply to the marked message, taking the prior messages as context for continuity.${resumedInstruction}
 - Do whatever tool calls you need (curl, bash, browser-tools, subagents, etc.) to gather information.
+- Need to report back only once something finishes LATER (a deploy, a build, a long job, a webhook)? Don't background it and promise to return — this turn ends when you stop and nothing you started survives it. Set a background watch instead: \`./bin/watch.js create --label "<what>" --command "<bash that exits 0 when done>" --every 30s --timeout 20m\`. The supervisor polls it after your turn and wakes this thread when it's ready. Run \`./bin/watch.js\` (no args) for usage.
 - If the user attached files, USE THE Read TOOL on the local paths above to actually look at them. Images, PDFs, text files — Read can handle all of them. Don't refer to attachments without reading them first.
 - **Output contract (important):** Think, plan, and decide as much as you like — the user ONLY ever sees the text you put inside \`<say>…</say>\` tags. Everything outside those tags is private scratchpad and is never shown. Wrap just the user-facing reply in \`<say>…</say>\`, e.g. \`<say>hey, what's up?</say>\`. Do NOT call any bin/slack-tools.sh post/update yourself — the wrapper handles delivery.
 - Be concise, in character. No preamble like "Sure, here's...". Put just the reply inside \`<say>\`.

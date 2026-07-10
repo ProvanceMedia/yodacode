@@ -93,12 +93,17 @@ export function toolList(tools) {
  * config, and the user's auth state are all still honoured (the SDK loads
  * none of them by default).
  *
- * @param {boolean} [args.deroot]  Per-run de-root override (default: YODA_DEROOT)
- * @param {object}  [args.env]     Explicit child env (skips de-root resolution)
- * @param {string}  [args.resume]  SDK session id to resume (persistent threads)
+ * @param {boolean} [args.deroot]   Per-run de-root override (default: YODA_DEROOT)
+ * @param {object}  [args.env]      Explicit child env (skips de-root resolution)
+ * @param {string}  [args.resume]   SDK session id to resume (persistent threads)
+ * @param {object}  [args.extraEnv] Non-secret vars merged on top of the resolved
+ *   env AFTER de-root curation — used to hand the child its conversation
+ *   identity (YODA_CONVERSATION_ID/SURFACE/USER_ID/REPLY_TARGET) so a tool it
+ *   runs, e.g. bin/watch.js, knows which thread to wake later. Must never carry
+ *   secrets: it deliberately bypasses the allowlist that strips them.
  */
 export function buildAgentOptions({
-  model, effort, allowedTools, permissionMode, cwd, abortController, env, stderr, deroot, resume,
+  model, effort, allowedTools, permissionMode, cwd, abortController, env, stderr, deroot, resume, extraEnv,
 }) {
   const isolation = env ? { env, spawnHook: null } : resolveRunIsolation(deroot);
   const options = {
@@ -107,7 +112,7 @@ export function buildAgentOptions({
     allowedTools: toolList(allowedTools),
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     settingSources: ['user', 'project', 'local'],
-    env: isolation.env,
+    env: extraEnv ? { ...isolation.env, ...extraEnv } : isolation.env,
   };
   if (isolation.spawnHook) options.spawnClaudeCodeProcess = isolation.spawnHook;
   if (resume) options.resume = resume;

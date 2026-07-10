@@ -31,6 +31,18 @@ function msEnv(name, fallback) {
   return fallback;
 }
 
+// Parse a positive-integer knob. A malformed value (non-numeric like "auto",
+// NaN, ≤0) falls back rather than poisoning downstream math — a bare parseInt
+// returning NaN silently breaks callers (e.g. Array.from({length: NaN}) → []).
+function intEnv(name, fallback) {
+  const n = parseInt(process.env[name], 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  if (process.env[name] !== undefined && process.env[name] !== '') {
+    console.error(`WARN: ${name}="${process.env[name]}" is not a positive integer; using ${fallback}`);
+  }
+  return fallback;
+}
+
 export const config = {
   // Which surfaces are enabled. CSV of names from lib/surfaces/*.
   // The yoda.js coordinator dynamically imports each enabled surface.
@@ -186,6 +198,48 @@ export const config = {
     // the recent transcript instead of dragging an ever-growing session.
     // 0 disables rotation.
     rotateInputTokens: parseInt(process.env.YODA_SESSION_ROTATE_TOKENS || '120000', 10),
+  },
+
+  // Background watches. During a turn the agent can set a "watch" (via
+  // bin/watch.js) that polls a shell command AFTER the turn ends and, when the
+  // condition is met (or a deadline passes), wakes the SAME conversation with a
+  // fresh agent turn that resumes the thread's session and reports back. This is
+  // what lets the agent honestly say "I'll tell you when the deploy is done": a
+  // plain SDK turn ends when the model stops — any background task it started
+  // dies with the run — so the durable poll lives here in the resident
+  // supervisor, not in the agent's own (transient) process.
+  watches: {
+    // Master switch. When off, the watcher loop never starts and bin/watch.js
+    // refuses to create watches (the injected YODA_WATCH_ENABLED tells it so).
+    enabled: process.env.YODA_WATCH_ENABLED !== '0',
+    // How often the supervisor's watcher loop wakes to see which watches are due.
+    tickMs: msEnv('YODA_WATCH_TICK_MS', 10000),
+    // How many due checks the watcher runs concurrently per scan (bounds spawned
+    // bash processes while stopping one slow check from stalling the rest).
+    concurrency: intEnv('YODA_WATCH_CONCURRENCY', 8),
+    // Default per-watch poll interval, and a floor the watcher enforces on every
+    // poll (stops a hot-loop hammering an endpoint). The create-time knobs
+    // (defaultInterval/min/default+maxTimeout/maxActive) are forwarded to the
+    // agent child by claude-runner so bin/watch.js applies the operator's live
+    // values; the watcher additionally re-clamps interval + deadline each scan,
+    // so tightening any of these binds even on a descriptor written directly.
+    defaultIntervalMs: msEnv('YODA_WATCH_DEFAULT_INTERVAL_MS', 60000),
+    minIntervalMs: msEnv('YODA_WATCH_MIN_INTERVAL_MS', 15000),
+    // Default + cap for the give-up deadline. Every watch self-expires so a
+    // never-satisfied condition can't poll forever; the watcher re-clamps to
+    // maxTimeoutMs each scan.
+    defaultTimeoutMs: msEnv('YODA_WATCH_DEFAULT_TIMEOUT_MS', 3600000),
+    maxTimeoutMs: msEnv('YODA_WATCH_MAX_TIMEOUT_MS', 24 * 3600 * 1000),
+    // Per-poll wall-clock cap on the check command itself.
+    checkTimeoutMs: msEnv('YODA_WATCH_CHECK_TIMEOUT_MS', 30000),
+    // Consecutive check ERRORS (spawn failure / timeout, not just "not yet")
+    // tolerated before the watch gives up and wakes with an error report.
+    maxErrors: intEnv('YODA_WATCH_MAX_ERRORS', 5),
+    // Ceiling on simultaneously active watches (bounds state + supervisor load),
+    // enforced by bin/watch.js at create time AND re-enforced by the watcher
+    // each scan (evicting the newest excess) so a directly-written descriptor
+    // can't bypass it.
+    maxActive: intEnv('YODA_WATCH_MAX_ACTIVE', 50),
   },
 
   // Sandbox — uses Claude Code's built-in bubblewrap/Seatbelt sandbox.

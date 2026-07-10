@@ -23,39 +23,52 @@ class Queue {
   submit(key, event, worker) {
     let lane = this.lanes.get(key);
     if (!lane) {
-      lane = { running: false, pending: null };
+      lane = { running: false, pending: null, queued: [] };
       this.lanes.set(key, lane);
     }
 
     if (lane.running) {
-      // A worker is already running. Coalesce: keep the latest event for the
-      // worker to pick up after the current run finishes.
-      lane.pending = event;
-      logger.debug('queue: coalesced into pending', { key });
+      if (event && event.noCoalesce) {
+        // Carries unique, non-re-derivable state (e.g. a background-watch wake):
+        // must NEVER be dropped by coalescing — queue it FIFO so it always runs.
+        lane.queued.push({ event, worker });
+        logger.debug('queue: enqueued non-coalescing event', { key, depth: lane.queued.length });
+      } else {
+        // Normal message: coalesce. The worker rebuilds from the latest state,
+        // so only the most recent pending event matters.
+        lane.pending = { event, worker };
+        logger.debug('queue: coalesced into pending', { key });
+      }
       return;
     }
 
     lane.running = true;
-    this._runLane(key, event, worker).catch((err) => {
+    this._runLane(key, { event, worker }).catch((err) => {
       logger.error('queue: worker threw', { key, err: err.message, stack: err.stack });
     });
   }
 
-  async _runLane(key, event, worker) {
+  async _runLane(key, first) {
     const lane = this.lanes.get(key);
-    let current = event;
+    let current = first;
     while (current) {
       try {
-        await worker(current);
+        await current.worker(current.event);
       } catch (err) {
         logger.error('queue: worker error', { key, err: err.message });
       }
-      current = lane.pending;
-      lane.pending = null;
+      // Drain queued (non-coalescing) events FIFO first, then the single
+      // coalesced pending slot.
+      if (lane.queued.length) {
+        current = lane.queued.shift();
+      } else {
+        current = lane.pending;
+        lane.pending = null;
+      }
     }
     lane.running = false;
     // Clean up empty lanes to avoid unbounded Map growth
-    if (!lane.pending) this.lanes.delete(key);
+    if (!lane.pending && !lane.queued.length) this.lanes.delete(key);
   }
 
   /** How many lanes have a worker running right now */

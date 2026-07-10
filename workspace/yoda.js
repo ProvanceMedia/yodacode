@@ -32,6 +32,7 @@ import { handleMessage } from './lib/dispatcher.js';
 import { registerSurface } from './lib/surface.js';
 import { killAllTicks } from './lib/claude-runner.js';
 import { startUpdateNotifier } from './lib/update-notifier.js';
+import { startWatcher, stopWatcher } from './lib/watcher.js';
 import { startUI, stopUI } from './ui/server.js';
 
 const startedSurfaces = [];
@@ -205,6 +206,15 @@ async function main() {
     logger.warn('update notifier failed to start (non-fatal)', { err: e.message });
   }
 
+  // Background-watch poller. Polls watches the agent set during a turn and wakes
+  // the relevant thread when their condition fires. Must start AFTER surfaces
+  // are registered — a wake dispatches back through them.
+  try {
+    startWatcher();
+  } catch (e) {
+    logger.warn('watcher failed to start (non-fatal)', { err: e.message });
+  }
+
   // Graceful shutdown
   let shuttingDown = false;
   const shutdown = async (sig) => {
@@ -215,6 +225,7 @@ async function main() {
     // than racing the process teardown.
     const killed = killAllTicks();
     if (killed) logger.info('aborted in-flight ticks on shutdown', { count: killed });
+    stopWatcher();
     stopUI();
     await Promise.allSettled(startedSurfaces.map((s) => s.stop()));
     setTimeout(() => process.exit(0), 1000).unref();
