@@ -159,6 +159,10 @@ def read_pending(path):
         return None
     if not isinstance(data, dict):
         return None
+    if data.get("kind") == "oauth":
+        # OAuth sign-in requests are connect's territory (scripts/connect-lib.py);
+        # addkey neither validates nor lists them.
+        return None
     host = str(data.get("host", "")).strip().lower()
     key = str(data.get("keyName", "")).strip().upper()
     if not HOST_RE.match(host) or not KEY_RE.match(key):
@@ -172,6 +176,12 @@ def cmd_pending_list():
     files = [os.path.join(PENDING_DIR, f) for f in os.listdir(PENDING_DIR) if f.endswith(".json")]
     files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     for p in files:
+        try:
+            with open(p) as f:
+                if json.load(f).get("kind") == "oauth":
+                    continue  # connect's territory — listed by connect-lib, not here
+        except Exception:
+            pass
         data = read_pending(p)
         if data is None:
             # Scrub the filename: it is agent-controlled and this diagnostic reaches
@@ -219,6 +229,9 @@ def cmd_resolve():
     if pending_file:
         data = read_pending(pending_file)
         if data is None:
+            raw = load_json(pending_file, {})
+            if isinstance(raw, dict) and raw.get("kind") == "oauth":
+                die("that is an OAuth sign-in request — run: yodacode connect")
             die(f"pending request {pending_file} is missing or invalid")
         for k in ("service", "host", "scheme", "headerName", "queryParam", "basicPassword",
                   "extraHeaders", "keyName", "docsUrl", "keyHint", "testPath", "note"):
@@ -254,6 +267,8 @@ def cmd_resolve():
         slug2, entry2 = catalog_by_host(host)
         if entry2:
             slug, cat_entry = slug2, entry2
+    if isinstance(cat_entry, dict) and cat_entry.get("kind") == "oauth-provider":
+        die(f"{cat_entry.get('label', slug)} services use OAuth, not a pasted key — run: yodacode connect {slug}")
     if cat_entry:
         if not host:
             desc["host"] = cat_entry.get("host", "")
@@ -288,6 +303,8 @@ def cmd_resolve():
 
     if not HOST_RE.match(host):
         die(f"invalid or missing API host: {host!r} (expect something like api.example.com)")
+    if scheme == "oauth2":
+        die("OAuth services are set up with a guided sign-in, not a pasted key — run: yodacode connect")
     if scheme not in SCHEMES:
         die(f"invalid auth scheme {scheme!r} (one of: {', '.join(SCHEMES)})")
     if not KEY_RE.match(key_name):
@@ -317,6 +334,9 @@ def cmd_resolve():
     host_already_mapped = isinstance(existing, dict) and existing.get("vaultKey") == key_name
     if isinstance(existing, dict) and existing.get("vaultKey") not in (None, key_name):
         warnings.append(f"{host} is currently mapped to {clean_text(existing.get('vaultKey'), 64)} — this will replace that mapping")
+    # oauth2 entries carry no vaultKey, so the mapping warning above misses them.
+    if isinstance(existing, dict) and existing.get("scheme") == "oauth2":
+        warnings.append(f"{host} is currently an OAuth sign-in (set up via 'yodacode connect') — this replaces it with a pasted key")
     # Re-adding an already-mapped host (same key) skips the typed-hostname challenge,
     # so call out a change to its auth MECHANICS explicitly — e.g. a poisoned request
     # downgrading a header credential to a logged ?query= param on an existing host.

@@ -5,6 +5,7 @@
 import { unsealVault, vaultSize, reloadVault } from './vault.js';
 import { loadAuthHosts, authHostsCount, authHostsList } from './auth-hosts.js';
 import { loadServices, serviceManifest, executeService, hasService } from './services.js';
+import { oauthHealth, resetOauthState } from './oauth.js';
 import { httpCall, httpCallDef } from './http-call.js';
 import { slackPost, slackPostDef } from './slack-post.js';
 import { slackApi, slackApiDef } from './slack-api.js';
@@ -31,6 +32,7 @@ export function reloadAll() {
   reloadVault();
   loadAuthHosts();
   loadServices();
+  resetOauthState(); // a renewed refresh token must take effect immediately
 }
 
 /** Combined manifest the agent is shown: internal tools + configured services. */
@@ -39,7 +41,10 @@ export function allMediatedManifest() {
 }
 
 export function brokerStatus() {
-  return { vaultSize: vaultSize(), authHosts: authHostsCount(), services: serviceManifest().length };
+  const status = { vaultSize: vaultSize(), authHosts: authHostsCount(), services: serviceManifest().length };
+  const oauth = oauthHealth();
+  if (Object.keys(oauth).length) status.oauth = oauth;
+  return status;
 }
 
 export { authHostsList };

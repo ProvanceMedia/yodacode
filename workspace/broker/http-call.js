@@ -4,7 +4,7 @@
 // the agent never holds a key and can only reach allowlisted hosts (fail-closed).
 import { lookupHost } from './auth-hosts.js';
 import { getSecret } from './vault.js';
-import { getAccessToken } from './oauth.js';
+import { getAccessToken, invalidateAccessToken } from './oauth.js';
 import { doFetch, ssrfCheck } from './http-fetch.js';
 
 export async function httpCall(args) {
@@ -50,9 +50,11 @@ export async function httpCall(args) {
     headers[hName] = v;
   }
   if (desc.scheme === 'oauth2') {
-    const token = await getAccessToken(desc);
-    if (!token) return { ok: false, error: `could not obtain an OAuth access token for ${host}` };
-    headers['Authorization'] = `Bearer ${token}`;
+    // getAccessToken's error strings are actionable (they name the renew
+    // command on invalid_grant) — pass them through to the agent verbatim.
+    const mint = await getAccessToken(desc);
+    if (!mint.token) return { ok: false, error: mint.error ?? `could not obtain an OAuth access token for ${host}` };
+    headers['Authorization'] = `Bearer ${mint.token}`;
   } else {
     const secret = getSecret(desc.vaultKey ?? '');
     if (!secret) return { ok: false, error: `vault has no key ${desc.vaultKey} (for ${host})` };
@@ -85,7 +87,27 @@ export async function httpCall(args) {
     if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) headers['Content-Type'] = 'application/json';
   }
 
-  return doFetch(url, init, 15_000);
+  const started = Date.now();
+  let res = await doFetch(url, init, 15_000);
+  // A 401 under a cached OAuth token usually means it expired early or was
+  // revoked upstream — invalidate the cache and retry once with a fresh mint.
+  // Budgeted: the broker hard-kills the call at 18s (handleMediatedCall), and
+  // a full fetch+mint+fetch chain could exceed that, so the retry only runs —
+  // and only for as long as — the remaining window allows. A 401 means the
+  // request was rejected before processing, so retrying writes is safe.
+  if (!res.ok && desc.scheme === 'oauth2' && /^HTTP 401\b/.test(res.error ?? '')) {
+    const remaining = () => 17_000 - (Date.now() - started);
+    if (remaining() > 4_000) {
+      invalidateAccessToken(desc);
+      const mint = await getAccessToken(desc);
+      if (!mint.token) return { ok: false, error: mint.error ?? res.error };
+      if (remaining() > 1_000) {
+        headers['Authorization'] = `Bearer ${mint.token}`;
+        res = await doFetch(url, init, remaining());
+      }
+    }
+  }
+  return res;
 }
 
 export const httpCallDef = {

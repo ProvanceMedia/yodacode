@@ -69,7 +69,10 @@ can also edit by hand:
 ```
 
 The secret named by `vaultKey` must exist in `.env`. Schemes: `bearer`, `header`, `basic`,
-`query`, `oauth2`. After editing, `docker compose restart broker`. For richer cases (two-secret
+`query`, `oauth2`. After editing, `docker compose restart broker`. `oauth2` entries
+(refresh-token → access-token providers like Google) are normally written by the guided
+sign-in wizard — `yodacode connect`, see `docs/providers/` — which also records grant
+metadata in `workspace/broker/oauth-grants.json`. For richer cases (two-secret
 Basic auth, fixed paths) use `services.policy.json` — see the `.example` files in
 `workspace/broker/`.
 

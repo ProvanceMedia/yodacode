@@ -71,6 +71,8 @@ own workspace. Just ask it in Slack:
 - *"Connect my GitHub"* → it researches how the service authenticates, prepares everything, and
   tells you to run `yodacode addkey` on the server — where you just paste the key at a hidden
   prompt. Keys are added on the server, never pasted into chat.
+- *"Connect my Gmail"* → it prepares a Google sign-in request; `yodacode connect` on the server
+  walks you through a one-time browser consent (Calendar, Drive & co ride the same sign-in).
 
 ## Security: de-rooted by default
 
@@ -101,6 +103,7 @@ yodacode persona     # change bot name, your name, timezone
 yodacode model       # show / set the Claude model
 yodacode tools       # toggle reflectors & guardrails
 yodacode addkey      # give the bot an API key (via the broker)
+yodacode connect     # sign the bot into an OAuth service (Gmail, Calendar, Drive…)
 ```
 
 (Everything still works as plain `docker compose …` from the install folder if you prefer — the
@@ -114,6 +117,15 @@ known test endpoint — it verifies the connection with a live call. Well-known 
 directly (`yodacode addkey github`), and
 `yodacode addkey --help` covers the manual options. Either way the key is stored in the broker
 (the agent never sees it) and the new host shows up in the agent's `CAPABILITIES.md`.
+
+**Connecting Google** (Gmail, Calendar, Drive, Contacts, Tasks, Sheets, Docs, YouTube): these
+use a browser sign-in instead of a pasteable key — run `yodacode connect google` (or just ask
+the bot: *"connect my gmail"*, then run `yodacode connect`). The wizard walks you through
+creating your own Google OAuth client (one-time, ~10 minutes — your data stays strictly between
+your server and Google), prints a sign-in link to open on your laptop, and verifies each service
+with a live call before storing anything. Tokens live in the broker vault; the agent never sees
+them. Renewals (`--renew`) take ~2 minutes, and `yodacode doctor` diagnoses expired sign-ins.
+Details: [docs/providers/google.md](docs/providers/google.md).
 
 ## Updating
 
@@ -162,6 +174,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 | Feature | Description |
 |---|---|
 | **De-rooted by default** | Keys live in a separate broker container; the agent never sees them. |
+| **Google / OAuth sign-ins** | Guided `yodacode connect` wizard: bring-your-own OAuth client, browser consent from your laptop, tokens broker-held, one-command renewal. See [docs/providers/](docs/providers/). |
 | **Live streaming** | Placeholder message updates in real time as Claude works. |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging). |
 | **Memory system** | Proactive memory with 4 typed categories, a daily consolidation cron, and FTS5 search. See [Memory search](#memory-search). |

@@ -67,6 +67,10 @@ if [[ "$LIST" == 1 ]]; then
   python3 "$LIB" pending-list | awk -F'\t' '{printf "  %s — %s (key %s)\n", $2, $3, $4}' \
     || true
   [[ -z "$(python3 "$LIB" pending-list 2>/dev/null)" ]] && note "none — ask $BOT_NAME in Slack to prepare one"
+  if [[ -f scripts/connect-lib.py ]]; then
+    ol="$(python3 scripts/connect-lib.py pending-list 2>/dev/null || true)"
+    [[ -n "$ol" ]] && { title "Pending OAuth sign-ins (use 'yodacode connect')"; echo "$ol" | awk -F'\t' '{printf "  %s — %s\n", $3, $4}'; }
+  fi
   title "Configured services"
   python3 "$LIB" hosts | awk -F'\t' '{printf "  %s (%s → %s)\n", $1, $2, $3}'
   [[ -z "$(python3 "$LIB" hosts)" ]] && note "none yet"
@@ -85,6 +89,12 @@ if [[ -n "$SERVICE_ARG" ]]; then
       [[ -n "$aslug" && "$pslug" == *"$aslug"* ]] && { AK_PENDING_FILE="$pf"; break; }
     done < <(python3 "$LIB" pending-list 2>/dev/null)
     if [[ -z "$AK_PENDING_FILE" && -z "$AK_HOST" ]]; then
+      # An OAuth provider/service name (google, gmail…) belongs to connect.
+      if [[ -f scripts/connect-lib.py ]] && cm="$(python3 scripts/connect-lib.py provider-match "$SERVICE_ARG" 2>/dev/null)"; then
+        fail "'$SERVICE_ARG' uses OAuth, not a pasted key."
+        note "Run: yodacode connect ${cm%%$'\t'*}"
+        exit 1
+      fi
       fail "'$SERVICE_ARG' isn't in the built-in catalog and $BOT_NAME hasn't prepared it."
       note "Easiest: in Slack, tell $BOT_NAME \"set up $SERVICE_ARG\" — it researches the service"
       note "and prepares everything; then run 'yodacode addkey' again."
@@ -121,6 +131,10 @@ elif [[ -z "$AK_HOST" ]]; then
 
   # nothing pending (or declined) — the wizard
   if [[ -z "$AK_PENDING_FILE" ]]; then
+    if (( ${#PENDING_LINES[@]} == 0 )) && [[ -f scripts/connect-lib.py ]] \
+       && [[ -n "$(python3 scripts/connect-lib.py pending-list 2>/dev/null)" ]]; then
+      note "$BOT_NAME has prepared OAuth sign-in request(s) — those use: yodacode connect"
+    fi
     title "Add an API key"
     echo -e "  ${D}Tip: the easy way is to ask $BOT_NAME in Slack — e.g. \"set up Notion\" — it researches"
     echo -e "  the service and prepares this step for you. But we can also do it right here.${X}"

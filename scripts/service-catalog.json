@@ -8,7 +8,7 @@
     "scheme": "bearer",
     "keyName": "AIRTABLE_PAT",
     "docsUrl": "https://airtable.com/create/tokens",
-    "keyHint": "airtable.com/create/tokens → Create new token → name it, pick scopes, add your bases → copy the token (shown once)",
+    "keyHint": "airtable.com/create/tokens \u2192 Create new token \u2192 name it, pick scopes, add your bases \u2192 copy the token (shown once)",
     "testPath": "v0/meta/whoami"
   },
   "brave-search": {
@@ -25,7 +25,7 @@
     "headerName": "X-Subscription-Token",
     "keyName": "BRAVE_SEARCH_API_KEY",
     "docsUrl": "https://api-dashboard.search.brave.com/app/keys",
-    "keyHint": "api-dashboard.search.brave.com → sign up (email verification + credit card required) → subscribe to a plan (no free plan for new signups since ~Feb 2026; all pl",
+    "keyHint": "api-dashboard.search.brave.com \u2192 sign up (email verification + credit card required) \u2192 subscribe to a plan (no free plan for new signups since ~Feb 2026; all pl",
     "testPath": "res/v1/web/search?q=hello&count=1"
   },
   "cloudflare": {
@@ -39,7 +39,7 @@
     "scheme": "bearer",
     "keyName": "CLOUDFLARE_API_TOKEN",
     "docsUrl": "https://dash.cloudflare.com/profile/api-tokens",
-    "keyHint": "Cloudflare dashboard → My Profile → API Tokens → Create Token (copy it immediately — it is shown only once)",
+    "keyHint": "Cloudflare dashboard \u2192 My Profile \u2192 API Tokens \u2192 Create Token (copy it immediately \u2014 it is shown only once)",
     "testPath": "client/v4/user/tokens/verify"
   },
   "digitalocean": {
@@ -53,7 +53,7 @@
     "scheme": "bearer",
     "keyName": "DIGITALOCEAN_TOKEN",
     "docsUrl": "https://cloud.digitalocean.com/account/api/tokens",
-    "keyHint": "Control Panel → Account → API → Tokens → Generate New Token",
+    "keyHint": "Control Panel \u2192 Account \u2192 API \u2192 Tokens \u2192 Generate New Token",
     "testPath": "v2/account"
   },
   "elevenlabs": {
@@ -69,7 +69,7 @@
     "headerName": "xi-api-key",
     "keyName": "ELEVENLABS_API_KEY",
     "docsUrl": "https://elevenlabs.io/app/settings/api-keys",
-    "keyHint": "ElevenLabs dashboard → Developers (left sidebar) → API Keys → Create API Key (shown once — copy it immediately)",
+    "keyHint": "ElevenLabs dashboard \u2192 Developers (left sidebar) \u2192 API Keys \u2192 Create API Key (shown once \u2014 copy it immediately)",
     "testPath": "v1/user"
   },
   "firecrawl": {
@@ -83,7 +83,7 @@
     "scheme": "bearer",
     "keyName": "FIRECRAWL_API_KEY",
     "docsUrl": "https://www.firecrawl.dev/app/api-keys",
-    "keyHint": "Log in at firecrawl.dev → Dashboard → API Keys → create/copy key (starts with fc-)",
+    "keyHint": "Log in at firecrawl.dev \u2192 Dashboard \u2192 API Keys \u2192 create/copy key (starts with fc-)",
     "testPath": "v2/team/credit-usage"
   },
   "github": {
@@ -101,7 +101,7 @@
     },
     "keyName": "GITHUB_PAT",
     "docsUrl": "https://github.com/settings/tokens",
-    "keyHint": "GitHub → Settings → Developer settings → Personal access tokens → Generate new token",
+    "keyHint": "GitHub \u2192 Settings \u2192 Developer settings \u2192 Personal access tokens \u2192 Generate new token",
     "testPath": "user"
   },
   "groq": {
@@ -115,7 +115,7 @@
     "scheme": "bearer",
     "keyName": "GROQ_API_KEY",
     "docsUrl": "https://console.groq.com/keys",
-    "keyHint": "GroqCloud Console → API Keys (console.groq.com/keys) → Create API Key",
+    "keyHint": "GroqCloud Console \u2192 API Keys (console.groq.com/keys) \u2192 Create API Key",
     "testPath": "openai/v1/models"
   },
   "hubspot": {
@@ -129,7 +129,7 @@
     "scheme": "bearer",
     "keyName": "HUBSPOT_ACCESS_TOKEN",
     "docsUrl": "https://developers.hubspot.com/docs/apps/legacy-apps/private-apps/overview",
-    "keyHint": "HubSpot portal → Settings (gear) → Integrations → Private Apps (newer portals: Development → Legacy apps) → Create app → Auth tab → Show token",
+    "keyHint": "HubSpot portal \u2192 Settings (gear) \u2192 Integrations \u2192 Private Apps (newer portals: Development \u2192 Legacy apps) \u2192 Create app \u2192 Auth tab \u2192 Show token",
     "testPath": "account-info/v3/details"
   },
   "linear": {
@@ -143,7 +143,7 @@
     "headerName": "Authorization",
     "keyName": "LINEAR_API_KEY",
     "docsUrl": "https://linear.app/settings/account/security",
-    "keyHint": "Linear → Settings → Security & access → Personal API keys → New API key"
+    "keyHint": "Linear \u2192 Settings \u2192 Security & access \u2192 Personal API keys \u2192 New API key"
   },
   "mistral": {
     "label": "Mistral",
@@ -157,7 +157,7 @@
     "scheme": "bearer",
     "keyName": "MISTRAL_API_KEY",
     "docsUrl": "https://console.mistral.ai/api-keys/",
-    "keyHint": "console.mistral.ai (Studio) → API Keys in the left sidebar → Create new key",
+    "keyHint": "console.mistral.ai (Studio) \u2192 API Keys in the left sidebar \u2192 Create new key",
     "testPath": "v1/models"
   },
   "netlify": {
@@ -169,7 +169,7 @@
     "scheme": "bearer",
     "keyName": "NETLIFY_AUTH_TOKEN",
     "docsUrl": "https://app.netlify.com/user/applications#personal-access-tokens",
-    "keyHint": "Netlify app → avatar → User settings → Applications → Personal access tokens → New access token",
+    "keyHint": "Netlify app \u2192 avatar \u2192 User settings \u2192 Applications \u2192 Personal access tokens \u2192 New access token",
     "testPath": "api/v1/user"
   },
   "notion": {
@@ -185,7 +185,7 @@
     },
     "keyName": "NOTION_API_KEY",
     "docsUrl": "https://www.notion.so/developers/tokens",
-    "keyHint": "Notion → Developer portal → Personal access tokens → + New token (copy the ntn_… token; shown only once)",
+    "keyHint": "Notion \u2192 Developer portal \u2192 Personal access tokens \u2192 + New token (copy the ntn_\u2026 token; shown only once)",
     "testPath": "v1/users/me"
   },
   "openai": {
@@ -200,7 +200,7 @@
     "scheme": "bearer",
     "keyName": "OPENAI_API_KEY",
     "docsUrl": "https://platform.openai.com/api-keys",
-    "keyHint": "platform.openai.com → log in → Settings → API keys → \"Create new secret key\" (copy the sk-... key immediately; it is shown once)",
+    "keyHint": "platform.openai.com \u2192 log in \u2192 Settings \u2192 API keys \u2192 \"Create new secret key\" (copy the sk-... key immediately; it is shown once)",
     "testPath": "v1/models"
   },
   "openweathermap": {
@@ -216,7 +216,7 @@
     "queryParam": "appid",
     "keyName": "OPENWEATHERMAP_API_KEY",
     "docsUrl": "https://home.openweathermap.org/api_keys",
-    "keyHint": "Sign in at openweathermap.org → My API keys (home.openweathermap.org/api_keys) → copy or generate a key",
+    "keyHint": "Sign in at openweathermap.org \u2192 My API keys (home.openweathermap.org/api_keys) \u2192 copy or generate a key",
     "testPath": "data/2.5/weather?lat=51.5074&lon=-0.1278"
   },
   "perplexity": {
@@ -231,7 +231,7 @@
     "scheme": "bearer",
     "keyName": "PERPLEXITY_API_KEY",
     "docsUrl": "https://console.perplexity.ai",
-    "keyHint": "Sign in at console.perplexity.ai, create an API group if you don't have one, then open API Keys and click Create key (copy it immediately — it's shown only once",
+    "keyHint": "Sign in at console.perplexity.ai, create an API group if you don't have one, then open API Keys and click Create key (copy it immediately \u2014 it's shown only once",
     "testPath": "v1/async/sonar"
   },
   "replicate": {
@@ -244,7 +244,7 @@
     "scheme": "bearer",
     "keyName": "REPLICATE_API_TOKEN",
     "docsUrl": "https://replicate.com/account/api-tokens",
-    "keyHint": "Sign in at replicate.com → Account → API tokens → Create token",
+    "keyHint": "Sign in at replicate.com \u2192 Account \u2192 API tokens \u2192 Create token",
     "testPath": "v1/account"
   },
   "resend": {
@@ -260,7 +260,7 @@
     },
     "keyName": "RESEND_API_KEY",
     "docsUrl": "https://resend.com/api-keys",
-    "keyHint": "Resend dashboard → API Keys → Create API Key (key starts with \"re_\", shown only once)",
+    "keyHint": "Resend dashboard \u2192 API Keys \u2192 Create API Key (key starts with \"re_\", shown only once)",
     "testPath": "domains"
   },
   "sendgrid": {
@@ -273,7 +273,7 @@
     "scheme": "bearer",
     "keyName": "SENDGRID_API_KEY",
     "docsUrl": "https://app.sendgrid.com/settings/api_keys",
-    "keyHint": "SendGrid dashboard → Settings → API Keys → Create API Key (shown once, copy it immediately)",
+    "keyHint": "SendGrid dashboard \u2192 Settings \u2192 API Keys \u2192 Create API Key (shown once, copy it immediately)",
     "testPath": "v3/scopes"
   },
   "serper": {
@@ -289,7 +289,7 @@
     "headerName": "X-API-KEY",
     "keyName": "SERPER_API_KEY",
     "docsUrl": "https://serper.dev/api-keys",
-    "keyHint": "Sign up at serper.dev (2,500 free queries), then Dashboard → API Keys"
+    "keyHint": "Sign up at serper.dev (2,500 free queries), then Dashboard \u2192 API Keys"
   },
   "stripe": {
     "label": "Stripe",
@@ -301,7 +301,7 @@
     "scheme": "bearer",
     "keyName": "STRIPE_SECRET_KEY",
     "docsUrl": "https://dashboard.stripe.com/apikeys",
-    "keyHint": "Stripe Dashboard → Developers → API keys → reveal or create a Secret key (sk_live_... / sk_test_...)",
+    "keyHint": "Stripe Dashboard \u2192 Developers \u2192 API keys \u2192 reveal or create a Secret key (sk_live_... / sk_test_...)",
     "testPath": "v1/balance"
   },
   "todoist": {
@@ -313,7 +313,7 @@
     "scheme": "bearer",
     "keyName": "TODOIST_API_TOKEN",
     "docsUrl": "https://app.todoist.com/app/settings/integrations/developer",
-    "keyHint": "Todoist → Settings → Integrations → Developer tab → copy your API token",
+    "keyHint": "Todoist \u2192 Settings \u2192 Integrations \u2192 Developer tab \u2192 copy your API token",
     "testPath": "api/v1/user"
   },
   "vercel": {
@@ -326,7 +326,286 @@
     "scheme": "bearer",
     "keyName": "VERCEL_TOKEN",
     "docsUrl": "https://vercel.com/account/tokens",
-    "keyHint": "Vercel dashboard → Account Settings → Tokens → Create (pick a scope and expiry, copy the token immediately — it's shown once)",
+    "keyHint": "Vercel dashboard \u2192 Account Settings \u2192 Tokens \u2192 Create (pick a scope and expiry, copy the token immediately \u2014 it's shown once)",
     "testPath": "v2/user"
+  },
+  "google": {
+    "kind": "oauth-provider",
+    "label": "Google",
+    "aliases": [
+      "google workspace",
+      "gsuite",
+      "google apis",
+      "googleapis"
+    ],
+    "authUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+    "tokenUrl": "https://oauth2.googleapis.com/token",
+    "clientIdKey": "GOOGLE_OAUTH_CLIENT_ID",
+    "clientSecretKey": "GOOGLE_OAUTH_CLIENT_SECRET",
+    "refreshTokenKey": "GOOGLE_REFRESH_TOKEN",
+    "clientIdPattern": "\\.apps\\.googleusercontent\\.com$",
+    "authParams": {
+      "access_type": "offline",
+      "prompt": "consent"
+    },
+    "identityScopes": [
+      "openid",
+      "email"
+    ],
+    "identityUrl": "https://www.googleapis.com/oauth2/v3/userinfo",
+    "identityField": "email",
+    "setupGuide": "docs/providers/google.md",
+    "setupSteps": [
+      {
+        "text": "Create (or pick) a Google Cloud project",
+        "url": "https://console.cloud.google.com/projectcreate"
+      },
+      {
+        "text": "Enable the API for each service you're connecting (exact links printed below)"
+      },
+      {
+        "text": "Configure the OAuth consent screen: user type External, add your own email",
+        "url": "https://console.cloud.google.com/auth/branding"
+      },
+      {
+        "text": "IMPORTANT \u2014 under Audience, click 'Publish app' so the status is 'In production'. Left in 'Testing', Google kills your sign-in every 7 days.",
+        "url": "https://console.cloud.google.com/auth/audience"
+      },
+      {
+        "text": "Create credentials: OAuth client ID, application type 'Desktop app'",
+        "url": "https://console.cloud.google.com/auth/clients"
+      }
+    ],
+    "services": {
+      "gmail": {
+        "label": "Gmail",
+        "aliases": [
+          "mail",
+          "email",
+          "google mail"
+        ],
+        "hosts": [
+          "gmail.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 read and search mail",
+            "scopes": [
+              "https://www.googleapis.com/auth/gmail.readonly"
+            ]
+          },
+          {
+            "key": "modify",
+            "label": "Read, send + organise mail (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/gmail.modify"
+            ],
+            "default": true
+          }
+        ],
+        "testPath": "gmail/v1/users/me/profile",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/gmail.googleapis.com",
+        "note": "Gmail API (gmail/v1)"
+      },
+      "calendar": {
+        "label": "Google Calendar",
+        "aliases": [
+          "gcal",
+          "calendar"
+        ],
+        "hosts": [
+          "www.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 view events",
+            "scopes": [
+              "https://www.googleapis.com/auth/calendar.readonly"
+            ]
+          },
+          {
+            "key": "full",
+            "label": "View + create/edit events (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/calendar"
+            ],
+            "default": true
+          }
+        ],
+        "testPath": "calendar/v3/users/me/calendarList?maxResults=1",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com",
+        "note": "Google Calendar API (calendar/v3)"
+      },
+      "drive": {
+        "label": "Google Drive",
+        "aliases": [
+          "gdrive",
+          "drive"
+        ],
+        "hosts": [
+          "www.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 read and search files (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/drive.readonly"
+            ],
+            "default": true
+          },
+          {
+            "key": "full",
+            "label": "Full \u2014 create, edit + delete files",
+            "scopes": [
+              "https://www.googleapis.com/auth/drive"
+            ]
+          }
+        ],
+        "testPath": "drive/v3/about?fields=user",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/drive.googleapis.com",
+        "note": "Google Drive API (drive/v3)"
+      },
+      "contacts": {
+        "label": "Google Contacts",
+        "aliases": [
+          "people",
+          "google people"
+        ],
+        "hosts": [
+          "people.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 view contacts (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/contacts.readonly"
+            ],
+            "default": true
+          },
+          {
+            "key": "full",
+            "label": "View + edit contacts",
+            "scopes": [
+              "https://www.googleapis.com/auth/contacts"
+            ]
+          }
+        ],
+        "testPath": "v1/people/me/connections?pageSize=1&personFields=names",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/people.googleapis.com",
+        "note": "People API (v1)"
+      },
+      "tasks": {
+        "label": "Google Tasks",
+        "aliases": [
+          "gtasks"
+        ],
+        "hosts": [
+          "tasks.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 view task lists",
+            "scopes": [
+              "https://www.googleapis.com/auth/tasks.readonly"
+            ]
+          },
+          {
+            "key": "full",
+            "label": "View + manage tasks (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/tasks"
+            ],
+            "default": true
+          }
+        ],
+        "testPath": "tasks/v1/users/@me/lists?maxResults=1",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/tasks.googleapis.com",
+        "note": "Google Tasks API (tasks/v1)"
+      },
+      "sheets": {
+        "label": "Google Sheets",
+        "aliases": [
+          "gsheets",
+          "spreadsheets"
+        ],
+        "hosts": [
+          "sheets.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 read spreadsheets",
+            "scopes": [
+              "https://www.googleapis.com/auth/spreadsheets.readonly"
+            ]
+          },
+          {
+            "key": "full",
+            "label": "Read + edit spreadsheets (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/spreadsheets"
+            ],
+            "default": true
+          }
+        ],
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/sheets.googleapis.com",
+        "note": "Google Sheets API (v4) \u2014 no cheap test endpoint; verified via the sign-in itself"
+      },
+      "docs": {
+        "label": "Google Docs",
+        "aliases": [
+          "gdocs"
+        ],
+        "hosts": [
+          "docs.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 read documents (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/documents.readonly"
+            ],
+            "default": true
+          },
+          {
+            "key": "full",
+            "label": "Read + edit documents",
+            "scopes": [
+              "https://www.googleapis.com/auth/documents"
+            ]
+          }
+        ],
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/docs.googleapis.com",
+        "note": "Google Docs API (v1) \u2014 no cheap test endpoint; verified via the sign-in itself"
+      },
+      "youtube": {
+        "label": "YouTube",
+        "aliases": [
+          "youtube data"
+        ],
+        "hosts": [
+          "www.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only \u2014 channel + video data (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/youtube.readonly"
+            ],
+            "default": true
+          }
+        ],
+        "testPath": "youtube/v3/channels?part=id&mine=true",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+        "note": "YouTube Data API (youtube/v3)"
+      }
+    }
   }
 }

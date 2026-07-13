@@ -53,6 +53,7 @@ $(echo -e "${B}Configure${X}")
   yodacode model [name] show / set the Claude model
   yodacode tools        toggle reflectors & guardrails
   yodacode addkey       give the bot an API key (via the broker)
+  yodacode connect      sign the bot into an OAuth service (Gmail etc.)
 
 $(echo -e "${B}Info${X}")
   yodacode status       what's configured + container state
@@ -142,6 +143,50 @@ cmd_doctor() {
     else fail "Slack app token rejected — missing connections:write?"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
   fi
 
+  # OAuth sign-ins (Google etc.) — one live token mint per connected provider,
+  # through the broker, so a dead refresh token is caught here and not mid-chat.
+  if [[ -s workspace/broker/oauth-grants.json ]] && command -v python3 >/dev/null 2>&1; then
+    while IFS=$'\t' read -r oslug olabel ohost opath oacct ominted opub; do
+      [[ -z "$oslug" ]] && continue
+      if ! grep -qx agent <<<"$ps"; then
+        note "$olabel connected${oacct:+ ($oacct)} — live check skipped (agent not running)"
+        continue
+      fi
+      if [[ -z "$ohost" || -z "$opath" ]]; then
+        note "$olabel connected${oacct:+ ($oacct)} — no cheap test endpoint; verified at connect time"
+        continue
+      fi
+      tj="$(python3 -c 'import json,sys; print(json.dumps({"host": sys.argv[1], "path": sys.argv[2], "method": "GET"}))' "$ohost" "$opath")"
+      tmp="$(mktemp)"
+      # </dev/null: compose exec keeps stdin attached (-T only drops the TTY)
+      # and would drain the doctor-plan lines feeding this loop.
+      if docker compose exec -T agent broker call http_call "$tj" </dev/null >"$tmp" 2>&1; then
+        ok "$olabel sign-in works${oacct:+ ($oacct)}"
+      else
+        problems=$((problems+1))
+        if grep -q "expired or been revoked" "$tmp"; then
+          fail "$olabel sign-in has expired or been revoked${oacct:+ ($oacct)}"
+          # The classic cause: a consent screen left in "Testing" kills refresh
+          # tokens after 7 days. We recorded the publish answer at connect time.
+          if [[ "$opub" == 0 ]]; then
+            note "   likely cause: the consent screen is still in 'Testing' (you said it wasn't published)."
+            note "   fix: publish the app to 'In production', then: yodacode connect $oslug --renew"
+          elif (( ${ominted:-0} > 0 && $(date +%s) - ominted < 777600 )); then
+            note "   it died within ~9 days of sign-in — the consent screen may be in 'Testing'. Publish it,"
+            note "   then: yodacode connect $oslug --renew"
+          else
+            note "   fix: yodacode connect $oslug --renew   (password changes and revocation also cause this)"
+          fi
+        else
+          fail "$olabel test call failed:"
+          tail -c 200 "$tmp" 2>/dev/null | tr -d '\0' | sed 's/^/    /'
+          note "   fix: yodacode connect $oslug --renew"
+        fi
+      fi
+      rm -f "$tmp"
+    done < <(python3 scripts/connect-lib.py doctor-plan 2>/dev/null)
+  fi
+
   # Claude sign-in (needs the agent up)
   if grep -qx agent <<<"$ps"; then
     tmp="$(mktemp)"
@@ -215,6 +260,7 @@ cmd_shell()   { require_docker; exec docker compose exec agent bash; }
 cmd_slack()   { title "Reconfigure Slack"; if configure_slack; then restart_if_running; else fail "Slack setup didn't complete — nothing saved past the last ✓."; return 1; fi; }
 cmd_persona() { title "Reconfigure persona"; configure_persona && restart_if_running; }
 cmd_addkey()  { exec ./quickstart.sh addkey "$@"; }
+cmd_connect() { exec ./quickstart.sh connect "$@"; }
 
 cmd_model() {
   local arg="${1:-}"
@@ -443,6 +489,7 @@ case "$CMD" in
   tools)                cmd_tools "$@" ;;
   release)              cmd_release "$@" ;;
   addkey)               cmd_addkey "$@" ;;
+  connect)              cmd_connect "$@" ;;
   status)               cmd_status ;;
   version|-v|--version) cmd_version ;;
   setup)                exec ./quickstart.sh "$@" ;;

@@ -177,6 +177,20 @@ def load_broker_services() -> tuple[list[tuple[str, str, str]], list[tuple[str, 
     return hosts, services
 
 
+def load_oauth_grants() -> dict:
+    """OAuth sign-in metadata written by `yodacode connect` (account, per-service
+    access tier) — lets the agent know Drive is read-only BEFORE a call 403s."""
+    try:
+        gf = os.path.join(BROKER_DIR, "oauth-grants.json")
+        if os.path.exists(gf):
+            g = json.load(open(gf))
+            if isinstance(g, dict):
+                return g
+    except Exception:
+        pass
+    return {}
+
+
 def main() -> int:
     tools = scan_tools(BIN)
     hosts, services = load_broker_services()
@@ -227,6 +241,23 @@ def main() -> int:
         for host, scheme, _vk in hosts:
             out.append(f"| `{host}` | {scheme} |")
         out.append("")
+    grants = load_oauth_grants()
+    if grants:
+        out.append("**OAuth sign-ins** — the broker mints access tokens automatically. Check the granted "
+                   "access level BEFORE you call; if you need a higher tier, ask the user to re-run "
+                   "`yodacode connect <provider>` and pick it.")
+        out.append("")
+        for prov, g in sorted(grants.items()):
+            if not isinstance(g, dict):
+                continue
+            acct = g.get("account") or "account unknown"
+            svcs = g.get("services") if isinstance(g.get("services"), dict) else {}
+            svc_str = ", ".join(f"{s}: {t}" for s, t in svcs.items()) or "—"
+            out.append(f"- **{prov}** ({acct}) — {svc_str}")
+        out.append("")
+        out.append("If a call fails with *\"authorization has expired or been revoked\"*, relay that message "
+                   "verbatim — the fix is `yodacode connect <provider> --renew` on the server (~2 minutes).")
+        out.append("")
     if services:
         out.append("**Named services** — `broker call <name> '{...}'`")
         out.append("")
@@ -236,7 +267,8 @@ def main() -> int:
     if not hosts and not services:
         out.append("_No services configured yet._ Until then, use the built-in tools above. "
                    "If a user asks for a service that isn't listed, YOU prepare it: research the service's API auth, "
-                   "write a pending key request, and walk them through `yodacode addkey` on the server "
+                   "write a pending request, and walk them through `yodacode addkey` (API keys) or "
+                   "`yodacode connect` (OAuth sign-ins like Google) on the server "
                    "(see TOOLS.md → Adding a new service). Secrets are never typed into chat.")
         out.append("")
 
@@ -245,7 +277,7 @@ def main() -> int:
     out.append("## Honesty rules")
     out.append("")
     out.append("- **If a tool or service is listed here, you have it.** Use it; don't claim you can't.")
-    out.append("- **If a service is NOT listed, you don't have it yet.** Say so — then offer to set it up: research its API auth, write a pending key request, and have the user run `yodacode addkey` on the server (TOOLS.md → Adding a new service). Do NOT tell them to edit `.env`, `auth-hosts.json`, or run `systemctl` — that is not how this works.")
+    out.append("- **If a service is NOT listed, you don't have it yet.** Say so — then offer to set it up: research its API auth, write a pending request, and have the user run `yodacode addkey` (API keys) or `yodacode connect` (OAuth sign-ins like Google) on the server — see TOOLS.md. Do NOT tell them to edit `.env`, `auth-hosts.json`, or run `systemctl` — that is not how this works.")
     out.append("- **If a listed service fails**, the key may be stale or upstream down. Report the actual error rather than claiming no access.")
 
     open(OUT, "w").write("\n".join(out) + "\n")

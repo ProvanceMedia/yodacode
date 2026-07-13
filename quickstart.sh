@@ -20,6 +20,12 @@ step() { echo ""; echo -e "${C}${B}━━━ Step $1/6 · $2 ━━━${X}"; ech
 # never sees it.
 if [[ "${1:-}" == "addkey" ]]; then shift; exec bash scripts/addkey.sh "$@"; fi
 
+# ── subcommand: connect ───────────────────────────────────────────────────────
+# OAuth sign-ins (Google/Gmail etc.) live in scripts/connect.sh: a guided
+# browser-consent flow (link opens on your laptop) whose refresh token is
+# written only to .env — the agent never sees it.
+if [[ "${1:-}" == "connect" ]]; then shift; exec bash scripts/connect.sh "$@"; fi
+
 # Per-run log dir — fixed /tmp names collide with (and replay) a previous
 # user's stale logs, and root-owned leftovers would break the redirects.
 LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/yodacode.XXXXXX")"
@@ -195,4 +201,5 @@ else
 fi
 echo -e "  ${B}Connect services any time:${X} ask ${BOT_NAME} in Slack (\"set up Notion\") — it prepares"
 echo -e "  everything; then run ${B}yodacode addkey${X} here and paste the key."
+echo -e "  Google services (Gmail, Calendar, Drive…) use ${B}yodacode connect${X} — a guided sign-in."
 echo "  Keys live in a separate broker container; ${BOT_NAME} itself never sees them."
