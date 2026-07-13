@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.6.0 — 2026-07-13
+
+- feat(connect): guided OAuth sign-in for Google services via the broker
+
 ## v2.5.0 — 2026-07-10
 
 - feat(watch): background watches that wake a thread on completion
