@@ -29,7 +29,24 @@ AUTH_HOSTS = os.path.join(ROOT, "workspace", "broker", "auth-hosts.json")
 ENV_FILE = os.path.join(ROOT, ".env")
 
 SCHEMES = ("bearer", "header", "query", "basic")
-HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+$")
+# Hostname with an optional :port — some APIs live on non-standard ports
+# (e.g. api29.unipile.com:15907). The broker keys auth-hosts.json by the exact
+# host[:port] string the agent names in http_call, so both must round-trip.
+HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)+(:[0-9]{1,5})?$")
+
+
+def valid_host(host: str) -> bool:
+    """HOST_RE plus a real port check when a :port is present. The port must be
+    canonical (1-65535, no leading zeros): the exact string becomes the
+    auth-hosts.json key, so every accepted spelling must round-trip to the port
+    the broker actually connects to."""
+    if not HOST_RE.match(host):
+        return False
+    if ":" in host:
+        port_str = host.rsplit(":", 1)[1]
+        port = int(port_str)
+        return 1 <= port <= 65535 and str(port) == port_str
+    return True
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
 HEADER_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 QPARAM_RE = re.compile(r"^[A-Za-z0-9_.\[\]-]{1,64}$")
@@ -165,7 +182,7 @@ def read_pending(path):
         return None
     host = str(data.get("host", "")).strip().lower()
     key = str(data.get("keyName", "")).strip().upper()
-    if not HOST_RE.match(host) or not KEY_RE.match(key):
+    if not valid_host(host) or not KEY_RE.match(key):
         return None
     return data
 
@@ -301,8 +318,8 @@ def cmd_resolve():
     test_path = str(desc.get("testPath", "")).strip().lstrip("/")
     note = clean_text(desc.get("note", ""), 160)
 
-    if not HOST_RE.match(host):
-        die(f"invalid or missing API host: {host!r} (expect something like api.example.com)")
+    if not valid_host(host):
+        die(f"invalid or missing API host: {host!r} (expect something like api.example.com, optionally with :port)")
     if scheme == "oauth2":
         die("OAuth services are set up with a guided sign-in, not a pasted key — run: yodacode connect")
     if scheme not in SCHEMES:
@@ -377,7 +394,7 @@ def cmd_apply():
     host = env.get("AK_HOST", "")
     scheme = env.get("AK_SCHEME", "")
     key_name = env.get("AK_KEYNAME", "")
-    if not HOST_RE.match(host) or scheme not in SCHEMES or not KEY_RE.match(key_name):
+    if not valid_host(host) or scheme not in SCHEMES or not KEY_RE.match(key_name):
         die("apply: refusing invalid host/scheme/key")
     entry = {"scheme": scheme, "vaultKey": key_name}
     if scheme == "header":
