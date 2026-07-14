@@ -104,6 +104,7 @@ yodacode model       # show / set the Claude model
 yodacode tools       # toggle reflectors & guardrails
 yodacode addkey      # give the bot an API key (via the broker)
 yodacode connect     # sign the bot into an OAuth service (Gmail, Calendar, Drive…)
+yodacode install-browsers  # give the bot a headless browser (one-time ~300MB download)
 ```
 
 (Everything still works as plain `docker compose …` from the install folder if you prefer — the
@@ -184,7 +185,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 | **Model fallback** | Sonnet to Haiku (configurable chain). Fail-fast on 529. |
 | **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread; `/yodacode` shows help & setup. |
 | **Effort levels** | Reasoning depth (`low` to `max`) set globally, per cron, or per thread. See [Effort levels](#effort-levels). |
-| **Browser automation** | Playwright for JS-rendered pages and screenshots (when the image includes it). |
+| **Browser automation** | Playwright headless Chromium for JS-rendered pages and screenshots — enable once with `yodacode install-browsers` (~300MB download into a persistent volume; the image ships the system libraries, so the bot honestly reports ❌/✅ in its capabilities until/once enabled). |
 | **Subagents** | `Task` tool for parallel work and context protection. |
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly. |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |

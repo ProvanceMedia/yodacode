@@ -54,6 +54,7 @@ $(echo -e "${B}Configure${X}")
   yodacode tools        toggle reflectors & guardrails
   yodacode addkey       give the bot an API key (via the broker)
   yodacode connect      sign the bot into an OAuth service (Gmail etc.)
+  yodacode install-browsers  give the bot a headless browser (one-time ~300MB)
 
 $(echo -e "${B}Info${X}")
   yodacode status       what's configured + container state
@@ -249,6 +250,13 @@ cmd_update() {
   fi
   install_cli_wrapper   # self-heal the wrapper if this update added/moved it
   ok "Updated to $(version_string)."
+  # A playwright version bump in the new image expects a different chromium
+  # revision than the one in the volume — the capability silently flips to ❌
+  # unless the operator is told to refresh it.
+  if docker compose exec -T agent sh -c 'ls /home/yoda/.cache/ms-playwright 2>/dev/null | grep -q chromium' 2>/dev/null \
+     && ! docker compose exec -T agent sh -c 'cd /app/workspace && gosu yoda node bin/browser-tool.cjs probe' >/dev/null 2>&1; then
+    warn "This update changed the browser engine version — re-run: yodacode install-browsers"
+  fi
 }
 
 cmd_start()   { require_docker; if spin "Starting…" "$(mktemp)" docker compose up -d; then ok "Started. Watch it: yodacode logs"; else fail "Start failed — see: docker compose logs"; return 1; fi; }
@@ -261,6 +269,37 @@ cmd_slack()   { title "Reconfigure Slack"; if configure_slack; then restart_if_r
 cmd_persona() { title "Reconfigure persona"; configure_persona && restart_if_running; }
 cmd_addkey()  { exec ./quickstart.sh addkey "$@"; }
 cmd_connect() { exec ./quickstart.sh connect "$@"; }
+
+# One-time Chromium download into the agent-home volume (~300MB download,
+# ~650MB on disk). The image already carries the Playwright module + system
+# libraries; the browser binary lives in the volume so it survives container
+# recreation and image updates. Probes and install both run as the agent user
+# via the tool itself, so the browser revision always matches the module the
+# runtime actually loads.
+cmd_install_browsers() {
+  require_docker
+  title "Installing headless Chromium for the agent"
+  docker compose ps --status running agent 2>/dev/null | grep -q agent \
+    || { fail "The agent container isn't running — start it first: yodacode start"; return 1; }
+  browser_probe() { docker compose exec -T agent sh -c 'cd /app/workspace && gosu yoda node bin/browser-tool.cjs probe' >/dev/null 2>&1; }
+  if browser_probe; then
+    ok "Browser already installed and working — nothing to do."
+    return 0
+  fi
+  note "Downloading Chromium (~300MB download, ~650MB on disk, one-time — it persists across updates)…"
+  if ! docker compose exec -T agent sh -c 'cd /app/workspace && gosu yoda node bin/browser-tool.cjs install'; then
+    fail "Chromium download failed — check network/disk, then re-run yodacode install-browsers."
+    return 1
+  fi
+  if browser_probe; then
+    ok "Browser installed and verified."
+    note "CAPABILITIES.md updates on the next restart — restarting now so the bot knows it can browse."
+    restart_if_running
+  else
+    fail "Install finished but the readiness probe still fails — run 'yodacode shell' and try: node bin/browser-tool.cjs probe"
+    return 1
+  fi
+}
 
 cmd_model() {
   local arg="${1:-}"
@@ -489,6 +528,7 @@ case "$CMD" in
   tools)                cmd_tools "$@" ;;
   release)              cmd_release "$@" ;;
   addkey)               cmd_addkey "$@" ;;
+  install-browsers)     cmd_install_browsers ;;
   connect)              cmd_connect "$@" ;;
   status)               cmd_status ;;
   version|-v|--version) cmd_version ;;

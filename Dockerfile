@@ -17,6 +17,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # (see workspace/package.json).
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 
+# Playwright: the MODULE and Chromium's SYSTEM LIBRARIES (~325MB layer) are baked
+# in — both need root. The browser itself (~300MB download / ~650MB on disk) is
+# not: it installs on demand into the agent-home volume with
+# `yodacode install-browsers`, so it survives container recreation and rebuilds.
+# PINNED: each playwright version expects a specific chromium revision in the
+# volume — a floating version would orphan installed browsers on every rebuild.
+RUN npm install -g playwright@1.61.1 && npm cache clean --force \
+    && npx playwright install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/yoda/.cache/ms-playwright
+
 # Unprivileged runtime user/group (uid/gid remappable at runtime via PUID/PGID).
 # 1001 avoids the base image's existing node user at 1000.
 RUN groupadd --gid 1001 yodacode \
