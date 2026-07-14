@@ -2,28 +2,65 @@
 // Yoda browser tool — thin Playwright wrapper.
 //
 // Usage:
-//   node browser-tool.js fetch <url>                       — print rendered HTML to stdout
-//   node browser-tool.js text <url>                        — print rendered text content (innerText of body)
-//   node browser-tool.js screenshot <url> <out.png>        — full-page screenshot
-//   node browser-tool.js maps "<address>"                  — Google Maps Place screenshot for an address
-//   node browser-tool.js street-view "<address>"           — Google Maps Street View screenshot for an address
-//   node browser-tool.js script <url> "<js-expression>"    — evaluate JS in page context, print result
+//   node browser-tool.cjs fetch <url>                       — print rendered HTML to stdout
+//   node browser-tool.cjs text <url>                        — print rendered text content (innerText of body)
+//   node browser-tool.cjs screenshot <url> <out.png>        — full-page screenshot
+//   node browser-tool.cjs maps "<address>"                  — Google Maps Place screenshot for an address
+//   node browser-tool.cjs street-view "<address>"           — Google Maps Street View screenshot for an address
+//   node browser-tool.cjs script <url> "<js-expression>"    — evaluate JS in page context, print result
 //
 // All commands print a single JSON line to stdout on success:
 //   {"ok":true, ...}
 // or
 //   {"ok":false, "error":"..."}
 
-const { chromium } = require('/usr/lib/node_modules/playwright');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+
+// Resolve the Playwright module from wherever this install put it: the image
+// bakes it globally (/usr/local/lib), a workspace `npm install playwright`
+// also works, and the legacy host path is kept for old bare-metal installs.
+const PW_CANDIDATES = [
+  'playwright', // workspace node_modules
+  '/usr/local/lib/node_modules/playwright', // global (image default)
+  '/usr/lib/node_modules/playwright', // legacy host installs
+];
+const IN_CONTAINER = fs.existsSync('/.dockerenv');
+const INSTALL_HINT = IN_CONTAINER
+  ? 'browser not installed — run `yodacode install-browsers` on the server'
+  : 'browser not installed — run `npx playwright install chromium` as the agent user';
+function resolvePlaywrightPath() {
+  for (const c of PW_CANDIDATES) {
+    try { return path.dirname(require.resolve(`${c}/package.json`)); } catch (_) { /* next */ }
+  }
+  return null;
+}
+function loadPlaywright() {
+  for (const c of PW_CANDIDATES) {
+    try { return require(c); } catch (_) { /* try next */ }
+  }
+  return null;
+}
+const pw = loadPlaywright();
+const chromium = pw && pw.chromium;
 
 const NAV_TIMEOUT = 25000;
 const VIEWPORT = { width: 1366, height: 900 };
 
 async function withBrowser(fn) {
-  const browser = await chromium.launch({ headless: true });
+  if (!chromium) throw new Error(`playwright module not found — ${INSTALL_HINT}`);
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (e) {
+    // Playwright's "Executable doesn't exist … playwright install" advice names
+    // a command the de-rooted agent can't usefully run — translate it.
+    if (/executable doesn't exist|please run.*install/i.test(String(e && e.message))) {
+      throw new Error(INSTALL_HINT);
+    }
+    throw e;
+  }
   try {
     const ctx = await browser.newContext({
       viewport: VIEWPORT,
@@ -158,10 +195,36 @@ async function cmdScript(url, expr) {
   });
 }
 
+// Cheap readiness check (no browser launch): module resolvable + Chromium
+// binary present on disk. Used by refresh-capabilities.py and the
+// `yodacode install-browsers` CLI. Exit 0 = ready.
+function cmdProbe() {
+  if (!pw) return fail(`playwright module not found — ${INSTALL_HINT}`);
+  let exe;
+  try { exe = chromium.executablePath(); } catch (e) { return fail(e); }
+  if (!exe || !fs.existsSync(exe)) return fail(INSTALL_HINT);
+  ok({ browser: exe });
+}
+
+// Download Chromium via the SAME playwright module the probe and runtime load —
+// installing through any other copy (e.g. the global CLI when a workspace copy
+// shadows it) can fetch a mismatched browser revision the probe never accepts.
+function cmdInstall() {
+  const base = resolvePlaywrightPath();
+  if (!base) return fail(`playwright module not found — ${INSTALL_HINT}`);
+  const cli = path.join(base, 'cli.js');
+  if (!fs.existsSync(cli)) return fail(`playwright CLI not found at ${cli}`);
+  const { spawnSync } = require('child_process');
+  const r = spawnSync(process.execPath, [cli, 'install', 'chromium'], { stdio: 'inherit' });
+  process.exit(r.status === 0 ? 0 : 1);
+}
+
 async function main() {
   const [, , cmd, ...rest] = process.argv;
   try {
     switch (cmd) {
+      case 'probe':       return cmdProbe();
+      case 'install':     return cmdInstall();
       case 'fetch':       return await cmdFetch(rest[0]);
       case 'text':        return await cmdText(rest[0]);
       case 'screenshot':  return await cmdScreenshot(rest[0], rest[1]);
@@ -169,7 +232,7 @@ async function main() {
       case 'street-view': return await cmdStreetView(rest[0]);
       case 'script':      return await cmdScript(rest[0], rest[1]);
       default:
-        console.error('usage: browser-tool.js {fetch|text|screenshot|maps|street-view|script} ...');
+        console.error('usage: browser-tool.cjs {probe|fetch|text|screenshot|maps|street-view|script} ...');
         process.exit(2);
     }
   } catch (e) {

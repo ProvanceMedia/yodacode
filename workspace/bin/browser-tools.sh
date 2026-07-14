@@ -4,6 +4,8 @@
 # summary: Headless Chromium via Playwright — JS-rendered pages, screenshots, Google Maps address verification.
 # tags: browser, scraping, maps
 # requires:
+# probe: node bin/browser-tool.cjs probe
+# install: run `yodacode install-browsers` on the server (one-time ~300MB download)
 # usage:
 #   browser-tools.sh fetch <url>                    — render JS, return HTML
 #   browser-tools.sh text <url>                     — render JS, return body innerText
@@ -20,4 +22,4 @@
 # returned `screenshot` path to visually analyse the image.
 
 set -uo pipefail
-exec node "$(dirname "$0")/browser-tool.js" "$@"
+exec node "$(dirname "$0")/browser-tool.cjs" "$@"
