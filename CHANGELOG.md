@@ -3,6 +3,12 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.9.0 — 2026-07-14
+
+- feat(connect): add Google Search Console + Analytics (GA4) to the catalog
+- fix(broker): apply the api.anthropic.com refusal to the parsed hostname
+- fix(addkey): accept host:port for APIs on non-standard ports
+
 ## v2.8.0 — 2026-07-14
 
 - fix(docker): agent-writable node_modules volume; broker mounts it read-only
