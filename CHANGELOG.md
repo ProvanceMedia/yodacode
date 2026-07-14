@@ -3,6 +3,12 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.7.0 — 2026-07-14
+
+- feat(watch): append a visible footer when a turn arms a background watch
+- fix(broker): flush stdout before exit so large replies are not truncated
+- fix(cron): translate weekday lists and day-of-month lists in on_calendar
+
 ## v2.6.0 — 2026-07-13
 
 - feat(connect): guided OAuth sign-in for Google services via the broker
