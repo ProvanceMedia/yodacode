@@ -34,21 +34,26 @@ function log(...a) {
 }
 
 // ── systemd OnCalendar → 5-field cron, for the forms our crons actually use ──
-// Supports: weekday prefix (Mon, Mon..Fri), date part "*-*-*" (ignored = every day),
-// and a time "H..H:MM" / "HH:MM[:SS]" / "HH,HH:MM" with optional "/step" on the hour.
+// Supports: weekday prefix (Mon, Mon..Fri, Mon,Thu), date part "*-*-*" (every day)
+// or "*-*-D[,D...]" (day-of-month list), and a time "H..H:MM" / "HH:MM[:SS]" /
+// "HH,HH:MM" with optional "/step" on the hour.
 const DOW = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 
 function dowField(tok) {
   if (!tok) return '*';
-  // weekday, or a range with either systemd ".." or a plain "-" (Mon..Fri / Mon-Fri)
-  const m = tok.toLowerCase().match(/^([a-z]{3})(?:(?:\.\.|-)([a-z]{3}))?$/);
-  if (!m) return null;
-  const a = DOW[m[1]];
-  if (a == null) return null;
-  if (!m[2]) return String(a);
-  const b = DOW[m[2]];
-  if (b == null) return null;
-  return `${a}-${b}`;
+  // weekday, a range (Mon..Fri / Mon-Fri), or a comma list of either (Mon,Thu)
+  const out = [];
+  for (const part of tok.toLowerCase().split(',')) {
+    const m = part.match(/^([a-z]{3})(?:(?:\.\.|-)([a-z]{3}))?$/);
+    if (!m) return null;
+    const a = DOW[m[1]];
+    if (a == null) return null;
+    if (!m[2]) { out.push(String(a)); continue; }
+    const b = DOW[m[2]];
+    if (b == null) return null;
+    out.push(`${a}-${b}`);
+  }
+  return out.join(',');
 }
 
 // "07..20:00/30" -> {hour:"7-20", minute:"0,30"}; "10,14:00" -> {hour:"10,14", minute:"0"}
@@ -79,17 +84,22 @@ export function onCalendarToCron(expr) {
   let datePart = null;
   let timePart = null;
   for (const tok of tokens) {
-    // Weekday (Mon / Mon..Fri / Mon-Fri) — must be tested before the date branch,
-    // since a "-" range would otherwise look like a date token.
-    if (/^[A-Za-z]{3}(?:(?:\.\.|-)[A-Za-z]{3})?$/.test(tok)) { dow = dowField(tok) ?? dow; }
+    // Weekday (Mon / Mon..Fri / Mon-Fri / Mon,Thu) — must be tested before the date
+    // branch, since a "-" range would otherwise look like a date token.
+    if (/^[A-Za-z]{3}(?:(?:\.\.|-)[A-Za-z]{3})?(?:,[A-Za-z]{3}(?:(?:\.\.|-)[A-Za-z]{3})?)*$/.test(tok)) { dow = dowField(tok) ?? dow; }
     else if (tok.includes(':')) { timePart = tok; }
-    else if (tok.includes('-')) { datePart = tok; } // *-*-* date (only "every day" supported)
+    else if (tok.includes('-')) { datePart = tok; } // *-*-* or *-*-D[,D...] date
   }
   if (!timePart) return null;
-  if (datePart && !/^\*-\*-\*$/.test(datePart)) return null; // specific dates unsupported
+  let dom = '*';
+  if (datePart) {
+    const dm = datePart.match(/^\*-\*-(\*|\d+(?:,\d+)*)$/);
+    if (!dm) return null; // other specific-date forms unsupported
+    dom = dm[1];
+  }
   const tf = timeFields(timePart);
   if (!tf) return null;
-  return `${tf.minute} ${tf.hour} * * ${dow}`;
+  return `${tf.minute} ${tf.hour} ${dom} * ${dow}`;
 }
 
 function cronFor(def) {
