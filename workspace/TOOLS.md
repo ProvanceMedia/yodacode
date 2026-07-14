@@ -26,7 +26,9 @@ research and preparation, so the user only has to run one command and paste the 
 When the user wants a service connected ("connect my Notion", "can you check Stripe?"):
 
 1. **Research how its API authenticates** — official docs only. You need: the bare API
-   host (e.g. `api.notion.com`), the auth style, any always-required static headers
+   host (e.g. `api.notion.com`; include the `:port` if the API uses a non-standard
+   one, e.g. `api.example.com:8443` — name that same `host:port` in http_call later),
+   the auth style, any always-required static headers
    (version headers!), and the dashboard URL where the user *creates* the key.
    The broker supports exactly these styles:
    - `bearer` — `Authorization: Bearer <key>`
@@ -91,8 +93,9 @@ user's own browser, never in chat.
 
 Supported providers come from the built-in catalog. Currently: **google**, with the
 services `gmail`, `calendar`, `drive`, `contacts`, `tasks`, `sheets`, `docs`,
-`youtube`. For an OAuth service that is NOT in the catalog, say honestly that it isn't
-supported yet — do not invent an auth flow or handle tokens in chat.
+`youtube`, `searchconsole`, `analytics` (GA4). For an OAuth service that is NOT in the
+catalog, say honestly that it isn't supported yet — do not invent an auth flow or
+handle tokens in chat.
 
 When the user asks ("connect my gmail"):
 

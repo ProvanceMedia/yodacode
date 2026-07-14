@@ -605,6 +605,60 @@
         "testPath": "youtube/v3/channels?part=id&mine=true",
         "enableApiUrl": "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
         "note": "YouTube Data API (youtube/v3)"
+      },
+      "searchconsole": {
+        "label": "Google Search Console",
+        "aliases": [
+          "search console",
+          "webmasters",
+          "gsc"
+        ],
+        "hosts": [
+          "www.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — search performance + sitemaps (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/webmasters.readonly"
+            ],
+            "default": true
+          },
+          {
+            "key": "full",
+            "label": "Full — manage sitemaps + properties",
+            "scopes": [
+              "https://www.googleapis.com/auth/webmasters"
+            ]
+          }
+        ],
+        "testPath": "webmasters/v3/sites",
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/searchconsole.googleapis.com",
+        "note": "Search Console API (webmasters/v3, served from www.googleapis.com)"
+      },
+      "analytics": {
+        "label": "Google Analytics (GA4)",
+        "aliases": [
+          "ga4",
+          "google analytics",
+          "analytics data"
+        ],
+        "hosts": [
+          "analyticsdata.googleapis.com"
+        ],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — run reports (recommended)",
+            "scopes": [
+              "https://www.googleapis.com/auth/analytics.readonly"
+            ],
+            "default": true
+          }
+        ],
+        "enableApiUrl": "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com",
+        "note": "Analytics Data API (v1beta) — every call needs your GA4 property id (properties/<id>:runReport), so there is no property-independent test endpoint; verified via the sign-in itself"
       }
     }
   }
