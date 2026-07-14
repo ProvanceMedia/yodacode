@@ -57,6 +57,18 @@ if [[ "$(id -u)" == "0" ]]; then
   # Recursive: /home/yoda is a named volume holding Claude session state, and
   # a PUID change between deployments must not strand it under the old uid.
   chown -R yoda:yodacode /home/yoda 2>/dev/null || true
+  # The node_modules named volume starts root-owned (populated from the image),
+  # which blocks the agent from ever `npm install`-ing anything (EACCES). Chown
+  # it to the agent — but only when the top-level owner is wrong, so the
+  # recursive pass runs once per volume lifetime, not on every boot. Contents
+  # first, top-level LAST: the top dir's owner is the completion marker, so an
+  # interrupted pass re-runs on the next boot instead of stranding a half-owned
+  # subtree.
+  NM=/app/workspace/node_modules
+  if [[ -d "$NM" && "$(stat -c %u "$NM" 2>/dev/null)" != "$(id -u yoda)" ]]; then
+    echo "[entrypoint] fixing node_modules volume ownership (one-time)…"
+    chown -R yoda:yodacode "$NM"/. 2>/dev/null && chown yoda:yodacode "$NM" 2>/dev/null || true
+  fi
   exec gosu yoda "$0" "$@"
 fi
 

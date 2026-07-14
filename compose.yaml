@@ -34,7 +34,9 @@ services:
     volumes:
       - ./.env:/app/.env:ro                 # the vault — broker only
       - ./workspace:/app/workspace          # broker/*.js + auth-hosts.json/services.policy.json
-      - yc_node_modules:/app/workspace/node_modules
+      # :ro — the agent owns/writes this volume (npm installs); the broker must
+      # never execute agent-writable code, so it gets a read-only view.
+      - yc_node_modules:/app/workspace/node_modules:ro
       - broker_sock:/run/yodacode-broker
 
   agent:
