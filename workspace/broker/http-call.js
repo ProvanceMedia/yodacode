@@ -12,8 +12,6 @@ export async function httpCall(args) {
     .trim()
     .toLowerCase();
   if (!host) return { ok: false, error: 'host required' };
-  // Never let the agent reach Anthropic through here (the OAuth token must never be forwarded/logged).
-  if (host === 'api.anthropic.com') return { ok: false, error: 'refused: api.anthropic.com is not callable via http_call' };
 
   const desc = lookupHost(host);
   if (!desc) return { ok: false, error: `host not configured — add "${host}" to broker/auth-hosts.json` };
@@ -26,6 +24,12 @@ export async function httpCall(args) {
     url = new URL(`https://${host}/${p}`);
   } catch {
     return { ok: false, error: 'bad path' };
+  }
+  // Never let the agent reach Anthropic through here (the OAuth token must never
+  // be forwarded/logged). Compared against the PARSED hostname so host:port
+  // spellings of the same endpoint are covered too.
+  if (url.hostname === 'api.anthropic.com') {
+    return { ok: false, error: 'refused: api.anthropic.com is not callable via http_call' };
   }
 
   // SSRF defence: this fetch runs as root on the host. Check the real hostname
