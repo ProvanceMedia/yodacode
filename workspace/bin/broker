@@ -125,10 +125,12 @@ async function main() {
     die(`could not reach broker at ${SOCK}: ${e?.message ?? e} (is yodacode-brokerd running?)`);
   }
 
-  process.stdout.write(JSON.stringify(reply, null, 2) + '\n');
   // Exit non-zero on a failed call so shell `&&` chains behave.
-  if (reply && (reply.ok === false || reply.t === 'result') && reply.ok === false) process.exit(1);
-  process.exit(0);
+  const code = reply && reply.ok === false ? 1 : 0;
+  // stdout is often a pipe (command substitution): past the ~64KB pipe buffer the write
+  // is async, and an immediate process.exit() truncates large replies mid-JSON. Exit only
+  // once the write has flushed to the OS.
+  process.stdout.write(JSON.stringify(reply, null, 2) + '\n', () => process.exit(code));
 }
 
 main();
