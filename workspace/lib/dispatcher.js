@@ -22,6 +22,7 @@ import { parseFinalReply } from './reply-policy.js';
 import { maybeReflect } from './skill-reflector.js';
 import { maybeReflectMemory } from './memory-reflector.js';
 import { sessionStore } from './session-store.js';
+import { watchStore } from './watch-store.js';
 
 /**
  * @param {object} event Normalised event (see lib/surface.js for shape)
@@ -158,9 +159,15 @@ async function processReply(event, surface) {
           // happens to contain the phrase can never be swallowed.
           if (resumeId && meta?.isError && isResumeFailure(text)) return;
           // Post ONLY the <say>-tagged part of the model's final output; everything
-          // else is scratchpad (see parseFinalReply). <silent/> posts nothing.
+          // else is scratchpad (see parseFinalReply). <silent/> posts nothing —
+          // unless this turn armed a background watch, which the user must be
+          // able to see (an invisible "I'll get back to you" is a broken promise).
           const parsed = parseFinalReply(text);
-          if (parsed.kind === 'text') return surface.updateMessage(placeholder, parsed.text);
+          const footer = watchFooter(event.conversationId, tickStartMs);
+          if (parsed.kind === 'text') {
+            return surface.updateMessage(placeholder, footer ? `${parsed.text}\n\n${footer}` : parsed.text);
+          }
+          if (footer) return surface.updateMessage(placeholder, footer);
           if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
           return surface.updateMessage(placeholder, '·');
         },
@@ -313,6 +320,39 @@ function resolveEffort(event, ctx) {
 // we asked it to resume.
 function isResumeFailure(error) {
   return /no conversation found with session id/i.test(error || '');
+}
+
+// "90000" -> "1m 30s" — coarse, for the watch footer only.
+function humanMs(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
+// One italic line per background watch this turn armed, so "I'll get back to
+// you" is a visible, standard promise rather than something the model may or
+// may not remember to say. Returns '' when the turn armed nothing.
+function watchFooter(conversationId, tickStartMs) {
+  let watches;
+  try {
+    watches = watchStore.list();
+  } catch {
+    return '';
+  }
+  const lines = watches
+    .filter((w) => w.conversationId === conversationId
+      && w.state === 'active'
+      && (w.createdAt || 0) >= tickStartMs)
+    .map((w) => {
+      const every = humanMs(w.intervalMs || 30_000);
+      const giveUp = humanMs((w.deadlineAt || w.createdAt) - w.createdAt);
+      return `_⏳ Watching: ${w.label} — checking every ${every}; I'll post back in this thread when it's done (or give up after ${giveUp})._`;
+    });
+  return lines.join('\n');
 }
 
 // Strictly-orderable timestamp: only all-digit (optionally dotted) strings
