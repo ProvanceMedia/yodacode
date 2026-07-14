@@ -17,6 +17,7 @@ Adding a new tool: drop a manifest block at the top of the script (see
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -34,7 +35,7 @@ SKIP_TOOLS = {
 
 # ───────────────────────── manifest scanner ─────────────────────────
 
-MANIFEST_KEYS = {"name", "summary", "tags", "requires", "usage", "examples"}
+MANIFEST_KEYS = {"name", "summary", "tags", "requires", "usage", "examples", "probe", "install"}
 COMMENT_PREFIX = re.compile(r"^\s*(#|//|--)\s?")
 KEY_LINE = re.compile(r"^(\w+):\s*(.*)$")
 
@@ -107,6 +108,35 @@ def scan_tools(bin_dir: str) -> list[dict]:
     return tools
 
 
+_probe_cache: dict[str, bool] = {}
+
+
+def run_probe(tool: dict) -> bool:
+    """Run a manifest's optional `probe:` command (cwd = workspace root).
+
+    Exit 0 → the tool is genuinely usable right now. No probe → assume usable
+    (the requires: env-key check has already passed). Probes must be cheap and
+    side-effect-free — they run on every agent startup. Results are memoized by
+    probe string so the same check (e.g. the browser probe, used by both the
+    Built-in section and the tools section) runs once per generation.
+    """
+    probe = tool.get("probe")
+    if not probe:
+        return True
+    if isinstance(probe, list):
+        probe = " ".join(probe)
+    if probe in _probe_cache:
+        return _probe_cache[probe]
+    try:
+        r = subprocess.run(probe, shell=True, cwd=ROOT, timeout=15,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = r.returncode == 0
+    except Exception:
+        result = False
+    _probe_cache[probe] = result
+    return result
+
+
 def render_tools_section(tools: list[dict], present_keys: set[str]) -> list[str]:
     if not tools:
         return []
@@ -125,11 +155,18 @@ def render_tools_section(tools: list[dict], present_keys: set[str]) -> list[str]
             summary = t["summary"]
             requires = t.get("requires", [])
             missing = [k for k in requires if k not in present_keys]
-            if not requires or not missing:
-                head = f"- ✅ **`{name}`** — {summary}"
-            else:
+            if missing:
                 missing_str = ", ".join("`$" + k + "`" for k in missing)
                 head = f"- ❌ **`{name}`** *(missing {missing_str})* — {summary}"
+            elif not run_probe(t):
+                # A tool with a failing probe is NOT available — advertising it
+                # would make the agent claim capabilities it can't deliver.
+                hint = t.get("install") or "see the tool's script header"
+                if isinstance(hint, list):
+                    hint = " ".join(hint)
+                head = f"- ❌ **`{name}`** *(not installed — {hint})* — {summary}"
+            else:
+                head = f"- ✅ **`{name}`** — {summary}"
             out.append(head)
             usage = t.get("usage")
             if isinstance(usage, list) and usage:
@@ -212,7 +249,10 @@ def main() -> int:
     out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — parallel work, context-protected research")
     out.append("- ✅ **File-based memory** — `MEMORY.md` auto-loaded each tick; `memory/` searched on demand via `memory-search.sh`")
     out.append("- ✅ **Slack** — the wrapper handles your interactive replies; for cron/other contexts use `./bin/slack-tools.sh` (routes through the broker)")
-    out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `script`). Screenshots save to `/tmp/`; `Read` them to view.")
+    if run_probe({"probe": "node bin/browser-tool.cjs probe"}):
+        out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `script`). Screenshots save to `/tmp/`; `Read` them to view.")
+    else:
+        out.append("- ❌ **Browser automation** *(not installed — the operator can enable it with `yodacode install-browsers`, one-time ~300MB download)* — do NOT claim you can browse, screenshot, or render JS pages until this shows ✅.")
     out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`")
     out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — call the relevant API through the broker when needed")
     out.append("")
