@@ -3,6 +3,13 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.8.0 — 2026-07-14
+
+- fix(docker): agent-writable node_modules volume; broker mounts it read-only
+- feat(capabilities): probe manifest key — tools report real availability
+- fix(browser): make browser-tool runnable as CommonJS with portable module resolution
+- feat(browser): headless Chromium via yodacode install-browsers
+
 ## v2.7.0 — 2026-07-14
 
 - feat(watch): append a visible footer when a turn arms a background watch
