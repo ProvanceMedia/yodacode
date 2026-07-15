@@ -62,6 +62,8 @@ cron-tasks/systemd/yoda-cron@*.timer
 workspace/broker/auth-hosts.json
 workspace/broker/services.policy.json
 workspace/broker/secrets.json
+# Broker: rotated OAuth refresh tokens (bare-metal installs; containers use a volume)
+broker-state/
 
 # python bytecode cache
 __pycache__/

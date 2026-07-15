@@ -2,10 +2,11 @@
 // mediated call to either the generic http_call tool or a named service, with a hard
 // timeout so a call can never hang. Secrets are injected inside these handlers,
 // host-side, and never returned to or seen by the agent.
-import { unsealVault, vaultSize, reloadVault } from './vault.js';
+import { unsealVault, vaultSize, reloadVault, getSecret } from './vault.js';
 import { loadAuthHosts, authHostsCount, authHostsList } from './auth-hosts.js';
 import { loadServices, serviceManifest, executeService, hasService } from './services.js';
 import { oauthHealth, resetOauthState } from './oauth.js';
+import { pruneRotatedTokens } from './token-store.js';
 import { httpCall, httpCallDef } from './http-call.js';
 import { slackPost, slackPostDef } from './slack-post.js';
 import { slackApi, slackApiDef } from './slack-api.js';
@@ -21,11 +22,19 @@ const internalTools = new Map([
   [sshExecDef.name, { def: sshExecDef, handler: sshExec }],
 ]);
 
+// A disconnected provider (vault key removed from .env) must not leave rotated
+// refresh tokens behind on disk. Guarded on a non-empty vault so a transiently
+// unreadable .env can never read as "everything was disconnected" and mass-prune.
+function pruneOrphanedRotations() {
+  if (vaultSize() > 0) pruneRotatedTokens((key) => Boolean(getSecret(key)));
+}
+
 /** Load vault + config. Call once at daemon startup (and reloadAll() to refresh). */
 export function initBroker() {
   unsealVault();
   loadAuthHosts();
   loadServices();
+  pruneOrphanedRotations();
 }
 
 export function reloadAll() {
@@ -33,6 +42,7 @@ export function reloadAll() {
   loadAuthHosts();
   loadServices();
   resetOauthState(); // a renewed refresh token must take effect immediately
+  pruneOrphanedRotations();
 }
 
 /** Combined manifest the agent is shown: internal tools + configured services. */

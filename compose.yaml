@@ -31,6 +31,7 @@ services:
       YODA_ENV_FILE: /app/.env
       YODA_BROKER_SOCK: /run/yodacode-broker/broker.sock
       YODA_BROKER_GROUP: yodacode
+      YODA_BROKER_STATE_DIR: /app/broker-state
     volumes:
       - ./.env:/app/.env:ro                 # the vault — broker only
       - ./workspace:/app/workspace          # broker/*.js + auth-hosts.json/services.policy.json
@@ -38,6 +39,9 @@ services:
       # never execute agent-writable code, so it gets a read-only view.
       - yc_node_modules:/app/workspace/node_modules:ro
       - broker_sock:/run/yodacode-broker
+      # Rotated OAuth refresh tokens (providers like Microsoft replace the token on
+      # every refresh; .env is :ro). Live credentials — broker only, NEVER the agent.
+      - yc_broker_state:/app/broker-state
 
   agent:
     <<: *image
@@ -81,3 +85,4 @@ volumes:
   yc_node_modules:    # keeps the image's baked workspace deps over the bind mount
   yc_agent_home:      # agent's ~/.claude — session transcripts for per-thread resume
   broker_sock:        # shared unix-socket dir between broker and agent
+  yc_broker_state:    # rotated OAuth refresh tokens — mounted into the broker only

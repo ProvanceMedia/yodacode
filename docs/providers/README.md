@@ -18,7 +18,8 @@ pasteable API keys. Guides per provider:
 - **Consent happens on your laptop, exchange on the server.** The wizard prints a
   sign-in link (with a one-time state nonce + PKCE); you approve in your own browser
   and paste the redirect back. The refresh token is written only to `.env` — the
-  broker vault. The agent container never sees it.
+  broker vault. (Providers that rotate refresh tokens get their replacements persisted
+  in the broker's private `broker-state/` dir.) The agent container never sees either.
 - **One sign-in per provider.** A provider entry holds one refresh token covering all
   its connected services (desktop-app OAuth has no incremental consent). Grant
   metadata — account, services, access tiers — is recorded in
@@ -30,14 +31,26 @@ pasteable API keys. Guides per provider:
 
 ## Adding a new provider to the catalog
 
-A provider entry needs: `authUrl`, `tokenUrl`, three vault key names, services with
-hosts + `scopeTiers`, and (ideally) a cheap read-only `testPath` per service. Two hard
-requirements:
+A provider entry needs: `authUrl`, `tokenUrl`, the vault key names (`clientSecretKey`
+only if the provider issues a secret — public clients omit it and the broker omits
+`client_secret` from refresh calls), services with hosts + `scopeTiers`, and (ideally)
+a cheap read-only `testPath` per service. Notes:
 
-1. **Refresh tokens must not rotate on use.** The broker mounts `.env` read-only and
-   cannot persist a replacement token — providers that rotate (e.g. Strava) will break
-   after the first refresh and are deliberately unsupported.
-2. **The auth-code flow must work with a loopback redirect URI** (or an equivalent
-   paste-back flow), since the server is headless.
+1. **Rotating refresh tokens are handled — if the old token survives rotation.**
+   Providers that replace the refresh token on every refresh but leave the previous
+   one valid until its own expiry (Microsoft et al) work: the broker persists each
+   replacement in its private state dir (`broker-state/` — a broker-only volume in
+   containers, root-only on bare metal; never visible to the agent) and prefers it
+   over the `.env` value for as long as it descends from the same sign-in.
+   `yodacode connect <provider> --renew` writes a fresh token to `.env`, which always
+   wins. Providers that REVOKE the old token the moment it is used (e.g. Strava)
+   remain unsupported: one crash or failed write between refresh and persist and the
+   chain is unrecoverable.
+2. **The sign-in must work from a headless server** — a loopback-redirect paste-back
+   flow (Google) or a device-code flow. Note: the `yodacode connect` wizard currently
+   implements only the paste-back flow with a client secret. The broker itself already
+   accepts public-client (secret-less) entries and rotating tokens, but a device-code
+   provider needs a hand-written `auth-hosts.json` entry and a manually minted refresh
+   token until the wizard learns that flow.
 
 PRs welcome — copy the `google` entry's shape.

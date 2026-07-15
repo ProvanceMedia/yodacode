@@ -93,7 +93,10 @@ Basic auth, fixed paths) use `services.policy.json` — see the `.example` files
 - The broker is an authorization choke point, not a firewall: the agent can still call any host
   you've configured. Configure only what it needs.
 - Secrets are plaintext in the broker's memory and in `.env` at rest (encrypt-at-rest is a later
-  hardening, out of scope here).
+  hardening, out of scope here). Same for `broker-state/` (rotated OAuth refresh tokens, for
+  providers that replace the token on every refresh) — a broker-only volume in containers,
+  root-only `0700` on bare metal. Disconnecting a provider = removing its keys from `.env`;
+  the broker prunes its rotated tokens on the next restart or reload.
 
 ## Bare-metal alternative (no Docker)
 

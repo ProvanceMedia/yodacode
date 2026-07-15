@@ -39,6 +39,11 @@ chmod 600 "$ROOT/.env" 2>/dev/null || true
 if [[ -d "$WORKSPACE/.ssh" ]]; then chown -R root:root "$WORKSPACE/.ssh"; chmod -R go-rwx "$WORKSPACE/.ssh"; fi
 # Optional explicit vault file (if you keep one outside .env)
 [[ -f "$WORKSPACE/broker/secrets.json" ]] && { chown root:root "$WORKSPACE/broker/secrets.json"; chmod 600 "$WORKSPACE/broker/secrets.json"; }
+# Rotated OAuth refresh tokens (providers like Microsoft replace the token on every
+# refresh) — live credentials the agent must never read. brokerd also creates this
+# lazily with 0700, but pre-creating pins the perms before the first rotation.
+mkdir -p "$ROOT/broker-state"
+chown root:root "$ROOT/broker-state"; chmod 700 "$ROOT/broker-state"
 
 echo "==> group-share the workspace (secrets above stay root-only)"
 chgrp -R "$AGENT_GROUP" "$WORKSPACE" 2>/dev/null || true
