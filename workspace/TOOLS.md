@@ -82,7 +82,7 @@ When the user wants a service connected ("connect my Notion", "can you check Str
    tell them to revoke it and create a fresh one — chat history keeps it forever.
 
 5. **When they say it's done**: check `broker manifest`, make a real call, then document
-   the service's endpoints below.
+   the service's endpoints in `TOOLS.local.md` (see below).
 
 ## Connecting an OAuth service (Google, Microsoft 365)
 
@@ -141,12 +141,12 @@ When the user asks ("connect my gmail", "connect my outlook"):
    re-run `yodacode connect <provider>` and pick the higher tier — don't discover
    scope limits by letting calls 403.
 
-## Document services as you go
+## Document services as you go — in TOOLS.local.md, not here
 
-When a service is connected, jot its endpoints and gotchas here so future-you knows them:
+This file (`TOOLS.md`) is the shipped framework reference: it is **overwritten when
+you update**, so do not write your own notes into it. Your notes on connected
+services — endpoints, quirks, camera names, SSH details — belong in
+**`TOOLS.local.md`**, which is yours and survives updates. It is loaded into your
+context alongside this file, so anything you record there is always available.
 
-```
-## ServiceName  (host: api.example.com)
-- Endpoints: /users, /items, /orders
-- Notes: rate-limited 100 req/min; use ?page= for pagination.
-```
+When a service is connected, append its endpoints and gotchas to `TOOLS.local.md`.

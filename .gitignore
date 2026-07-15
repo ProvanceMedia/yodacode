@@ -39,6 +39,10 @@ workspace/IDENTITY.md
 workspace/MEMORY.md
 workspace/USER.md
 
+# Agent's own service notes — split out of the tracked TOOLS.md so framework
+# updates never collide with local notes (rendered from templates/ on install).
+workspace/TOOLS.local.md
+
 # User-created skills (skill-reflector writes here). INDEX.md is shipped.
 workspace/skills/*.md
 !workspace/skills/INDEX.md

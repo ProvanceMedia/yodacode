@@ -49,7 +49,7 @@ If you're even slightly worried about context length - stop and write to memory.
 **Before saying you CAN'T do something, DON'T HAVE something, or NEED something:**
 1. Read `CAPABILITIES.md`
 2. Run `memory_search` for it
-3. Check `TOOLS.md`
+3. Check `TOOLS.md` (framework reference) and `TOOLS.local.md` (your own service notes)
 
 If you skip these steps and make a wrong claim, you look like an idiot. This happened on when you told the user you needed "a proper vector database with embeddings" while literally running OpenAI embedding-powered semantic search. Don't repeat it.
 
@@ -90,7 +90,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - **Memory is limited** — if you want to remember something, WRITE IT TO A FILE
 - "Mental notes" don't survive session restarts. Files do.
 - When someone says "remember this" → update `memory/YYYY-MM-DD.md` or relevant file
-- When you learn a lesson → update AGENTS.md, TOOLS.md, or the relevant skill
+- When you learn a lesson → write it to `TOOLS.local.md`, a memory file, or the relevant skill (never edit the framework-shipped `AGENTS.md`/`TOOLS.md` — updates overwrite them)
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
 
@@ -161,7 +161,7 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 ## Tools
 
-Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
+Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.local.md` — it's yours and survives framework updates.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 

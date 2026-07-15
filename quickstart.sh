@@ -44,8 +44,10 @@ if [[ -f "$ENVF" ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' "$ENVF" 2>/dev
   a=$(ask "(S)tart it, or (R)econfigure from scratch?" "S")
   if [[ ! "${a,,}" =~ ^r ]]; then
     # Refresh the framework persona doc from the (possibly updated) template, keeping
-    # the operator's name/context. TOOLS.md is static and CAPABILITIES.md regenerates
-    # on boot, so this keeps a `git pull && start` fully up to date.
+    # the operator's name/context. TOOLS.md is framework-shipped and CAPABILITIES.md
+    # regenerates on boot, so this keeps a `git pull && start` fully up to date; the
+    # agent's own service notes live in the gitignored TOOLS.local.md (ensured below).
+    ensure_tools_local
     bn="$(grep -m1 '^BOT_NAME=' "$ENVF" | cut -d= -f2-)"; un="$(grep -m1 '^USER_NAME=' "$ENVF" | cut -d= -f2-)"
     tz="$(grep -m1 '^TZ=' "$ENVF" | cut -d= -f2-)"
     [[ -f templates/CLAUDE.md.template ]] && sed -e "s/{{BOT_NAME}}/${bn:-Yoda}/g" -e "s/{{USER_NAME}}/${un:-friend}/g" -e "s|{{TIMEZONE}}|${tz:-UTC}|g" templates/CLAUDE.md.template > workspace/CLAUDE.md

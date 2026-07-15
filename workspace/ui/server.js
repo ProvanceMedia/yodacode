@@ -181,7 +181,7 @@ function apiMemoryRead(filePath) {
 
 function apiPersona() {
   const files = [];
-  for (const f of ['CLAUDE.md', 'IDENTITY.md', 'SOUL.md', 'USER.md', 'TOOLS.md', 'AGENTS.md', 'CAPABILITIES.md']) {
+  for (const f of ['CLAUDE.md', 'IDENTITY.md', 'SOUL.md', 'USER.md', 'TOOLS.md', 'TOOLS.local.md', 'AGENTS.md', 'CAPABILITIES.md']) {
     const p = path.join(WORKSPACE, f);
     if (fs.existsSync(p)) {
       files.push({
@@ -199,7 +199,7 @@ function apiFileWrite(filePath, content) {
   if (!resolved.startsWith(WORKSPACE)) return { error: 'path traversal denied' };
   // Only allow writing .md files in safe locations
   if (!filePath.endsWith('.md')) return { error: 'only .md files can be edited' };
-  const allowedPrefixes = ['MEMORY.md', 'IDENTITY.md', 'SOUL.md', 'USER.md', 'TOOLS.md', 'AGENTS.md', 'CLAUDE.md', 'memory/'];
+  const allowedPrefixes = ['MEMORY.md', 'IDENTITY.md', 'SOUL.md', 'USER.md', 'TOOLS.local.md', 'TOOLS.md', 'AGENTS.md', 'CLAUDE.md', 'memory/'];
   if (!allowedPrefixes.some((p) => filePath.startsWith(p))) {
     return { error: 'file not in editable path' };
   }

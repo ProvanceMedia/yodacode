@@ -1,0 +1,14 @@
+# TOOLS.local.md — your service notes
+
+This file is **yours** and survives framework updates. `TOOLS.md` ships with
+YodaCode and is overwritten when you update; this one never is. Keep anything
+install-specific here: connected-service endpoints and quirks, camera names, SSH
+host details, voice preferences — whatever you learn and want future-you to know.
+
+When you connect a service, jot its endpoints and gotchas so you don't relearn them:
+
+```
+## ServiceName  (host: api.example.com)
+- Endpoints: /users, /items, /orders
+- Notes: rate-limited 100 req/min; use ?page= for pagination.
+```

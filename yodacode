@@ -245,9 +245,24 @@ cmd_update() {
   local a; a="$(ask 'Pull and rebuild now? [Y/n]' 'Y')"
   [[ "${a,,}" =~ ^n ]] && { note "Skipped."; return 0; }
 
+  # Older installs kept the agent's service notes in the tracked TOOLS.md, which
+  # would block a fast-forward. Rescue them into the gitignored TOOLS.local.md
+  # and restore TOOLS.md first, so the pull stays clean.
+  ensure_tools_local
+
   if ! git pull --ff-only --quiet; then
     fail "git pull failed — you may have local edits."
     note "Check 'git status'; stash or commit them, then re-run yodacode update."; return 1; fi
+
+  # Refresh the framework persona doc from the (now-updated) template so new
+  # @-imports (e.g. TOOLS.local.md) take effect. Keeps the operator's name/context;
+  # their edits live in IDENTITY/USER/MEMORY, not this generated file.
+  local bn un tz
+  bn="$(env_get BOT_NAME)"; un="$(env_get USER_NAME)"; tz="$(env_get TZ)"
+  [[ -f templates/CLAUDE.md.template ]] && sed \
+    -e "s/{{BOT_NAME}}/${bn:-Yoda}/g" -e "s/{{USER_NAME}}/${un:-friend}/g" \
+    -e "s|{{TIMEZONE}}|${tz:-UTC}|g" -e "s|{{INSTALL_DIR}}|$PWD|g" -e "s|{{DATE}}|$(date +%F)|g" \
+    templates/CLAUDE.md.template > workspace/CLAUDE.md
 
   local log; log="$(mktemp)"
   if spin "Rebuilding & restarting (may take a few minutes)…" "$log" docker compose up -d --build; then

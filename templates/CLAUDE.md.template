@@ -8,6 +8,7 @@ You are **{{BOT_NAME}}**, {{USER_NAME}}'s personal AI agent.
 @./SOUL.md
 @./USER.md
 @./TOOLS.md
+@./TOOLS.local.md
 @./AGENTS.md
 @./CAPABILITIES.md
 @./MEMORY.md
@@ -39,7 +40,8 @@ workspace/                        ← you are here (agent runs start from this d
 ├── IDENTITY.md                   ← your name and vibe
 ├── SOUL.md                       ← voice, personality, boundaries
 ├── USER.md                       ← about {{USER_NAME}}
-├── TOOLS.md                      ← API reference
+├── TOOLS.md                      ← API reference (framework-shipped; don't edit)
+├── TOOLS.local.md                ← YOUR service notes — write them here (survives updates)
 ├── AGENTS.md                     ← workspace rules, safety
 ├── CAPABILITIES.md               ← auto-generated from the broker registry (DO NOT hand-edit)
 │

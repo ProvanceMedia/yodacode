@@ -187,6 +187,44 @@ render_persona() {
     "templates/$1.template" > "workspace/$1"
 }
 
+# TOOLS.local.md — the agent's per-install service notes, split out of the
+# tracked TOOLS.md so framework updates never collide with local notes.
+#   • migrate: older installs (or an agent that ignored the redirect) keep notes
+#     in the tracked TOOLS.md. If it diverges from HEAD, rescue those additions
+#     into TOOLS.local.md and restore TOOLS.md so a pull fast-forwards cleanly.
+#   • ensure: render the starter from the template when the file is absent.
+# Idempotent, zero-loss, and safe outside a git checkout. Needs no persona vars,
+# so it is callable from the update path where those globals aren't set.
+ensure_tools_local() {
+  local dest="workspace/TOOLS.local.md"
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+     && ! git diff --quiet HEAD -- workspace/TOOLS.md 2>/dev/null; then
+    # Rescue the operator's ADDED lines before restoring TOOLS.md, so nothing is
+    # lost. awk keys off the first @@ hunk header, so every diff header (which
+    # precedes it) is skipped, and substr($0,2) strips exactly the one '+' marker
+    # git adds — preserving note lines whose own content starts with '+' (markdown
+    # bullets, phone numbers, pasted diffs) and blank added lines.
+    local rescued
+    rescued="$(git diff HEAD -- workspace/TOOLS.md | awk '/^@@/{h=1;next} h && /^\+/{print substr($0,2)}')"
+    if printf '%s' "$rescued" | grep -q '[^[:space:]]'; then   # only real content
+      [[ -f "$dest" ]] || printf '# TOOLS.local.md — your service notes\n' > "$dest"
+      { printf '\n<!-- recovered from your edited TOOLS.md on %s -->\n' "$(date +%F)"
+        printf '%s\n' "$rescued"; } >> "$dest"
+      note "Rescued your TOOLS.md notes into TOOLS.local.md (framework updates won't touch it)."
+    fi
+    git checkout HEAD -- workspace/TOOLS.md 2>/dev/null || true
+  fi
+  # Guarantee the file exists so CLAUDE.md's @-import is never left dangling —
+  # from the template when present, else a minimal stub.
+  if [[ ! -f "$dest" ]]; then
+    if [[ -f templates/TOOLS.local.md.template ]]; then
+      cp templates/TOOLS.local.md.template "$dest"
+    else
+      printf '# TOOLS.local.md — your service notes\n\nAdd notes on connected services here.\n' > "$dest"
+    fi
+  fi
+}
+
 # Collect name / user name / context / timezone, render persona docs, persist to
 # .env. Pre-fills from existing .env so it doubles as a reconfigure step. Sets
 # globals BOT_NAME, USER_NAME, TZ_FINAL.
@@ -208,6 +246,7 @@ configure_persona() {
 
   local f
   for f in CLAUDE.md IDENTITY.md USER.md MEMORY.md; do [[ -f "templates/$f.template" ]] && render_persona "$f"; done
+  ensure_tools_local   # seed the agent's per-install service-notes file
   if [[ -n "$USER_CTX" ]] && [[ -f workspace/USER.md ]]; then
     awk -v c="$USER_CTX" '/^\*\(Fill this in/{print "- " c; next} {print}' workspace/USER.md > workspace/USER.md.tmp && mv workspace/USER.md.tmp workspace/USER.md
   fi
