@@ -169,14 +169,19 @@ cmd_doctor() {
         problems=$((problems+1))
         if grep -q "expired or been revoked" "$tmp"; then
           fail "$olabel sign-in has expired or been revoked${oacct:+ ($oacct)}"
-          # The classic cause: a consent screen left in "Testing" kills refresh
-          # tokens after 7 days. We recorded the publish answer at connect time.
+          # Google's classic cause: a consent screen left in "Testing" kills
+          # refresh tokens after 7 days. We recorded the publish answer at
+          # connect time. The Testing diagnosis is Google-only — other
+          # providers have no such state and get their own likely causes.
           if [[ "$opub" == 0 ]]; then
             note "   likely cause: the consent screen is still in 'Testing' (you said it wasn't published)."
             note "   fix: publish the app to 'In production', then: yodacode connect $oslug --renew"
-          elif (( ${ominted:-0} > 0 && $(date +%s) - ominted < 777600 )); then
+          elif [[ "$oslug" == google ]] && (( ${ominted:-0} > 0 && $(date +%s) - ominted < 777600 )); then
             note "   it died within ~9 days of sign-in — the consent screen may be in 'Testing'. Publish it,"
             note "   then: yodacode connect $oslug --renew"
+          elif [[ "$oslug" == microsoft ]]; then
+            note "   likely: 90+ days without use, a password change/admin reset, or an org"
+            note "   Conditional Access policy. fix: yodacode connect microsoft --renew"
           else
             note "   fix: yodacode connect $oslug --renew   (password changes and revocation also cause this)"
           fi

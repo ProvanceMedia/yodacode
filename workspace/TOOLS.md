@@ -84,53 +84,62 @@ When the user wants a service connected ("connect my Notion", "can you check Str
 5. **When they say it's done**: check `broker manifest`, make a real call, then document
    the service's endpoints below.
 
-## Connecting an OAuth service (Google: Gmail, Calendar, Drive…)
+## Connecting an OAuth service (Google, Microsoft 365)
 
 Some services have no pasteable API key — the user signs in with a browser and the
 broker holds the resulting tokens. Those are set up with **`yodacode connect`**. Your
 job is only to prepare and explain; the sign-in always happens on the server plus the
 user's own browser, never in chat.
 
-Supported providers come from the built-in catalog. Currently: **google**, with the
-services `gmail`, `calendar`, `drive`, `contacts`, `tasks`, `sheets`, `docs`,
-`youtube`, `searchconsole`, `analytics` (GA4). For an OAuth service that is NOT in the
-catalog, say honestly that it isn't supported yet — do not invent an auth flow or
-handle tokens in chat.
+Supported providers come from the built-in catalog. Currently:
 
-When the user asks ("connect my gmail"):
+- **google** — services `gmail`, `calendar`, `drive`, `contacts`, `tasks`, `sheets`,
+  `docs`, `youtube`, `searchconsole`, `analytics` (GA4)
+- **microsoft** — services `outlook-mail`, `ms-calendar`, `onedrive`, `ms-contacts`
 
-1. **Write a pending request** to `state/pending-keys/google.json`:
+For an OAuth service that is NOT in the catalog, say honestly that it isn't supported
+yet — do not invent an auth flow or handle tokens in chat.
+
+When the user asks ("connect my gmail", "connect my outlook"):
+
+1. **Write a pending request** to `state/pending-keys/<provider>.json`:
 
    ```json
    { "kind": "oauth", "provider": "google", "services": ["gmail"], "note": "requested in Slack" }
    ```
 
+   (or `"provider": "microsoft", "services": ["outlook-mail"]` etc.)
+
    - `provider` and every `services[]` entry must be catalog names (list above).
    - That is the whole schema. You cannot specify scopes, hosts, endpoints, or key
      names — the catalog owns the auth mechanics, and anything else is rejected.
-   - Include every service the user plausibly wants: ONE Google sign-in covers many
-     services, and adding one later means redoing the sign-in.
+   - Include every service the user plausibly wants: ONE sign-in per provider covers
+     many services, and adding one later means redoing the sign-in.
 
 2. **Tell the user** to run `yodacode connect` on the server. Set expectations: the
-   first time includes ~10 minutes of guided Google Cloud setup (they create their own
-   OAuth client — that keeps their data between them and Google only); after that,
-   changes take ~2 minutes.
+   first time includes a guided one-time setup in the provider's console (~10 minutes
+   for Google Cloud, ~5 for Microsoft Entra — they create their own OAuth client,
+   which keeps their data between them and the provider only); after that, changes
+   take ~2 minutes.
 
 3. **Hard boundaries**: never ask for or accept a client secret, authorization code,
-   or redirect URL in chat — if one is pasted, tell the user to revoke it in the
-   Google Cloud console (or myaccount.google.com/permissions) and redo the flow on the
-   server. You never see or relay the consent URL; the wizard mints it locally.
+   sign-in code, or redirect URL in chat — if one is pasted, tell the user to revoke
+   the app's access in the provider's console (Google: myaccount.google.com/permissions;
+   Microsoft: account.live.com/consent/Manage or their org's My Apps) and redo the
+   flow on the server. You never see or relay the consent URL; the wizard mints it
+   locally.
 
-4. **When a Google call fails** with *"authorization has expired or been revoked —
-   tell the user to run: yodacode connect google --renew"*: relay that verbatim, with
-   one line of context (sign-ins die on password changes, revocation, or a consent
-   screen left in "Testing"). The renewal takes ~2 minutes. `yodacode doctor` also
-   diagnoses this.
+4. **When a provider call fails** with *"authorization has expired or been revoked —
+   tell the user to run: yodacode connect <provider> --renew"*: relay that verbatim,
+   with one line of context (sign-ins die on password changes and revocation; Google's
+   also on a consent screen left in "Testing", Microsoft's on 90+ days of disuse or
+   org Conditional Access policies). The renewal takes ~2 minutes. `yodacode doctor`
+   also diagnoses this.
 
 5. **Check the granted access level first**: `CAPABILITIES.md` lists each connected
    service's tier (e.g. Drive read-only). If you need more access, ask the user to
-   re-run `yodacode connect google` and pick the higher tier — don't discover scope
-   limits by letting calls 403.
+   re-run `yodacode connect <provider>` and pick the higher tier — don't discover
+   scope limits by letting calls 403.
 
 ## Document services as you go
 

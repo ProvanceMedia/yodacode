@@ -666,5 +666,128 @@
         "note": "Analytics Data API (v1beta) — every call needs your GA4 property id (properties/<id>:runReport), so there is no property-independent test endpoint; verified via the sign-in itself"
       }
     }
+  },
+  "microsoft": {
+    "kind": "oauth-provider",
+    "label": "Microsoft 365",
+    "aliases": [
+      "ms365",
+      "m365",
+      "office 365",
+      "office365",
+      "o365",
+      "entra",
+      "outlook.com"
+    ],
+    "flow": "device-code",
+    "deviceCodeUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode",
+    "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "clientIdKey": "MICROSOFT_OAUTH_CLIENT_ID",
+    "refreshTokenKey": "MICROSOFT_REFRESH_TOKEN",
+    "clientIdPattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "identityScopes": ["openid", "email", "offline_access"],
+    "identityUrl": "https://graph.microsoft.com/oidc/userinfo",
+    "identityField": "email",
+    "setupGuide": "docs/providers/microsoft.md",
+    "noRefreshHint": "Microsoft returned no refresh token — the 'Maintain access' (offline_access) permission was denied. Re-run the sign-in and approve ALL requested permissions",
+    "setupSteps": [
+      {
+        "text": "Personal account (outlook.com/hotmail)? Create a free Azure account first — it provisions the tenant that app registrations need. Work/school accounts usually already have one",
+        "url": "https://azure.microsoft.com/free"
+      },
+      {
+        "text": "Register the app: Entra admin center → Entra ID → App registrations → New registration. Name it anything (e.g. yodacode)",
+        "url": "https://entra.microsoft.com"
+      },
+      {
+        "text": "Supported account types: pick 'Accounts in any organizational directory and personal Microsoft accounts'"
+      },
+      {
+        "text": "Copy the Application (client) ID from the app's Overview page — the wizard asks for it below (there is NO client secret to create)"
+      },
+      {
+        "text": "Authentication → Advanced settings → set 'Allow public client flows' to YES → Save. Skipping this is the #1 mistake — the sign-in fails without it"
+      },
+      {
+        "text": "Work/school tenant only: API permissions → add the delegated Microsoft Graph permissions → 'Grant admin consent' (in your own tenant that's one click; in an employer's, ask IT). Personal accounts skip this"
+      }
+    ],
+    "services": {
+      "outlook-mail": {
+        "label": "Outlook Mail",
+        "aliases": ["outlook", "outlook mail", "ms mail", "microsoft mail"],
+        "hosts": ["graph.microsoft.com"],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — read and search mail",
+            "scopes": ["Mail.Read"]
+          },
+          {
+            "key": "full",
+            "label": "Read, send + organise mail (recommended)",
+            "scopes": ["Mail.ReadWrite", "Mail.Send"],
+            "default": true
+          }
+        ],
+        "testPath": "v1.0/me/messages?$top=1",
+        "note": "Microsoft Graph mail (v1.0/me/messages, sendMail)"
+      },
+      "ms-calendar": {
+        "label": "Outlook Calendar",
+        "aliases": ["outlook calendar", "ms calendar", "microsoft calendar"],
+        "hosts": ["graph.microsoft.com"],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — view events",
+            "scopes": ["Calendars.Read"]
+          },
+          {
+            "key": "full",
+            "label": "View, create + edit events (recommended)",
+            "scopes": ["Calendars.ReadWrite"],
+            "default": true
+          }
+        ],
+        "testPath": "v1.0/me/events?$top=1",
+        "note": "Microsoft Graph calendar (v1.0/me/events, calendarView)"
+      },
+      "onedrive": {
+        "label": "OneDrive",
+        "aliases": ["one drive", "ms drive", "microsoft drive"],
+        "hosts": ["graph.microsoft.com"],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — read and download files",
+            "scopes": ["Files.Read"]
+          },
+          {
+            "key": "full",
+            "label": "Read, upload + edit files (recommended)",
+            "scopes": ["Files.ReadWrite"],
+            "default": true
+          }
+        ],
+        "testPath": "v1.0/me/drive",
+        "note": "Microsoft Graph OneDrive (v1.0/me/drive) — the user's own drive, not SharePoint sites"
+      },
+      "ms-contacts": {
+        "label": "Outlook Contacts",
+        "aliases": ["outlook contacts", "ms contacts", "microsoft contacts"],
+        "hosts": ["graph.microsoft.com"],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — view contacts",
+            "scopes": ["Contacts.Read"],
+            "default": true
+          }
+        ],
+        "testPath": "v1.0/me/contacts?$top=1",
+        "note": "Microsoft Graph contacts (v1.0/me/contacts)"
+      }
+    }
   }
 }
