@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.11.0 — 2026-07-16
+
+- feat(connect): Microsoft signs in with auth code + PKCE, not device code
+
 ## v2.10.2 — 2026-07-15
 
 - fix(update): preserve in-place framework-doc customizations across updates
