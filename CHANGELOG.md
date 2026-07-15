@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.10.1 — 2026-07-15
+
+- fix(update): keep the agent's service notes out of the tracked TOOLS.md
+
 ## v2.10.0 — 2026-07-15
 
 - feat(connect): Microsoft 365 provider (Outlook Mail, Calendar, OneDrive, Contacts)
