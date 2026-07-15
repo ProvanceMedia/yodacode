@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.10.2 — 2026-07-15
+
+- fix(update): preserve in-place framework-doc customizations across updates
+
 ## v2.10.1 — 2026-07-15
 
 - fix(update): keep the agent's service notes out of the tracked TOOLS.md
