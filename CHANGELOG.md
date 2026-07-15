@@ -3,6 +3,12 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.10.0 — 2026-07-15
+
+- feat(connect): Microsoft 365 provider (Outlook Mail, Calendar, OneDrive, Contacts)
+- feat(connect): device-code sign-in flow + public-client providers
+- feat(broker): persist rotated OAuth refresh tokens; support public clients
+
 ## v2.9.1 — 2026-07-15
 
 - fix(cli): restart recreates containers so .env changes actually load
