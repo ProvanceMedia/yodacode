@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.9.1 — 2026-07-15
+
+- fix(cli): restart recreates containers so .env changes actually load
+
 ## v2.9.0 — 2026-07-14
 
 - feat(connect): add Google Search Console + Analytics (GA4) to the catalog
