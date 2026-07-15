@@ -245,14 +245,39 @@ cmd_update() {
   local a; a="$(ask 'Pull and rebuild now? [Y/n]' 'Y')"
   [[ "${a,,}" =~ ^n ]] && { note "Skipped."; return 0; }
 
-  # Older installs kept the agent's service notes in the tracked TOOLS.md, which
-  # would block a fast-forward. Rescue them into the gitignored TOOLS.local.md
-  # and restore TOOLS.md first, so the pull stays clean.
+  # Legacy installs kept the agent's service notes in the tracked TOOLS.md, which
+  # would block a fast-forward. Rescue them into the gitignored TOOLS.local.md and
+  # restore TOOLS.md first, so that one file stays clean.
   ensure_tools_local
 
+  # Any OTHER locally-modified tracked file (a customized AGENTS.md/SOUL.md, a
+  # patched broker script, the agent-maintained skills/INDEX.md) is a deliberate
+  # edit we must PRESERVE, not discard. Shelve them, fast-forward, then re-apply:
+  # git does a 3-way merge, so your changes land on top of the updated files.
+  local stashed=""
+  if ! git diff --quiet HEAD 2>/dev/null; then
+    if git stash push -m "yodacode update $(date +%F)" --quiet 2>/dev/null; then stashed=1; fi
+  fi
+
   if ! git pull --ff-only --quiet; then
-    fail "git pull failed — you may have local edits."
-    note "Check 'git status'; stash or commit them, then re-run yodacode update."; return 1; fi
+    [[ -n "$stashed" ]] && git stash pop --quiet 2>/dev/null || true
+    fail "git pull failed — the repo history has diverged (local commits?)."
+    note "Check 'git status', reconcile with origin/main, then re-run yodacode update."; return 1; fi
+
+  if [[ -n "$stashed" ]]; then
+    if git stash pop --quiet 2>/dev/null; then
+      ok "Re-applied your local customizations onto the update."
+    else
+      # A real merge conflict between your edits and the update — needs a human.
+      # The code is updated; leave the marked files for you and skip the rebuild
+      # so the bot keeps running the current image until you resolve them.
+      warn "Your local edits conflict with the update in:"
+      git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    /'
+      note "Edit those files to resolve the <<<< / ==== / >>>> markers, then: docker compose up -d --build"
+      note "Your shelved edits are also safe in: git stash show -p"
+      return 1
+    fi
+  fi
 
   # Refresh the framework persona doc from the (now-updated) template so new
   # @-imports (e.g. TOOLS.local.md) take effect. Keeps the operator's name/context;

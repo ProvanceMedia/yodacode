@@ -187,35 +187,43 @@ render_persona() {
     "templates/$1.template" > "workspace/$1"
 }
 
-# TOOLS.local.md — the agent's per-install service notes, split out of the
-# tracked TOOLS.md so framework updates never collide with local notes.
-#   • migrate: older installs (or an agent that ignored the redirect) keep notes
-#     in the tracked TOOLS.md. If it diverges from HEAD, rescue those additions
-#     into TOOLS.local.md and restore TOOLS.md so a pull fast-forwards cleanly.
-#   • ensure: render the starter from the template when the file is absent.
-# Idempotent, zero-loss, and safe outside a git checkout. Needs no persona vars,
-# so it is callable from the update path where those globals aren't set.
-ensure_tools_local() {
-  local dest="workspace/TOOLS.local.md"
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-     && ! git diff --quiet HEAD -- workspace/TOOLS.md 2>/dev/null; then
-    # Rescue the operator's ADDED lines before restoring TOOLS.md, so nothing is
-    # lost. awk keys off the first @@ hunk header, so every diff header (which
-    # precedes it) is skipped, and substr($0,2) strips exactly the one '+' marker
-    # git adds — preserving note lines whose own content starts with '+' (markdown
-    # bullets, phone numbers, pasted diffs) and blank added lines.
-    local rescued
-    rescued="$(git diff HEAD -- workspace/TOOLS.md | awk '/^@@/{h=1;next} h && /^\+/{print substr($0,2)}')"
+# Append-notes framework docs: TOOLS.md is the ONE tracked file whose divergence
+# is purely appended service notes (the old "document services as you go"
+# pattern), which belong in TOOLS.local.md going forward — so it is safe to lift
+# the notes out and revert the file to shipped. NOTHING ELSE goes here: AGENTS.md,
+# SOUL.md, bin/*, skills/INDEX.md carry DELIBERATE in-place customizations (tool
+# paths, security rules, persona, a live skill registry) that must be MERGED
+# across an update, never reverted — cmd_update's stash+pull+pop handles those.
+YODA_RESCUE_DOCS="workspace/TOOLS.md"
+
+# Rescue any local additions to the rescue docs into TOOLS.local.md, then restore
+# each shipped copy so a pull fast-forwards. Zero-loss: additions are preserved as
+# text (awk keys off the first @@ hunk so diff headers are skipped, and
+# substr($0,2) strips exactly the one '+' git prepends — so note lines that
+# themselves start with '+', and blank added lines, survive). Safe outside git.
+rescue_framework_docs() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  local dest="workspace/TOOLS.local.md" f rescued
+  for f in $YODA_RESCUE_DOCS; do
+    [[ -f "$f" ]] || continue
+    git diff --quiet HEAD -- "$f" 2>/dev/null && continue   # unchanged → nothing to rescue
+    rescued="$(git diff HEAD -- "$f" | awk '/^@@/{h=1;next} h && /^\+/{print substr($0,2)}')"
     if printf '%s' "$rescued" | grep -q '[^[:space:]]'; then   # only real content
       [[ -f "$dest" ]] || printf '# TOOLS.local.md — your service notes\n' > "$dest"
-      { printf '\n<!-- recovered from your edited TOOLS.md on %s -->\n' "$(date +%F)"
+      { printf '\n<!-- recovered from your edited %s on %s -->\n' "${f#workspace/}" "$(date +%F)"
         printf '%s\n' "$rescued"; } >> "$dest"
-      note "Rescued your TOOLS.md notes into TOOLS.local.md (framework updates won't touch it)."
+      note "Rescued your notes from ${f#workspace/} into TOOLS.local.md (framework updates won't touch it)."
     fi
-    git checkout HEAD -- workspace/TOOLS.md 2>/dev/null || true
-  fi
-  # Guarantee the file exists so CLAUDE.md's @-import is never left dangling —
-  # from the template when present, else a minimal stub.
+    git checkout HEAD -- "$f" 2>/dev/null || true
+  done
+}
+
+# Migrate legacy note-in-framework-doc installs, then guarantee TOOLS.local.md
+# exists so CLAUDE.md's @-import is never left dangling. Idempotent; needs no
+# persona vars, so it is callable from the update path where those aren't set.
+ensure_tools_local() {
+  rescue_framework_docs
+  local dest="workspace/TOOLS.local.md"
   if [[ ! -f "$dest" ]]; then
     if [[ -f templates/TOOLS.local.md.template ]]; then
       cp templates/TOOLS.local.md.template "$dest"
