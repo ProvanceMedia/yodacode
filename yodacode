@@ -26,7 +26,9 @@ version_string() {
 agent_running() { docker compose ps --status running --services 2>/dev/null | grep -qx agent; }
 restart_if_running() {
   agent_running || { note "Not running — changes apply next start (yodacode start)."; return 0; }
-  if spin "Restarting…" "$(mktemp)" docker compose restart; then ok "Restarted."; else warn "Restart failed — try: yodacode restart"; fi
+  # Recreate (not `compose restart`) so config changes the caller just made
+  # actually reach the container's environment.
+  if spin "Restarting…" "$(mktemp)" docker compose up -d --force-recreate; then ok "Restarted."; else warn "Restart failed — try: yodacode restart"; fi
 }
 
 # ── commands ─────────────────────────────────────────────────────────────────
@@ -261,7 +263,10 @@ cmd_update() {
 
 cmd_start()   { require_docker; if spin "Starting…" "$(mktemp)" docker compose up -d; then ok "Started. Watch it: yodacode logs"; else fail "Start failed — see: docker compose logs"; return 1; fi; }
 cmd_stop()    { require_docker; if docker compose down; then ok "Stopped."; else fail "Stop failed."; return 1; fi; }
-cmd_restart() { require_docker; if spin "Restarting…" "$(mktemp)" docker compose restart; then ok "Restarted."; else fail "Restart failed."; return 1; fi; }
+# up -d --force-recreate, NOT `compose restart`: restart reuses the container's
+# original environment, so .env edits silently never load. Recreating is the only
+# way "apply .env changes" is actually true.
+cmd_restart() { require_docker; if spin "Restarting…" "$(mktemp)" docker compose up -d --force-recreate; then ok "Restarted (fresh .env applied)."; else fail "Restart failed."; return 1; fi; }
 cmd_logs()    { require_docker; exec docker compose logs -f agent; }
 cmd_shell()   { require_docker; exec docker compose exec agent bash; }
 
