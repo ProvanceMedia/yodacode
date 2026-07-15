@@ -23,6 +23,10 @@ contract as addkey-lib.py; run from anywhere, paths are repo-relative):
   resolve            merge pending request + catalog + flags → wizard vars
   auth-url           build the consent URL (state + PKCE) for chosen scopes
   exchange           pasted redirect URL/code → refresh + access token + account
+  device-start       flow:"device-code" providers — request a user code to enter
+                     at the provider's verification URL (no redirect, no paste)
+  device-poll        poll the token endpoint until the user approves (or the
+                     code expires) → refresh + access token + account
   smoke              pre-store test calls with the fresh access token
   apply              upsert broker/auth-hosts.json + broker/oauth-grants.json
   grants             list recorded grants: provider<TAB>account<TAB>mintedAt<TAB>published<TAB>services
@@ -43,19 +47,30 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CATALOG_FILE = os.path.join(ROOT, "scripts", "service-catalog.json")
+# Overridable for the test suite only: the wizard runs host-side with the
+# operator's env, so this is no wider a door than editing the catalog itself.
+CATALOG_FILE = os.environ.get("YODA_CATALOG_FILE") or os.path.join(ROOT, "scripts", "service-catalog.json")
 PENDING_DIR = os.path.join(ROOT, "workspace", "state", "pending-keys")
 AUTH_HOSTS = os.path.join(ROOT, "workspace", "broker", "auth-hosts.json")
 # Grant metadata (account, scopes, mint time) lives in broker/ — mounted
 # read-only into the agent — because it drives what a renewal re-consents to
 # and what doctor diagnoses. It must be agent-readable but never agent-writable.
 GRANTS_FILE = os.path.join(ROOT, "workspace", "broker", "oauth-grants.json")
-ENV_FILE = os.path.join(ROOT, ".env")
+# Same override the broker's vault honors — and what keeps the test suite
+# from reading the operator's real .env.
+ENV_FILE = os.environ.get("YODA_ENV_FILE") or os.path.join(ROOT, ".env")
 
 DEFAULT_REDIRECT = "http://127.0.0.1:8765"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
-URL_RE = re.compile(r"^https://[A-Za-z0-9./_#?=&%~+:-]{1,300}$")
+# Catalog/config URLs: https, with a loopback-http exemption so the test suite
+# can stand in a stub provider. Loopback plain http leaks nothing off-box, and
+# the catalog is operator-trusted config to begin with.
+URL_RE = re.compile(r"^(?:https://|http://(?:127\.0\.0\.1|localhost)(?::\d{1,5})?/)[A-Za-z0-9./_#?=&%~+:-]{1,300}$")
+# Provider-RESPONSE URLs the wizard tells a human to open (device-flow
+# verification_uri): strictly https — no loopback exemption for data an
+# external endpoint controls.
+HTTPS_URL_RE = re.compile(r"^https://[A-Za-z0-9./_#?=&%~+:-]{1,300}$")
 # A pasted bare authorization code (Google's look like "4/0Adeu5B…" and run
 # 60+ chars). ≥16 chars so a stray word doesn't get sent to the token endpoint
 # as a "code"; no scheme, no whitespace.
@@ -103,12 +118,26 @@ def provider_entry(slug):
         die(f"unknown OAuth provider {slug!r} (catalog providers: {', '.join(sorted(providers())) or 'none'})")
     # The catalog ships with the repo, but validate the load-bearing fields
     # anyway — a typo here would send credentials to the wrong place.
-    for f in ("authUrl", "tokenUrl"):
+    flow = provider_flow(p)
+    if flow not in ("auth-code", "device-code"):
+        die(f"catalog entry {slug}: unknown flow {flow!r}")
+    # auth-code needs a browser authorize URL; device-code needs the device
+    # authorization endpoint instead. tokenUrl is common to both.
+    url_fields = ["tokenUrl", "deviceCodeUrl" if flow == "device-code" else "authUrl"]
+    for f in url_fields:
         if not URL_RE.match(str(p.get(f, ""))):
             die(f"catalog entry {slug}: bad {f}")
-    for f in ("clientIdKey", "clientSecretKey", "refreshTokenKey"):
+    # clientSecretKey is optional: public clients (device-code apps) have no
+    # secret at all, and the broker omits client_secret for such entries.
+    key_fields = ["clientIdKey", "refreshTokenKey"] + (["clientSecretKey"] if "clientSecretKey" in p else [])
+    for f in key_fields:
         if not KEY_RE.match(str(p.get(f, ""))):
             die(f"catalog entry {slug}: bad {f}")
+    # Confidential device clients (a secret on the device-code grant) are not
+    # implemented — device-start/device-poll never send one. Die at load, not
+    # after the operator has typed a secret the flow can't use.
+    if flow == "device-code" and p.get("clientSecretKey"):
+        die(f"catalog entry {slug}: device-code providers must be public clients — drop clientSecretKey")
     if not isinstance(p.get("services"), dict) or not p["services"]:
         die(f"catalog entry {slug}: no services")
     # Every service must carry ≥1 hostname-shaped host: smoke/doctor/apply all
@@ -119,6 +148,10 @@ def provider_entry(slug):
                 or not all(isinstance(h, str) and re.fullmatch(r"[a-z0-9.-]+", h) for h in hostlist)):
             die(f"catalog entry {slug}: service {ssl} has a missing or malformed hosts list")
     return p
+
+
+def provider_flow(p):
+    return str(p.get("flow", "auth-code"))
 
 
 def match_provider(text):
@@ -342,20 +375,27 @@ def cmd_resolve():
     # the older services silently lose access.
     selected = [s for s in p["services"] if s in grant_services or s in svc_hint]
 
+    secret_key = p.get("clientSecretKey", "")
+    # A public client (no secret in the catalog) exists once its client ID does.
+    client_exists = vals.get(p["clientIdKey"]) and (not secret_key or vals.get(secret_key))
     out = {
         "CN_OK": "1",
         "CN_PROVIDER": slug,
         "CN_PROVIDER_LABEL": p.get("label", slug),
+        "CN_FLOW": provider_flow(p),
         "CN_CLIENT_ID_KEY": p["clientIdKey"],
-        "CN_CLIENT_SECRET_KEY": p["clientSecretKey"],
+        "CN_CLIENT_SECRET_KEY": secret_key,
         "CN_REFRESH_TOKEN_KEY": p["refreshTokenKey"],
         "CN_CLIENT_ID_PATTERN": p.get("clientIdPattern", ""),
         "CN_SETUP_GUIDE": p.get("setupGuide", ""),
         "CN_REDIRECT_URI": p.get("redirectUri", DEFAULT_REDIRECT),
-        "CN_CLIENT_EXISTS": "1" if (vals.get(p["clientIdKey"]) and vals.get(p["clientSecretKey"])) else "",
+        "CN_CLIENT_EXISTS": "1" if client_exists else "",
         "CN_REFRESH_EXISTS": "1" if vals.get(p["refreshTokenKey"]) else "",
         "CN_GRANT_ACCOUNT": clean_text(grants.get("account", ""), 120),
         "CN_GRANT_PUBLISHED": "1" if grants.get("published") else "",
+        # Providers with a Testing-status footgun (Google) opt in to the
+        # publish interrogation; everyone else skips it.
+        "CN_PUBLISH_CHECK": "1" if p.get("publishCheck") else "",
     }
 
     steps = p.get("setupSteps", [])
@@ -364,6 +404,14 @@ def cmd_resolve():
         out[f"CN_SETUP_STEP_{i}_TEXT"] = clean_text(st.get("text", ""), 220)
         u = str(st.get("url", ""))
         out[f"CN_SETUP_STEP_{i}_URL"] = u if URL_RE.match(u) else ""
+
+    # Provider-specific lines shown between "sign in" and "paste the URL" in
+    # the auth-code flow (e.g. Google's unverified-app warning walkthrough).
+    notes = p.get("signInNotes", [])
+    out["CN_SIGNIN_NOTE_COUNT"] = len(notes) if isinstance(notes, list) else 0
+    if isinstance(notes, list):
+        for i, n in enumerate(notes, 1):
+            out[f"CN_SIGNIN_NOTE_{i}"] = clean_text(n, 220)
 
     slugs = list(p["services"])
     out["CN_SVC_COUNT"] = len(slugs)
@@ -394,7 +442,8 @@ def cmd_resolve():
         if not grant_services:
             warnings.append("no previous sign-in recorded — running a full connect instead of a renewal")
         if not out["CN_CLIENT_EXISTS"]:
-            warnings.append(f"{p['clientIdKey']}/{p['clientSecretKey']} missing from the vault — the client setup step will run")
+            keys = "/".join(k for k in (p["clientIdKey"], secret_key) if k)
+            warnings.append(f"{keys} missing from the vault — the client setup step will run")
     for i, w in enumerate(warnings, 1):
         out[f"CN_WARN_{i}"] = w
     emit(out)
@@ -402,20 +451,32 @@ def cmd_resolve():
 
 # ───────────────────────── auth-url ─────────────────────────
 
-def cmd_auth_url():
-    env = os.environ
-    p = provider_entry(env.get("CN_PROVIDER", "").strip().lower())
-    svcs = parse_services_env(p, env.get("CN_SERVICES", ""))
-    tier_map = parse_tiers_env(p, svcs, env.get("CN_TIERS", ""))
+def check_client_id(p, env):
+    """Validated client id from the wizard env (shared: auth-url/device-start)."""
     client_id = env.get("CN_CLIENT_ID", "").strip()
     if not client_id:
-        die("auth-url: no client id")
+        die("no client id")
     pattern = str(p.get("clientIdPattern", ""))
     if pattern and not re.search(pattern, client_id):
         # Catches a malformed stored value (e.g. hand-edited .env with stray
         # quotes) before the user burns a browser round-trip on it.
         die(f"the stored {p['clientIdKey']} doesn't look like a {p.get('label', '')} client ID — "
             f"re-run 'yodacode connect {env.get('CN_PROVIDER', '').strip().lower()}' and answer 'n' to reusing the client")
+    return client_id
+
+
+def scope_summary(p, svcs, tier_map):
+    return "; ".join(f"{p['services'][s].get('label', s)}: {tier_label(p, s, tier_map[s])}" for s in svcs)
+
+
+def cmd_auth_url():
+    env = os.environ
+    p = provider_entry(env.get("CN_PROVIDER", "").strip().lower())
+    if provider_flow(p) != "auth-code":
+        die("auth-url: this provider uses the device-code flow (device-start/device-poll)")
+    svcs = parse_services_env(p, env.get("CN_SERVICES", ""))
+    tier_map = parse_tiers_env(p, svcs, env.get("CN_TIERS", ""))
+    client_id = check_client_id(p, env)
 
     state = pysecrets.token_urlsafe(24)
     verifier = pysecrets.token_urlsafe(64)
@@ -436,12 +497,11 @@ def cmd_auth_url():
     if hint:
         params["login_hint"] = hint
 
-    summary = "; ".join(f"{p['services'][s].get('label', s)}: {tier_label(p, s, tier_map[s])}" for s in svcs)
     emit({
         "CN_AUTH_URL": p["authUrl"] + "?" + urllib.parse.urlencode(params),
         "CN_STATE": state,
         "CN_PKCE_VERIFIER": verifier,
-        "CN_SCOPE_SUMMARY": summary,
+        "CN_SCOPE_SUMMARY": scope_summary(p, svcs, tier_map),
         "CN_TIERS_RESOLVED": ",".join(f"{s}={tier_map[s]}" for s in svcs),
     })
 
@@ -468,6 +528,36 @@ def http_json(url, data=None, bearer=None, timeout=15):
         return 0, {"error": "network", "error_description": str(e)}
 
 
+def fetch_identity(p, access_token):
+    """Which account signed in, via the provider's OIDC userinfo endpoint."""
+    account = ""
+    id_url = p.get("identityUrl", "")
+    if URL_RE.match(str(id_url)):
+        _, who = http_json(id_url, bearer=access_token, timeout=10)
+        account = clean_text(who.get(p.get("identityField", "email"), ""), 120)
+    return account
+
+
+def emit_tokens(p, j):
+    """Common tail of exchange/device-poll: a token response → wizard vars.
+    ABORTS when there is no refresh token — without one the sign-in can't
+    outlive the first access token and storing it would break within the hour."""
+    refresh = j.get("refresh_token", "")
+    if not refresh:
+        hint = clean_text(p.get("noRefreshHint", ""), 300) or (
+            f"{p.get('label', 'the provider')} returned no refresh token — "
+            "re-run the sign-in; if it keeps happening, the app is missing offline access")
+        emit({"CN_OK": "", "CN_ERROR": hint, "CN_RETRY_URL": "", "CN_RETRY_PASTE": ""})
+        sys.exit(2)
+    emit({
+        "CN_OK": "1",
+        "CN_REFRESH_TOKEN": refresh,
+        "CN_ACCESS_TOKEN": j["access_token"],
+        "CN_ACCOUNT": fetch_identity(p, j["access_token"]),
+        "CN_GRANTED_SCOPES": clean_text(j.get("scope", ""), 2000),
+    })
+
+
 def parse_paste(paste, expect_state):
     """The user pastes either the full dead-redirect URL from the address bar
     (preferred — carries the anti-CSRF state we minted) or, as a fallback for
@@ -482,7 +572,7 @@ def parse_paste(paste, expect_state):
         if q.get("error"):
             err = q["error"][0]
             if err == "access_denied":
-                return None, "Google reports you clicked Cancel/Deny on the consent screen — re-open the link and approve"
+                return None, "the consent screen was cancelled/denied — re-open the link and approve"
             return None, f"the sign-in returned an error: {clean_text(err, 60)}"
         code = (q.get("code") or [""])[0]
         state = (q.get("state") or [""])[0]
@@ -505,7 +595,8 @@ def cmd_exchange():
     client_id = env.get("CN_CLIENT_ID", "").strip()
     client_secret = env.get("CN_CLIENT_SECRET", "").strip()
     verifier = env.get("CN_PKCE_VERIFIER", "").strip()
-    if not (client_id and client_secret and verifier):
+    needs_secret = bool(p.get("clientSecretKey"))
+    if not (client_id and verifier and (client_secret or not needs_secret)):
         die("exchange: missing client credentials or PKCE verifier")
 
     code, perr = parse_paste(env.get("CN_PASTE", ""), env.get("CN_STATE", ""))
@@ -516,14 +607,17 @@ def cmd_exchange():
         emit({"CN_OK": "", "CN_ERROR": perr, "CN_RETRY_PASTE": "1", "CN_RETRY_URL": ""})
         sys.exit(2)
 
-    status, j = http_json(p["tokenUrl"], data={
+    data = {
         "client_id": client_id,
-        "client_secret": client_secret,
         "code": code,
         "code_verifier": verifier,
         "redirect_uri": p.get("redirectUri", DEFAULT_REDIRECT),
         "grant_type": "authorization_code",
-    })
+    }
+    # Public clients must NOT send a secret when redeeming an authorization code.
+    if needs_secret:
+        data["client_secret"] = client_secret
+    status, j = http_json(p["tokenUrl"], data=data)
     if status != 200 or not j.get("access_token"):
         err = str(j.get("error", f"HTTP {status}"))
         desc = clean_text(j.get("error_description", ""), 200)
@@ -532,7 +626,7 @@ def cmd_exchange():
                               "a fresh sign-in link is needed", "1"),
             "redirect_uri_mismatch": ("your OAuth client is the wrong type — it must be application type "
                                       "'Desktop app'. Create a new Desktop-app client and re-run", ""),
-            "invalid_client": ("the client ID or secret is wrong — re-copy both from the Google Cloud "
+            "invalid_client": ("the client ID or secret is wrong — re-copy both from the provider's "
                                "console and re-run", ""),
             "network": ("couldn't reach the token endpoint — check the server's network and re-try", "1"),
         }
@@ -541,26 +635,132 @@ def cmd_exchange():
               "CN_RETRY_URL": retry, "CN_RETRY_PASTE": ""})
         sys.exit(2)
 
-    refresh = j.get("refresh_token", "")
-    if not refresh:
-        emit({"CN_OK": "", "CN_ERROR": ("Google returned no refresh token. Revoke the app's access at "
-                                        "https://myaccount.google.com/permissions and run the sign-in again"),
+    emit_tokens(p, j)
+
+
+# ───────────────────────── device code flow ─────────────────────────
+# RFC 8628: instead of a redirect + paste, the provider hands out a short code
+# the user types at a fixed verification URL on any device; the wizard polls
+# the token endpoint until the sign-in completes. No redirect URI exists, no
+# state/PKCE applies — the device_code held in the wizard's memory is the
+# session binding.
+
+def cmd_device_start():
+    env = os.environ
+    p = provider_entry(env.get("CN_PROVIDER", "").strip().lower())
+    if provider_flow(p) != "device-code":
+        die("device-start: this provider uses the auth-code flow (auth-url/exchange)")
+    svcs = parse_services_env(p, env.get("CN_SERVICES", ""))
+    tier_map = parse_tiers_env(p, svcs, env.get("CN_TIERS", ""))
+    client_id = check_client_id(p, env)
+
+    status, j = http_json(p["deviceCodeUrl"], data={
+        "client_id": client_id,
+        "scope": " ".join(scopes_for(p, tier_map)),
+    })
+    if status != 200 or not j.get("device_code"):
+        err = str(j.get("error", f"HTTP {status}"))
+        desc = clean_text(j.get("error_description", ""), 200)
+        hints = {
+            "invalid_client": "the client (application) ID was rejected — re-copy it from the provider's console and re-run",
+            "invalid_scope": "the provider rejected the requested access — check the app's API permissions and re-run",
+            "network": "couldn't reach the sign-in endpoint — check the server's network and re-try",
+        }
+        hint = hints.get(err, f"couldn't start the sign-in: {clean_text(err, 60)}")
+        emit({"CN_OK": "", "CN_ERROR": f"{hint}{' — ' + desc if desc and err not in hints else ''}",
               "CN_RETRY_URL": "", "CN_RETRY_PASTE": ""})
         sys.exit(2)
 
-    account = ""
-    id_url = p.get("identityUrl", "")
-    if URL_RE.match(str(id_url)):
-        _, who = http_json(id_url, bearer=j["access_token"], timeout=10)
-        account = clean_text(who.get(p.get("identityField", "email"), ""), 120)
-
+    uri = str(j.get("verification_uri") or j.get("verification_url") or "")
+    code = clean_text(j.get("user_code", ""), 40)
+    # A human is told to open this URL — hold it to strict https regardless of
+    # the loopback exemption catalog endpoints get.
+    try:
+        raw = j.get("interval")
+        # not `or 5`: an explicit interval of 0 is a real value, not "unset" —
+        # but floor at 1s so a degenerate response can't turn the poll into a
+        # busy-loop against the token endpoint. Ceiling on expires_in keeps a
+        # hostile value from pinning the wizard for hours.
+        interval = max(1, int(5 if raw is None else raw))
+        expires_in = max(60, min(3600, int(j.get("expires_in") or 900)))
+    except (ValueError, TypeError):
+        interval = expires_in = 0
+    if not HTTPS_URL_RE.match(uri) or not code or not interval:
+        emit({"CN_OK": "", "CN_ERROR": "the provider's sign-in response was malformed (verification URL/code/interval)",
+              "CN_RETRY_URL": "", "CN_RETRY_PASTE": ""})
+        sys.exit(2)
     emit({
         "CN_OK": "1",
-        "CN_REFRESH_TOKEN": refresh,
-        "CN_ACCESS_TOKEN": j["access_token"],
-        "CN_ACCOUNT": account,
-        "CN_GRANTED_SCOPES": clean_text(j.get("scope", ""), 2000),
+        "CN_DEVICE_CODE": str(j["device_code"]),
+        "CN_USER_CODE": code,
+        "CN_VERIFICATION_URI": uri,
+        "CN_INTERVAL": interval,
+        "CN_EXPIRES_IN": expires_in,
+        "CN_SCOPE_SUMMARY": scope_summary(p, svcs, tier_map),
+        "CN_TIERS_RESOLVED": ",".join(f"{s}={tier_map[s]}" for s in svcs),
     })
+
+
+def cmd_device_poll():
+    env = os.environ
+    p = provider_entry(env.get("CN_PROVIDER", "").strip().lower())
+    client_id = env.get("CN_CLIENT_ID", "").strip()
+    device_code = env.get("CN_DEVICE_CODE", "").strip()
+    if not (client_id and device_code):
+        die("device-poll: missing client id or device code")
+    try:
+        # 0 stays 0 (the tests drive the stub with no pacing); real runs get
+        # device-start's ≥1s floor. Cap at 60s so a provider can't stall us.
+        interval = min(60, max(0, int(env.get("CN_INTERVAL") or 5)))
+        expires_in = max(60, int(env.get("CN_EXPIRES_IN") or 900))
+    except (ValueError, TypeError):
+        die("device-poll: bad CN_INTERVAL/CN_EXPIRES_IN")
+    deadline = time.time() + expires_in
+
+    def fail(msg, retry_url=""):
+        emit({"CN_OK": "", "CN_ERROR": msg, "CN_RETRY_URL": retry_url, "CN_RETRY_PASTE": ""})
+        sys.exit(2)
+
+    net_errors = 0  # CONSECUTIVE failures — any provider response resets it
+    while time.time() < deadline:
+        time.sleep(min(interval, max(0.0, deadline - time.time())))
+        status, j = http_json(p["tokenUrl"], data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "client_id": client_id,
+            "device_code": device_code,
+        })
+        err = str(j.get("error", ""))
+        if status == 200 and j.get("access_token"):
+            emit_tokens(p, j)
+            return
+        if err == "authorization_pending":
+            net_errors = 0
+            continue
+        if err == "slow_down" or status == 429:
+            net_errors = 0
+            interval = min(60, interval + 5)  # RFC 8628 back-off
+            continue
+        if err == "network":
+            # A long approval on a flaky link sees scattered blips; only an
+            # unbroken run of failures means the endpoint is actually gone.
+            net_errors += 1
+            if net_errors >= 5:
+                fail("couldn't reach the token endpoint — check the server's network and re-run")
+            continue
+        desc = clean_text(j.get("error_description", ""), 200)
+        if err == "authorization_declined" or err == "access_denied":
+            fail("the sign-in was declined in the browser — nothing was changed")
+        if err == "expired_token":
+            fail("the code expired before the sign-in finished (they last ~15 minutes) — a fresh code is needed", "1")
+        if err == "bad_verification_code":
+            fail("the provider didn't recognise this sign-in attempt — a fresh code is needed", "1")
+        if err == "invalid_client" and "AADSTS7000218" in desc:
+            # The number-one Microsoft BYO-app mistake: the toggle defaults to No.
+            fail("the app registration doesn't allow public client flows — in the Entra portal open "
+                 "your app → Authentication → Advanced settings → set 'Allow public client flows' to "
+                 "Yes, save, then re-run")
+        fail(f"sign-in failed: {clean_text(err or f'HTTP {status}', 60)}{' — ' + desc if desc else ''}")
+    fail("the code expired before the sign-in finished (they last ~15 minutes) — a fresh code is needed", "1")
 
 
 # ───────────────────────── smoke ─────────────────────────
@@ -625,15 +825,19 @@ def cmd_apply():
         if isinstance(existing, dict) and existing.get("scheme") not in (None, "oauth2"):
             sys.stderr.write(f"connect: replacing the existing {existing.get('scheme')} entry for {h}\n")
         labels = ", ".join(f"{p['services'][s].get('label', s)} ({tier_label(p, s, tier_map[s], bare=True)})" for s in ss)
-        hosts[h] = {
+        entry = {
             "scheme": "oauth2",
             "tokenUrl": p["tokenUrl"],
             "clientIdKey": p["clientIdKey"],
-            "clientSecretKey": p["clientSecretKey"],
             "refreshTokenKey": p["refreshTokenKey"],
             "provider": slug,
             "note": f"{p.get('label', slug)}: {labels} — set up via 'yodacode connect {slug}'"[:200],
         }
+        # Public clients have no secret; the broker omits client_secret for
+        # entries without a clientSecretKey.
+        if p.get("clientSecretKey"):
+            entry["clientSecretKey"] = p["clientSecretKey"]
+        hosts[h] = entry
     os.makedirs(os.path.dirname(AUTH_HOSTS), exist_ok=True)
     tmp = AUTH_HOSTS + ".tmp"
     with open(tmp, "w") as f:
@@ -651,7 +855,10 @@ def cmd_apply():
         "services": tier_map,
         "scopes": [s for s in env.get("CN_GRANTED_SCOPES", "").split() if s][:40],
         "mintedAt": int(time.time()),
-        "published": env.get("CN_PUBLISHED", "") == "1",
+        # "published" means "not subject to a Testing-status expiry footgun".
+        # Providers without that concept record True so doctor never suggests
+        # a publish step that doesn't exist for them.
+        "published": (env.get("CN_PUBLISHED", "") == "1") if p.get("publishCheck") else True,
     }
     tmp = GRANTS_FILE + ".tmp"
     with open(tmp, "w") as f:
@@ -712,6 +919,10 @@ def main():
         cmd_auth_url()
     elif cmd == "exchange":
         cmd_exchange()
+    elif cmd == "device-start":
+        cmd_device_start()
+    elif cmd == "device-poll":
+        cmd_device_poll()
     elif cmd == "smoke":
         cmd_smoke()
     elif cmd == "apply":

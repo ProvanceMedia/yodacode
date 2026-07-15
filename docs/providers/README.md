@@ -31,10 +31,21 @@ pasteable API keys. Guides per provider:
 
 ## Adding a new provider to the catalog
 
-A provider entry needs: `authUrl`, `tokenUrl`, the vault key names (`clientSecretKey`
-only if the provider issues a secret — public clients omit it and the broker omits
-`client_secret` from refresh calls), services with hosts + `scopeTiers`, and (ideally)
-a cheap read-only `testPath` per service. Notes:
+A provider entry needs: `tokenUrl`, the vault key names (`clientSecretKey` only if the
+provider issues a secret — public clients omit it and the broker omits `client_secret`
+from refresh calls), services with hosts + `scopeTiers`, and (ideally) a cheap
+read-only `testPath` per service. The sign-in flow is the catalog's choice:
+
+- `flow: "auth-code"` (default) — needs `authUrl`; the wizard prints a consent link
+  (state + PKCE) and the user pastes the dead loopback redirect back. Optional
+  `signInNotes` lines show provider-specific guidance during the sign-in, and
+  `publishCheck: true` enables the consent-screen-publish interrogation (Google's
+  Testing-status footgun).
+- `flow: "device-code"` — needs `deviceCodeUrl`; the wizard shows a short code to
+  enter at the provider's verification URL and polls until approved. No redirect
+  URI, nothing to paste.
+
+Notes:
 
 1. **Rotating refresh tokens are handled — if the old token survives rotation.**
    Providers that replace the refresh token on every refresh but leave the previous
@@ -46,11 +57,8 @@ a cheap read-only `testPath` per service. Notes:
    wins. Providers that REVOKE the old token the moment it is used (e.g. Strava)
    remain unsupported: one crash or failed write between refresh and persist and the
    chain is unrecoverable.
-2. **The sign-in must work from a headless server** — a loopback-redirect paste-back
-   flow (Google) or a device-code flow. Note: the `yodacode connect` wizard currently
-   implements only the paste-back flow with a client secret. The broker itself already
-   accepts public-client (secret-less) entries and rotating tokens, but a device-code
-   provider needs a hand-written `auth-hosts.json` entry and a manually minted refresh
-   token until the wizard learns that flow.
+2. **The sign-in must work from a headless server** — the wizard supports the
+   loopback-redirect paste-back flow (Google) and the device-code flow (Microsoft
+   et al); pick whichever the provider treats as first-class for CLIs.
 
 PRs welcome — copy the `google` entry's shape.

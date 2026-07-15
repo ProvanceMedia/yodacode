@@ -344,6 +344,11 @@
     "clientSecretKey": "GOOGLE_OAUTH_CLIENT_SECRET",
     "refreshTokenKey": "GOOGLE_REFRESH_TOKEN",
     "clientIdPattern": "\\.apps\\.googleusercontent\\.com$",
+    "publishCheck": true,
+    "signInNotes": [
+      "Google may warn \"Google hasn't verified this app\" — that's YOUR app. Click Advanced, then \"Go to ... (unsafe)\", then approve the access."
+    ],
+    "noRefreshHint": "Google returned no refresh token. Revoke the app's access at https://myaccount.google.com/permissions and run the sign-in again",
     "authParams": {
       "access_type": "offline",
       "prompt": "consent"

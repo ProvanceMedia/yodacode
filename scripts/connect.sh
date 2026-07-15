@@ -10,12 +10,14 @@
 #      catalog knows the provider's endpoints, scopes and vault keys.
 #   3. `yodacode connect <provider> --renew` — redo an expired sign-in (~2 min).
 #
-# The consent step runs in the browser on your LAPTOP; this wizard prints the
-# link and you paste Google's redirect back here. The exchange happens on the
-# server (scripts/connect-lib.py) and the resulting refresh token is written
-# only to .env — the broker's vault. The agent never sees it. Everything an
-# agent-written pending request proposes is validated against the catalog:
-# it can name a provider + services, never a scope or an endpoint.
+# The consent step runs in the browser on your LAPTOP. Depending on the
+# provider's catalog "flow" this is either auth-code (print a link, paste the
+# dead redirect back) or device-code (type a short code at the provider's
+# verification page; the wizard polls until you approve). The exchange happens
+# on the server (scripts/connect-lib.py) and the resulting refresh token is
+# written only to .env — the broker's vault. The agent never sees it.
+# Everything an agent-written pending request proposes is validated against
+# the catalog: it can name a provider + services, never a scope or an endpoint.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source scripts/common.sh
@@ -123,7 +125,7 @@ while true; do w="CN_WARN_$i"; [[ -n "${!w:-}" ]] || break; warn "${!w}"; i=$((i
 title "Connect $CN_PROVIDER_LABEL"
 echo -e "  A one-time browser sign-in on your ${B}laptop${X}; the resulting token is stored"
 echo    "  in the broker vault. $BOT_NAME never sees it — it calls $CN_PROVIDER_LABEL through the broker."
-[[ -z "$CN_CLIENT_EXISTS" ]] && echo -e "  ${D}First time: ~10 minutes (Google Cloud setup). After that: seconds.${X}"
+[[ -z "$CN_CLIENT_EXISTS" ]] && echo -e "  ${D}First time: ~10 minutes (one-time $CN_PROVIDER_LABEL client setup). After that: seconds.${X}"
 
 # ── service selection ─────────────────────────────────────────────────────────
 # One provider sign-in covers N services with ONE refresh token. Installed-app
@@ -208,7 +210,8 @@ done
 # consent URL (the quotes would be urlencoded into the client_id).
 unquote() { local v="$1"; [[ ${#v} -ge 2 && "${v:0:1}" == "${v: -1}" && ( "${v:0:1}" == '"' || "${v:0:1}" == "'" ) ]] && v="${v:1:${#v}-2}"; printf '%s' "$v"; }
 CN_CLIENT_ID="$(unquote "$(env_get "$CN_CLIENT_ID_KEY")")"
-CN_CLIENT_SECRET="$(unquote "$(env_get "$CN_CLIENT_SECRET_KEY")")"
+CN_CLIENT_SECRET=""
+[[ -n "$CN_CLIENT_SECRET_KEY" ]] && CN_CLIENT_SECRET="$(unquote "$(env_get "$CN_CLIENT_SECRET_KEY")")"
 NEW_CLIENT=""
 if [[ -n "$CN_CLIENT_EXISTS" ]]; then
   if [[ "$CN_RENEW" == 1 ]]; then
@@ -218,26 +221,36 @@ if [[ -n "$CN_CLIENT_EXISTS" ]]; then
     [[ "${a,,}" =~ ^n ]] && CN_CLIENT_ID="" && CN_CLIENT_SECRET=""
   fi
 fi
-if [[ -z "$CN_CLIENT_ID" || -z "$CN_CLIENT_SECRET" ]]; then
+# A public client (no clientSecretKey in the catalog) needs only the client ID.
+if [[ -z "$CN_CLIENT_ID" || ( -n "$CN_CLIENT_SECRET_KEY" && -z "$CN_CLIENT_SECRET" ) ]]; then
   NEW_CLIENT=1
   echo ""
-  echo -e "  ${B}One-time Google Cloud setup${X} — open these on your laptop (full guide: ${D}$CN_SETUP_GUIDE${X}):"
+  echo -e "  ${B}One-time $CN_PROVIDER_LABEL client setup${X} — open these on your laptop (full guide: ${D}$CN_SETUP_GUIDE${X}):"
   echo ""
   for (( j=1; j<=CN_SETUP_STEP_COUNT; j++ )); do
     st="CN_SETUP_STEP_${j}_TEXT"; su="CN_SETUP_STEP_${j}_URL"
     echo -e "    $j. ${!st}"
     [[ -n "${!su}" ]] && echo -e "       ${B}${!su}${X}"
   done
-  echo ""
-  echo -e "    Enable these APIs (one click each):"
+  ANY_ENABLE=""
   for (( j=1; j<=CN_SVC_COUNT; j++ )); do
-    sv="CN_SVC_${j}_SELECTED"; [[ -n "${!sv}" ]] || continue
-    lb="CN_SVC_${j}_LABEL"; eu="CN_SVC_${j}_ENABLE_URL"
-    [[ -n "${!eu}" ]] && echo -e "      • ${!lb}: ${B}${!eu}${X}"
+    sv="CN_SVC_${j}_SELECTED"; eu="CN_SVC_${j}_ENABLE_URL"
+    [[ -n "${!sv}" && -n "${!eu}" ]] && { ANY_ENABLE=1; break; }
   done
+  if [[ -n "$ANY_ENABLE" ]]; then
+    echo ""
+    echo -e "    Enable these APIs (one click each):"
+    for (( j=1; j<=CN_SVC_COUNT; j++ )); do
+      sv="CN_SVC_${j}_SELECTED"; [[ -n "${!sv}" ]] || continue
+      lb="CN_SVC_${j}_LABEL"; eu="CN_SVC_${j}_ENABLE_URL"
+      [[ -n "${!eu}" ]] && echo -e "      • ${!lb}: ${B}${!eu}${X}"
+    done
+  fi
   echo ""
-  warn "Don't skip 'Publish app': in Testing status Google expires the sign-in every 7 days."
-  echo ""
+  if [[ "$CN_PUBLISH_CHECK" == 1 ]]; then
+    warn "Don't skip 'Publish app': in Testing status Google expires the sign-in every 7 days."
+    echo ""
+  fi
   CN_CLIENT_ID=""
   for t in 1 2 3; do
     read -r -p "  Paste the Client ID: " CN_CLIENT_ID; CN_CLIENT_ID="$(echo "$CN_CLIENT_ID" | tr -d '[:space:]')"
@@ -247,35 +260,71 @@ if [[ -z "$CN_CLIENT_ID" || -z "$CN_CLIENT_SECRET" ]]; then
     else break; fi
   done
   [[ -n "$CN_CLIENT_ID" ]] || { fail "No client ID — aborted, nothing was changed."; exit 1; }
-  read -r -s -p "  Paste the Client secret (hidden): " CN_CLIENT_SECRET; echo ""
-  CN_CLIENT_SECRET="$(printf '%s' "$CN_CLIENT_SECRET" | tr -d '[:space:]')"
-  [[ -n "$CN_CLIENT_SECRET" ]] || { fail "No client secret — aborted, nothing was changed."; exit 1; }
+  if [[ -n "$CN_CLIENT_SECRET_KEY" ]]; then
+    read -r -s -p "  Paste the Client secret (hidden): " CN_CLIENT_SECRET; echo ""
+    CN_CLIENT_SECRET="$(printf '%s' "$CN_CLIENT_SECRET" | tr -d '[:space:]')"
+    [[ -n "$CN_CLIENT_SECRET" ]] || { fail "No client secret — aborted, nothing was changed."; exit 1; }
+  fi
 fi
 
 # The 7-day footgun: an "External" app left in Testing status gets its refresh
 # tokens killed weekly. We can't verify the console state programmatically —
 # the honest best is to ask, warn hard, and record the answer for doctor.
 # Once recorded as published (and the same client is being reused), don't
-# re-interrogate on every renewal — publishing doesn't un-happen.
-echo ""
-if [[ "$CN_GRANT_PUBLISHED" == 1 && -z "$NEW_CLIENT" ]]; then
-  CN_PUBLISHED=1
-  note "Consent screen recorded as published to 'In production' — skipping that check."
-elif a="$(ask "Is the app's consent screen published to 'In production' (not Testing)? [y/N]" 'n')" \
-     && [[ "${a,,}" =~ ^y ]]; then CN_PUBLISHED=1
-else
-  CN_PUBLISHED=0
-  warn "In Testing status this sign-in will STOP WORKING after 7 days (Google policy)."
-  note "Fix now (1 min): open the Audience page → 'Publish app'. Unverified + In production"
-  note "is fine for personal use — you'll just click through a warning during sign-in."
-  a="$(ask 'Continue anyway? [y/N]' 'n')"
-  [[ "${a,,}" =~ ^y ]] || { note "Aborted — publish the app, then re-run 'yodacode connect'."; exit 0; }
+# re-interrogate on every renewal — publishing doesn't un-happen. Providers
+# without a Testing-status concept skip this entirely (catalog publishCheck).
+if [[ "$CN_PUBLISH_CHECK" == 1 ]]; then
+  echo ""
+  if [[ "$CN_GRANT_PUBLISHED" == 1 && -z "$NEW_CLIENT" ]]; then
+    CN_PUBLISHED=1
+    note "Consent screen recorded as published to 'In production' — skipping that check."
+  elif a="$(ask "Is the app's consent screen published to 'In production' (not Testing)? [y/N]" 'n')" \
+       && [[ "${a,,}" =~ ^y ]]; then CN_PUBLISHED=1
+  else
+    CN_PUBLISHED=0
+    warn "In Testing status this sign-in will STOP WORKING after 7 days (Google policy)."
+    note "Fix now (1 min): open the Audience page → 'Publish app'. Unverified + In production"
+    note "is fine for personal use — you'll just click through a warning during sign-in."
+    a="$(ask 'Continue anyway? [y/N]' 'n')"
+    [[ "${a,,}" =~ ^y ]] || { note "Aborted — publish the app, then re-run 'yodacode connect'."; exit 0; }
+  fi
 fi
 
-# ── consent: print URL → laptop browser → paste the redirect back ────────────
+# ── consent: device-code (enter a short code) or auth-code (paste-back) ──────
 [[ -n "$CN_GRANT_ACCOUNT" ]] && CN_LOGIN_HINT="$CN_GRANT_ACCOUNT"
 export CN_PROVIDER CN_SERVICES CN_TIERS CN_CLIENT_ID CN_CLIENT_SECRET CN_LOGIN_HINT
 ATTEMPTS=0
+if [[ "$CN_FLOW" == "device-code" ]]; then
+  # No redirect and nothing to paste: the provider hands out a short code the
+  # user types at a fixed verification URL on any device; we poll until the
+  # sign-in completes (or the code expires, ~15 min).
+  while true; do
+    CN_OK=""; CN_ERROR=""; CN_RETRY_URL=""; CN_RETRY_PASTE=""
+    rc=0; DSVARS="$(python3 "$LIB" device-start)" || rc=$?
+    eval "$DSVARS"
+    [[ "$rc" == 0 && -n "${CN_OK:-}" ]] || { fail "${CN_ERROR:-could not start the sign-in}"; exit 1; }
+    export CN_DEVICE_CODE CN_INTERVAL CN_EXPIRES_IN
+    mins=$(( (CN_EXPIRES_IN + 59) / 60 ))
+    echo ""
+    echo -e "  ${B}On your laptop (or phone), open:${X}  $CN_VERIFICATION_URI"
+    echo ""
+    echo -e "  and enter this code:  ${B}$CN_USER_CODE${X}"
+    echo ""
+    echo -e "  Access requested: ${D}$CN_SCOPE_SUMMARY${X}"
+    echo -e "  ${D}Sign in and approve. The code is valid for ~$mins minutes.${X}"
+    echo ""
+    note "Waiting for you to finish the sign-in in the browser… (Ctrl-C aborts; nothing is stored yet)"
+    CN_OK=""; CN_ERROR=""; CN_RETRY_URL=""; CN_RETRY_PASTE=""
+    rc=0; DPVARS="$(python3 "$LIB" device-poll)" || rc=$?
+    eval "$DPVARS"
+    [[ "$rc" == 0 && -n "${CN_OK:-}" ]] && break
+    fail "${CN_ERROR:-sign-in failed}"
+    ATTEMPTS=$((ATTEMPTS+1))
+    (( ATTEMPTS >= 3 )) && { fail "Giving up after 3 attempts — nothing was changed. Re-run 'yodacode connect'."; exit 1; }
+    [[ "${CN_RETRY_URL:-}" == 1 ]] || exit 1
+    note "Requesting a fresh code…"
+  done
+else
 while true; do
   if ! URLVARS="$(python3 "$LIB" auth-url)"; then exit 1; fi
   eval "$URLVARS"
@@ -287,10 +336,16 @@ while true; do
   echo ""
   echo -e "  Access requested: ${D}$CN_SCOPE_SUMMARY${X}"
   echo ""
-  echo    "    1. Sign in and pick the account to connect."
-  echo -e "    2. Google may warn ${B}\"Google hasn't verified this app\"${X} — that's YOUR app."
-  echo -e "       Click ${B}Advanced${X} → ${B}Go to … (unsafe)${X}, then approve the access."
-  echo -e "    3. The final page will FAIL to load (${B}\"This site can't be reached\"${X}, 127.0.0.1)."
+  step=1
+  echo    "    $step. Sign in and pick the account to connect."
+  # Provider-specific guidance (e.g. Google's unverified-app warning) comes
+  # from the catalog's signInNotes — nothing Google-shaped lives here.
+  for (( n=1; n<=CN_SIGNIN_NOTE_COUNT; n++ )); do
+    sn="CN_SIGNIN_NOTE_$n"; step=$((step+1))
+    echo -e "    $step. ${!sn}"
+  done
+  step=$((step+1))
+  echo -e "    $step. The final page will FAIL to load (${B}\"This site can't be reached\"${X})."
   echo -e "       ${B}That is expected.${X} Copy the ENTIRE URL from the address bar and paste it here."
   echo ""
   # Visible prompt on purpose: users need to see a mangled paste to fix it, and
@@ -319,6 +374,7 @@ while true; do
     exit 1
   fi
 done
+fi
 
 # ── account guard: this token replaces the account for ALL provider hosts ────
 # Fail CLOSED when the identity lookup came back empty: with a prior account
@@ -371,7 +427,10 @@ elif [[ "$ANY_FAIL" == 1 ]]; then
 fi
 
 # ── store: vault keys + auth-hosts + grant metadata ───────────────────────────
-[[ -n "$NEW_CLIENT" ]] && { set_env "$CN_CLIENT_ID_KEY" "$CN_CLIENT_ID"; set_env "$CN_CLIENT_SECRET_KEY" "$CN_CLIENT_SECRET"; }
+if [[ -n "$NEW_CLIENT" ]]; then
+  set_env "$CN_CLIENT_ID_KEY" "$CN_CLIENT_ID"
+  [[ -n "$CN_CLIENT_SECRET_KEY" ]] && set_env "$CN_CLIENT_SECRET_KEY" "$CN_CLIENT_SECRET"
+fi
 set_env "$CN_REFRESH_TOKEN_KEY" "$CN_REFRESH_TOKEN"
 export CN_ACCOUNT CN_GRANTED_SCOPES CN_PUBLISHED
 python3 "$LIB" apply || { fail "Could not update broker/auth-hosts.json"; exit 1; }
