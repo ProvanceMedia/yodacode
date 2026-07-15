@@ -123,9 +123,8 @@ directly (`yodacode addkey github`), and
 Calendar, OneDrive…): these use a browser sign-in instead of a pasteable key — run
 `yodacode connect google` / `yodacode connect microsoft` (or just ask the bot: *"connect my
 gmail"*, then run `yodacode connect`). The wizard walks you through creating your own OAuth
-client (one-time — your data stays strictly between your server and the provider), then either
-prints a sign-in link to open on your laptop (Google) or shows a short code to type at the
-provider's verification page (Microsoft), and verifies each service with a live call before
+client (one-time — your data stays strictly between your server and the provider), then prints
+a sign-in link to open on your laptop, and verifies each service with a live call before
 storing anything. Tokens live in the broker vault; the agent never sees them. Renewals
 (`--renew`) take ~2 minutes, and `yodacode doctor` diagnoses expired sign-ins. Details:
 [docs/providers/](docs/providers/).
@@ -177,7 +176,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 | Feature | Description |
 |---|---|
 | **De-rooted by default** | Keys live in a separate broker container; the agent never sees them. |
-| **Google / Microsoft 365 sign-ins** | Guided `yodacode connect` wizard: bring-your-own OAuth client, browser consent from your laptop (paste-back or device code), tokens broker-held, one-command renewal. See [docs/providers/](docs/providers/). |
+| **Google / Microsoft 365 sign-ins** | Guided `yodacode connect` wizard: bring-your-own OAuth client, browser consent from your laptop, tokens broker-held, one-command renewal. See [docs/providers/](docs/providers/). |
 | **Live streaming** | Placeholder message updates in real time as Claude works. |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging). |
 | **Memory system** | Proactive memory with 4 typed categories, a daily consolidation cron, and FTS5 search. See [Memory search](#memory-search). |

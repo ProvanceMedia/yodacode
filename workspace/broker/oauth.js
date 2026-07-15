@@ -65,8 +65,9 @@ export async function getAccessToken(d) {
   }
 
   const clientId = getSecret(d.clientIdKey);
-  // Public clients (Microsoft device-code apps et al) have no secret at all: the host
-  // entry declares no clientSecretKey and the refresh request must omit client_secret.
+  // Public clients (native/desktop apps — Microsoft's Entra registrations et al) have
+  // no secret at all: the host entry declares no clientSecretKey, and the refresh
+  // request must omit client_secret — some providers reject one outright if sent.
   const clientSecret = d.clientSecretKey ? getSecret(d.clientSecretKey) : undefined;
   const vaultRefreshToken = getSecret(d.refreshTokenKey);
   // For rotating providers the live token is the newest persisted descendant of the

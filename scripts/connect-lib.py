@@ -71,10 +71,13 @@ URL_RE = re.compile(r"^(?:https://|http://(?:127\.0\.0\.1|localhost)(?::\d{1,5})
 # verification_uri): strictly https — no loopback exemption for data an
 # external endpoint controls.
 HTTPS_URL_RE = re.compile(r"^https://[A-Za-z0-9./_#?=&%~+:-]{1,300}$")
-# A pasted bare authorization code (Google's look like "4/0Adeu5B…" and run
-# 60+ chars). ≥16 chars so a stray word doesn't get sent to the token endpoint
-# as a "code"; no scheme, no whitespace.
-CODE_RE = re.compile(r"^[A-Za-z0-9._/-]{16,512}$")
+# A pasted bare authorization code — the fallback for browsers that truncate the
+# address bar. Length varies wildly by provider: Google's run ~70 chars, Entra's
+# routinely exceed 1200, so the ceiling is generous (4096 = the tty's canonical-mode
+# line limit; a longer paste can't reach us anyway). The lower bound is what does the
+# real work — it stops a stray word being posted to the token endpoint as a "code".
+# Length is not a trust boundary here: the code is state- and PKCE-bound regardless.
+CODE_RE = re.compile(r"^[A-Za-z0-9._/-]{16,4096}$")
 # C0 + C1 control bytes and DEL — same rationale as addkey-lib: agent-sourced
 # strings reach the operator's terminal via echo -e; strip anything that could
 # redraw the consent screen. Backslashes dropped too (echo -e re-expands them).
@@ -621,17 +624,26 @@ def cmd_exchange():
     if status != 200 or not j.get("access_token"):
         err = str(j.get("error", f"HTTP {status}"))
         desc = clean_text(j.get("error_description", ""), 200)
+        # Provider-neutral defaults. A catalog entry sharpens any of these via
+        # exchangeHints (code lifetimes and client types differ per provider);
+        # the retry semantics stay ours, only the wording is overridable.
         hints = {
-            "invalid_grant": ("the code expired or was already used (they last ~10 minutes) — "
-                              "a fresh sign-in link is needed", "1"),
-            "redirect_uri_mismatch": ("your OAuth client is the wrong type — it must be application type "
-                                      "'Desktop app'. Create a new Desktop-app client and re-run", ""),
-            "invalid_client": ("the client ID or secret is wrong — re-copy both from the provider's "
+            "invalid_grant": ("the sign-in code expired or was already used — a fresh sign-in link is needed", "1"),
+            "redirect_uri_mismatch": ("this OAuth client's redirect URI doesn't match the one we asked for — "
+                                      "check the setup guide for the right client type and re-run", ""),
+            "invalid_client": ("the client credentials were rejected — re-copy them from the provider's "
                                "console and re-run", ""),
             "network": ("couldn't reach the token endpoint — check the server's network and re-try", "1"),
         }
+        for k, v in (p.get("exchangeHints") or {}).items():
+            if k in hints:
+                hints[k] = (clean_text(v, 300), hints[k][1])
         hint, retry = hints.get(err, (f"token exchange failed: {clean_text(err, 60)}", ""))
-        emit({"CN_OK": "", "CN_ERROR": f"{hint}{' — ' + desc if desc and err not in hints else ''}",
+        # Always append the provider's description. One OAuth error code covers many
+        # real causes (Entra hides a dozen AADSTS codes behind invalid_client alone),
+        # so our hint is the likely cause, not the only one — and the setup guides are
+        # indexed by the AADSTS code, which the operator can only look up if we show it.
+        emit({"CN_OK": "", "CN_ERROR": f"{hint}{' — ' + desc if desc else ''}",
               "CN_RETRY_URL": retry, "CN_RETRY_PASTE": ""})
         sys.exit(2)
 
@@ -667,7 +679,7 @@ def cmd_device_start():
             "network": "couldn't reach the sign-in endpoint — check the server's network and re-try",
         }
         hint = hints.get(err, f"couldn't start the sign-in: {clean_text(err, 60)}")
-        emit({"CN_OK": "", "CN_ERROR": f"{hint}{' — ' + desc if desc and err not in hints else ''}",
+        emit({"CN_OK": "", "CN_ERROR": f"{hint}{' — ' + desc if desc else ''}",
               "CN_RETRY_URL": "", "CN_RETRY_PASTE": ""})
         sys.exit(2)
 

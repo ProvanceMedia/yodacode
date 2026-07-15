@@ -349,6 +349,11 @@
       "Google may warn \"Google hasn't verified this app\" — that's YOUR app. Click Advanced, then \"Go to ... (unsafe)\", then approve the access."
     ],
     "noRefreshHint": "Google returned no refresh token. Revoke the app's access at https://myaccount.google.com/permissions and run the sign-in again",
+    "exchangeHints": {
+      "invalid_grant": "the code expired or was already used (they last ~10 minutes) — a fresh sign-in link is needed",
+      "redirect_uri_mismatch": "your OAuth client is the wrong type — it must be application type 'Desktop app'. Create a new Desktop-app client and re-run",
+      "invalid_client": "the client ID or secret is wrong — re-copy both from the Google Cloud console and re-run"
+    },
     "authParams": {
       "access_type": "offline",
       "prompt": "consent"
@@ -679,17 +684,27 @@
       "entra",
       "outlook.com"
     ],
-    "flow": "device-code",
-    "deviceCodeUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode",
+    "flow": "auth-code",
+    "authUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
     "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "redirectUri": "http://localhost:8765",
     "clientIdKey": "MICROSOFT_OAUTH_CLIENT_ID",
     "refreshTokenKey": "MICROSOFT_REFRESH_TOKEN",
     "clientIdPattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "authParams": { "response_mode": "query", "prompt": "select_account" },
     "identityScopes": ["openid", "email", "offline_access"],
     "identityUrl": "https://graph.microsoft.com/oidc/userinfo",
     "identityField": "email",
     "setupGuide": "docs/providers/microsoft.md",
     "noRefreshHint": "Microsoft returned no refresh token — the 'Maintain access' (offline_access) permission was denied. Re-run the sign-in and approve ALL requested permissions",
+    "exchangeHints": {
+      "invalid_grant": "Microsoft sign-in codes last only about 60 seconds and work once — this one expired or was already used. A fresh link is coming: have this terminal ready and paste immediately after you approve",
+      "invalid_client": "most likely your redirect URI is registered under the wrong platform — in the Entra portal open your app -> Authentication, delete the 'Web' or 'Single-page application' entry and re-add http://localhost under 'Mobile and desktop applications', then re-run"
+    },
+    "signInNotes": [
+      "Microsoft's sign-in code expires about 60 SECONDS after you approve — keep this terminal open beside the browser and paste as soon as you're done. (If it expires, the wizard just prints a fresh link.)",
+      "If the browser shows an error INSTEAD of redirecting (AADSTS50011 / 'redirect URI does not match'), your app registration is missing the redirect URI: Entra portal -> your app -> Authentication -> Add a platform -> Mobile and desktop applications -> http://localhost -> Save, then re-run. Upgrading from an older device-code sign-in? Also set 'Allow public client flows' back to No."
+    ],
     "setupSteps": [
       {
         "text": "Personal account (outlook.com/hotmail)? Create a free Azure account first — it provisions the tenant that app registrations need. Work/school accounts usually already have one",
@@ -706,7 +721,10 @@
         "text": "Copy the Application (client) ID from the app's Overview page — the wizard asks for it below (there is NO client secret to create)"
       },
       {
-        "text": "Authentication → Advanced settings → set 'Allow public client flows' to YES → Save. Skipping this is the #1 mistake — the sign-in fails without it"
+        "text": "Authentication → Add a platform → 'Mobile and desktop applications' → Custom redirect URI: http://localhost → Save. Picking 'Web' or 'Single-page application' instead is the #1 mistake and fails only at the very last step"
+      },
+      {
+        "text": "Leave 'Allow public client flows' set to No (the default) — it isn't needed here, and leaving it off stops anyone signing this app in with the device-code flow that Microsoft now blocks by default"
       },
       {
         "text": "Work/school tenant only: API permissions → add the delegated Microsoft Graph permissions → 'Grant admin consent' (in your own tenant that's one click; in an employer's, ask IT). Personal accounts skip this"

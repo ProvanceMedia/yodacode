@@ -59,7 +59,10 @@ Notes:
    remain unsupported: one crash or failed write between refresh and persist and the
    chain is unrecoverable.
 2. **The sign-in must work from a headless server** — the wizard supports the
-   loopback-redirect paste-back flow (Google) and the device-code flow (Microsoft
-   et al); pick whichever the provider treats as first-class for CLIs.
+   loopback-redirect paste-back flow (`auth-code`, used by Google and Microsoft) and
+   the device-code flow. Prefer `auth-code` unless the provider treats device code as
+   first-class: Microsoft, for one, is blocking device code by default in managed
+   tenants, and device-code sessions there are tainted permanently. Check whether the
+   provider is deprecating it before choosing.
 
 PRs welcome — copy the `google` entry's shape.

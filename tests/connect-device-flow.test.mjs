@@ -116,6 +116,25 @@ const catalog = {
       },
     },
   },
+  // same shape as testac, but sharpens the exchange wording via the catalog
+  testhint: {
+    kind: 'oauth-provider',
+    label: 'TestHint',
+    aliases: [],
+    authUrl: 'https://auth.testhint.example/authorize',
+    tokenUrl: `${base}/token`,
+    clientIdKey: 'TESTHINT_OAUTH_CLIENT_ID',
+    refreshTokenKey: 'TESTHINT_REFRESH_TOKEN',
+    identityScopes: [],
+    exchangeHints: { invalid_grant: 'TestHint codes die in 42 seconds — get a fresh link' },
+    services: {
+      thing: {
+        label: 'Thing',
+        hosts: ['api.testhint.example'],
+        scopeTiers: [{ key: 'full', label: 'Full', scopes: ['thing.rw'], default: true }],
+      },
+    },
+  },
 };
 fs.writeFileSync(catalogFile, JSON.stringify(catalog, null, 2));
 
@@ -347,4 +366,49 @@ test('exchange: public client without a secret key omits client_secret', async (
   const req = requests[requests.length - 1];
   assert.equal(req.params.grant_type, 'authorization_code');
   assert.ok(!('client_secret' in req.params), 'no secret sent for a public client');
+});
+
+test('exchange hints: catalog override sharpens the wording, no override stays provider-neutral', async () => {
+  const paste = 'http://127.0.0.1:8765/?code=authcode-1234567890&state=state-1';
+  const base_ = { CN_CLIENT_ID: 'c', CN_PKCE_VERIFIER: 'v'.repeat(43), CN_STATE: 'state-1', CN_PASTE: paste };
+  handler = () => [400, { error: 'invalid_grant' }];
+
+  // testac declares no exchangeHints → the neutral default, with no Google-isms
+  const a = await runLib('exchange', { ...base_, CN_PROVIDER: 'testac' });
+  const av = parseVars(a.out);
+  assert.match(av.CN_ERROR, /sign-in code expired or was already used/);
+  assert.doesNotMatch(av.CN_ERROR, /10 minutes|Desktop app/, 'no provider-specific copy leaks into the default');
+  assert.equal(av.CN_RETRY_URL, '1', 'retry semantics preserved');
+
+  // testhint overrides it → its own wording wins, retry semantics unchanged
+  const b = await runLib('exchange', { ...base_, CN_PROVIDER: 'testhint' });
+  const bv = parseVars(b.out);
+  assert.match(bv.CN_ERROR, /TestHint codes die in 42 seconds/);
+  assert.equal(bv.CN_RETRY_URL, '1', 'override does not disturb the retry flag');
+});
+
+test('a hint never hides the provider error_description (the AADSTS code docs are keyed on)', async () => {
+  // One OAuth code covers many real causes, so the friendly hint is the LIKELY cause —
+  // the operator still needs the provider's own code to look up the actual one.
+  handler = () => [400, { error: 'invalid_grant', error_description: 'AADSTS70008: expired' }];
+  const { out } = await runLib('exchange', {
+    CN_PROVIDER: 'testhint', CN_CLIENT_ID: 'c', CN_PKCE_VERIFIER: 'v'.repeat(43), CN_STATE: 's',
+    CN_PASTE: 'http://127.0.0.1:8765/?code=authcode-1234567890&state=s',
+  });
+  const v = parseVars(out);
+  assert.match(v.CN_ERROR, /TestHint codes die in 42 seconds/, 'friendly hint still leads');
+  assert.match(v.CN_ERROR, /AADSTS70008/, 'and the provider code survives for lookup');
+});
+
+test('a bare pasted code is accepted at Entra length (~1200+ chars), not just Google length', async () => {
+  handler = () => [200, { access_token: 'at', refresh_token: 'rt', expires_in: 3600 }];
+  const longCode = '0.AXsA' + 'a1b2C3d4-_.'.repeat(140); // ~1540 chars, Entra-shaped
+  assert.ok(longCode.length > 1200, 'fixture really is Entra-length');
+  const { code, out } = await runLib('exchange', {
+    CN_PROVIDER: 'testac', CN_CLIENT_ID: 'c', CN_PKCE_VERIFIER: 'v'.repeat(43), CN_STATE: 's',
+    CN_PASTE: longCode, // bare code, not a URL — the truncated-address-bar fallback
+  });
+  assert.equal(code, 0, out);
+  assert.equal(parseVars(out).CN_REFRESH_TOKEN, 'rt');
+  assert.equal(requests[requests.length - 1].params.code, longCode, 'passed through intact');
 });

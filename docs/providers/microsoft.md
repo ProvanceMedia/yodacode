@@ -13,7 +13,8 @@ detail, plus troubleshooting.
 
 - An **Entra ID app registration** (free) configured as a *public client* — there is
   **no client secret at all**, so nothing expires behind your back (Microsoft caps
-  secrets at 24 months; a public client has no such clock).
+  secrets at 24 months; a public client has no such clock). Its one piece of config is
+  a `http://localhost` redirect URI, which is what makes it a public client.
 - The Application (client) ID and one **refresh token** stored in the broker vault.
   The bot itself never sees them; it calls Microsoft Graph through the broker.
 - One sign-in covering every Microsoft service you selected (Mail, Calendar,
@@ -38,13 +39,23 @@ connecting:
    first sign-in.)
 3. **Copy the Application (client) ID** from the app's Overview page — a GUID; the
    wizard asks for it. **Do not create a client secret** — this flow doesn't use one.
-4. **Allow public client flows** — the step people miss: Manage → **Authentication** →
-   Advanced settings → set **"Allow public client flows"** to **Yes** → Save.
+4. **Add the redirect URI** — the step people miss: Manage → **Authentication** →
+   **Add a platform** → **Mobile and desktop applications** → under *Custom redirect
+   URIs* enter `http://localhost` → **Save**.
 
-   > **Why this matters:** without it the sign-in fails with the deeply unhelpful
-   > `AADSTS7000218: The request body must contain … 'client_secret'`. The wizard
-   > maps that error to this toggle, but save yourself the round-trip.
-5. **Work/school tenants only — maybe:** many organizations block user self-consent
+   > **Get the platform right.** Choosing **Web** registers the app as a *confidential*
+   > client, and the sign-in then fails at the very last step — after you've approved
+   > and pasted — with `AADSTS7000218: The request body must contain … 'client_secret'`.
+   > **Single-page application** fails too (`AADSTS9002327`): a SPA redirect may only be
+   > redeemed from a browser, and your server isn't one. It must be *Mobile and desktop
+   > applications*. (The port doesn't matter — Microsoft ignores it when matching
+   > `localhost`, so registering `http://localhost` covers the `http://localhost:8765`
+   > the wizard actually asks for.)
+5. **Leave "Allow public client flows" alone** (Authentication → Advanced settings; it
+   defaults to **No**). It's only needed for flows that send no redirect URI, and
+   leaving it off is a *feature*: it stops this app ever being signed in with the
+   device-code flow that Microsoft now blocks by default (see *Why a browser sign-in*).
+6. **Work/school tenants only — maybe:** many organizations block user self-consent
    for mail-reading and calendar scopes. If the consent screen says approval is
    required: App registrations → your app → **API permissions** → add the delegated
    Microsoft Graph permissions you'll use → **Grant admin consent**. In your own
@@ -53,18 +64,40 @@ connecting:
 
 ## The sign-in itself
 
-No links to copy and no redirect to paste — Microsoft's device-code flow was built for
-headless machines:
+The server has no browser, so the wizard prints a link:
 
-1. The wizard prints a **verification URL** (`microsoft.com/devicelogin`) and a
-   **short code**.
-2. Open the URL on your laptop or phone, type the code, sign in, and approve the
-   requested access. Personal accounts are asked to **sign in a second time** ("to
-   transfer authentication state") — that's documented Microsoft behaviour, not a bug.
-3. The wizard is polling in the background; the moment you approve, it exchanges the
-   grant, shows you **which account** signed in, test-calls each service, and only
-   then stores anything. Codes last ~15 minutes; the wizard mints a fresh one if
-   needed.
+1. **Have the terminal ready first** — see the warning below. Open the link **on your
+   laptop**, pick the account, and approve.
+2. After approving, the browser tries to load `http://localhost:8765/...` and fails
+   with *"This site can't be reached"* — **that is expected** (nothing is listening;
+   that address only exists to carry the code back). Copy the **entire URL from the
+   address bar** and paste it into the wizard.
+
+   > **You have about 60 seconds.** Microsoft sign-in codes expire roughly a minute
+   > after you approve — Google's last ten. The clock starts when you click Accept, not
+   > when the link is printed, so the copy-and-paste itself is comfortable (~10
+   > seconds) *provided you're already sitting at the prompt*. Don't email the link to
+   > yourself, don't open it on your phone, and don't wander off during MFA. If it does
+   > expire you lose nothing: the wizard prints a fresh link and you try again.
+
+The wizard exchanges the code on the server, shows you **which account** signed in,
+test-calls each service, and only then stores anything.
+
+### Why a browser sign-in and not a device code?
+
+Earlier versions used Microsoft's device-code flow (type a short code at
+`microsoft.com/devicelogin`). Microsoft is retiring it for exactly this audience: a
+Microsoft-*managed* Conditional Access policy, **"Block device code flow"**, is
+auto-created in eligible tenants (including Microsoft 365 Business Premium) in
+report-only, then **switched on automatically after ~45 days** unless an admin opts
+out. Their reasoning: *"Device code flow is rarely used by customers, but is
+frequently used by attackers."*
+
+Worse, device-code sessions are *protocol-tracked*, and that state survives token
+refreshes — so when the policy flips, even a long-working connection dies permanently
+(`AADSTS530036`) with no fix but a fresh sign-in. Authorization-code + PKCE is not
+affected, needs no client secret either, and is what every desktop app uses. Hence the
+switch.
 
 ## Choosing services and access levels
 
@@ -83,14 +116,27 @@ headless machines:
 Microsoft refresh tokens die on: **90+ days without use** (any bot activity resets the
 clock — a scheduled `yodacode doctor` run is enough), a **password change or admin
 reset**, **revocation**, and — on work/school tenants — **Conditional Access policies**
-(sign-in frequency limits, or org rules that block the device-code flow outright).
-When that happens:
+(e.g. sign-in frequency limits). When that happens:
 
 - The bot's Microsoft calls fail with *"authorization has expired or been revoked"*
   and it will tell you the fix.
 - Run **`yodacode connect microsoft --renew`** on the server: no Entra steps, just the
-  code-entry sign-in again. ~2 minutes.
+  link-and-paste sign-in again. ~2 minutes.
 - `yodacode doctor` live-checks every connected provider.
+
+**Upgrading from a device-code sign-in?** If your connection predates the switch to the
+browser flow it still works — until your tenant enables the device-code block, at which
+point it dies with `AADSTS530036` and no amount of retrying helps. Two Entra changes fix
+it permanently, because the old registration was built for a flow that needs no redirect:
+
+1. **Add the redirect URI** (setup step 4) — without it the browser shows `AADSTS50011`
+   and never hands back a code.
+2. **Set "Allow public client flows" back to No** (step 5) — the old setup required it
+   to be *Yes*. Turning it off is what stops this registration ever being used with the
+   blocked flow again.
+
+Then run `yodacode connect microsoft --renew`. The new sign-in isn't protocol-tracked,
+so it survives the policy.
 
 A quirk worth knowing (handled automatically): Microsoft **replaces the refresh token
 on every refresh**. The broker persists each replacement in its private `broker-state/`
@@ -100,22 +146,30 @@ volume — nothing for you to manage, but it's why that volume exists.
 
 | Symptom | Cause / fix |
 |---|---|
-| `AADSTS7000218` (mentions `client_secret`/`client_assertion`) | "Allow public client flows" is still **No** — Authentication → Advanced settings → Yes → Save, then re-run. |
+| `AADSTS7000218` (mentions `client_secret`/`client_assertion`) — fails *after* you approve and paste | Your redirect URI is registered under the **Web** platform, so Entra treats the app as confidential. Delete it and re-add `http://localhost` under **Mobile and desktop applications** (step 4). |
+| `AADSTS50011` / *redirect URI mismatch* — fails **in the browser**, nothing to paste | `http://localhost` isn't registered at all. Add the platform per step 4. |
+| `AADSTS9002327` (SPA redirect / cross-origin) | The redirect URI is registered under **Single-page application**; a SPA code can only be redeemed from a browser. Re-add it under **Mobile and desktop applications** (step 4). |
+| *"the sign-in code expired"* | Microsoft codes last ~**60 seconds** from when you approve. The wizard prints a fresh link — this time have the terminal open beside the browser and paste straight away. |
+| `AADSTS530036` (refresh token invalid, auth-flow checks) | An old **device-code** sign-in that your tenant now blocks. Add the redirect URI (step 4), then `yodacode connect microsoft --renew`. |
+| `AADSTS53003` (blocked by Conditional Access) | An org policy blocks this sign-in. If it's the device-code block, the browser flow avoids it; otherwise talk to IT. |
 | `AADSTS50194` (single-tenant app, `/common` not supported) | The app was registered single-tenant. Easiest: re-register with "any org + personal accounts" (step 2). |
 | `AADSTS9002331` (configured for Microsoft Account users only) | The app was registered personal-only; same fix — re-register with the recommended account types. |
-| Consent screen says "Need admin approval" | Your org blocks self-consent for these scopes — see step 5 (admin consent), or ask IT. |
+| Consent screen says "Need admin approval" | Your org blocks self-consent for these scopes — see step 6 (admin consent), or ask IT. |
 | Sign-in works but dies every few days (work account) | A Conditional Access sign-in-frequency policy is forcing re-auth. Renewing works, but the policy wins — talk to IT. |
-| *"the code expired"* | Device codes last ~15 minutes and the wizard was left waiting. It offers a fresh code — approve faster this time. |
+| Signed in as the wrong account | The wizard asks Microsoft for an account picker, but a browser already signed into another Microsoft account can still catch you out. The wizard shows which account it got and asks before storing — say no and re-run. |
 | Bot says it has read-only access but you need more | Re-run `yodacode connect microsoft` and pick the higher tier for that service. |
 
 ## Security notes
 
 - There is **no client secret**: the app is a public client, which is Microsoft's
-  sanctioned shape for device-code apps. The security boundary is the **refresh
-  token**, which lives only in the broker vault (plus its rotated successors in the
-  broker-only `broker-state/` volume; the agent container never sees either).
-- The device code binding the sign-in session is held only in the wizard's process
-  memory and is never shown, logged, or written anywhere.
+  sanctioned shape for desktop/native apps. Entra infers that from the *Mobile and
+  desktop applications* redirect URI, which is why the "Allow public client flows"
+  toggle stays off. The security boundary is the **refresh token**, which lives only in
+  the broker vault (plus its rotated successors in the broker-only `broker-state/`
+  volume; the agent container never sees either).
+- The sign-in link carries a one-time `state` nonce and a **PKCE** challenge bound to
+  that terminal session, both held only in the wizard's process memory — a pasted
+  redirect from anywhere else is rejected, and the code is useless without the verifier.
 - The bot can *request* a Microsoft connection (it writes a small pending file naming
   the provider + services), but the catalog in this repo decides every endpoint and
   scope, and only a human at the server terminal can approve and complete a sign-in.
