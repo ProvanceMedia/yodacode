@@ -104,7 +104,6 @@ async function main() {
                 `${installDir}/workspace`,
                 `${installDir}/logs`,
                 `${installDir}/cron-tasks`,
-                `${installDir}/pollers`,
                 // Let the agent install its own cron systemd units end-to-end:
                 // write .service + .timer files into /etc/systemd/system, then
                 // talk to PID 1 via D-Bus for daemon-reload + enable --now.

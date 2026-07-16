@@ -7,7 +7,6 @@ workspace/.ssh/id_*
 workspace/state/
 workspace/.memory-backups/
 logs/
-pollers/*.json
 
 # Node
 workspace/node_modules/
