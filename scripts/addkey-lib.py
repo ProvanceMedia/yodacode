@@ -298,7 +298,7 @@ def cmd_resolve():
                 desc[field] = cat_v
             else:
                 desc.pop(field, None)
-        for field in ("docsUrl", "keyHint", "testPath"):
+        for field in ("docsUrl", "keyHint", "testPath", "timeoutMs"):
             if cat_entry.get(field):
                 desc[field] = cat_entry[field]
         desc.setdefault("keyName", cat_entry.get("keyName", ""))
@@ -360,6 +360,15 @@ def cmd_resolve():
     if host_already_mapped and existing.get("scheme") != scheme:
         warnings.append(f"changes how {host} sends its key: {clean_text(existing.get('scheme', '?'), 16)} → {scheme}")
 
+    # A slow-endpoint budget from the (trusted) catalog only — never a pending request.
+    timeout_ms = ""
+    try:
+        _t = int(desc.get("timeoutMs"))
+        if _t > 0:
+            timeout_ms = str(_t)
+    except (TypeError, ValueError):
+        pass
+
     out = {
         "AK_OK": "1",
         "AK_SRC": src,
@@ -375,6 +384,7 @@ def cmd_resolve():
         "AK_DOCS_URL": docs_url,
         "AK_KEY_HINT": key_hint,
         "AK_TEST_PATH": test_path,
+        "AK_TIMEOUT_MS": timeout_ms,
         "AK_NOTE": note or service,
         "AK_FROM_CATALOG": "1" if cat_entry else "",
         "AK_KEY_EXISTS": "1" if key_name in env_keys() else "",
@@ -417,6 +427,13 @@ def cmd_apply():
             entry["extraHeaders"] = checked
     if env.get("AK_NOTE"):
         entry["note"] = env["AK_NOTE"][:160]
+    if env.get("AK_TIMEOUT_MS"):
+        try:
+            t = int(env["AK_TIMEOUT_MS"])
+            if t > 0:
+                entry["timeoutMs"] = t  # the broker clamps to [15s, 300s] at read time
+        except ValueError:
+            pass
 
     hosts = load_json(AUTH_HOSTS, {})
     if not isinstance(hosts, dict):

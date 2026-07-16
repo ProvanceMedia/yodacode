@@ -3,7 +3,7 @@
 // timeout so a call can never hang. Secrets are injected inside these handlers,
 // host-side, and never returned to or seen by the agent.
 import { unsealVault, vaultSize, reloadVault, getSecret } from './vault.js';
-import { loadAuthHosts, authHostsCount, authHostsList } from './auth-hosts.js';
+import { loadAuthHosts, authHostsCount, authHostsList, lookupHost, hostTimeoutMs } from './auth-hosts.js';
 import { loadServices, serviceManifest, executeService, hasService } from './services.js';
 import { oauthHealth, resetOauthState } from './oauth.js';
 import { pruneRotatedTokens } from './token-store.js';
@@ -70,7 +70,13 @@ export async function handleMediatedCall(tool, args, hardTimeoutMs) {
   else if (hasService(tool)) work = executeService(tool, args ?? {});
   else work = Promise.resolve({ ok: false, error: `unknown tool: ${tool}` });
 
-  const limit = hardTimeoutMs ?? TOOL_TIMEOUTS[tool] ?? 18_000;
+  // http_call honours a per-host timeoutMs; the outer kill sits just above the fetch
+  // timeout that http-call.js uses (same hostTimeoutMs), so it's a backstop, not the
+  // thing that ends a legitimately slow call. Everything else keeps the tight default.
+  let limit;
+  if (hardTimeoutMs) limit = hardTimeoutMs;
+  else if (tool === 'http_call') limit = hostTimeoutMs(lookupHost(args?.host)) + 3_000; // lookupHost normalises
+  else limit = TOOL_TIMEOUTS[tool] ?? 18_000;
   return Promise.race([
     work,
     new Promise((res) => setTimeout(() => res({ ok: false, error: 'broker timeout' }), limit)),

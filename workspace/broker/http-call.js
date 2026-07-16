@@ -2,7 +2,7 @@
 // The agent names a host + path; the broker looks it up in auth-hosts.json, injects the
 // credential from the vault, and fetches host-side. Adding an API = one line of config;
 // the agent never holds a key and can only reach allowlisted hosts (fail-closed).
-import { lookupHost } from './auth-hosts.js';
+import { lookupHost, hostTimeoutMs } from './auth-hosts.js';
 import { getSecret } from './vault.js';
 import { getAccessToken, invalidateAccessToken } from './oauth.js';
 import { doFetch, ssrfCheck } from './http-fetch.js';
@@ -138,16 +138,19 @@ export async function httpCall(args) {
     }
   }
 
+  // Default 15s; a host entry can set `timeoutMs` for a slow endpoint (image
+  // generation, large uploads). The outer hard-kill (handleMediatedCall) uses the
+  // same figure + a small margin, so the two stay in step.
+  const timeoutMs = hostTimeoutMs(desc);
   const started = Date.now();
-  let res = await doFetch(url, init, 15_000);
+  let res = await doFetch(url, init, timeoutMs);
   // A 401 under a cached OAuth token usually means it expired early or was
   // revoked upstream — invalidate the cache and retry once with a fresh mint.
-  // Budgeted: the broker hard-kills the call at 18s (handleMediatedCall), and
-  // a full fetch+mint+fetch chain could exceed that, so the retry only runs —
-  // and only for as long as — the remaining window allows. A 401 means the
-  // request was rejected before processing, so retrying writes is safe.
+  // Budgeted against the same window as the outer hard-kill, so a full
+  // fetch+mint+fetch chain can't overrun it. A 401 means the request was rejected
+  // before processing, so retrying writes is safe.
   if (!res.ok && desc.scheme === 'oauth2' && /^HTTP 401\b/.test(res.error ?? '')) {
-    const remaining = () => 17_000 - (Date.now() - started);
+    const remaining = () => timeoutMs + 2_000 - (Date.now() - started);
     if (remaining() > 4_000) {
       invalidateAccessToken(desc);
       const mint = await getAccessToken(desc);

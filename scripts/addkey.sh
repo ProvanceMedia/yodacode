@@ -177,7 +177,7 @@ eval "$VARS"
 # the ones that weren't in the pre-declared export list (AK_KEYNAME etc.).
 export AK_SERVICE_LABEL AK_HOST AK_SCHEME AK_SCHEME_DESC AK_KEYNAME \
        AK_HEADER_NAME AK_QUERY_PARAM AK_BASIC_PASSWORD AK_EXTRA_HEADERS \
-       AK_DOCS_URL AK_KEY_HINT AK_TEST_PATH AK_NOTE
+       AK_DOCS_URL AK_KEY_HINT AK_TEST_PATH AK_TIMEOUT_MS AK_NOTE
 
 title "Add an API key — $AK_SERVICE_LABEL"
 echo -e "  Sends to:  ${B}$AK_HOST${X}  ${D}← the only place this key will ever be sent${X}"

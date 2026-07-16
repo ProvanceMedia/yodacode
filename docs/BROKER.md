@@ -69,7 +69,9 @@ can also edit by hand:
 ```
 
 The secret named by `vaultKey` must exist in `.env`. Schemes: `bearer`, `header`, `basic`,
-`query`, `oauth2`. After editing, `docker compose restart broker`. `oauth2` entries
+`query`, `oauth2`. An optional `timeoutMs` per host (default 15000, capped at 300000)
+gives a slow endpoint — image generation, large uploads — a longer request budget while
+every other host stays on the tight 15s/18s leash. After editing, `docker compose restart broker`. `oauth2` entries
 (refresh-token → access-token providers like Google) are normally written by the guided
 sign-in wizard — `yodacode connect`, see `docs/providers/` — which also records grant
 metadata in `workspace/broker/oauth-grants.json`. For richer cases (two-secret

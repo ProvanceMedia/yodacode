@@ -201,7 +201,8 @@
     "keyName": "OPENAI_API_KEY",
     "docsUrl": "https://platform.openai.com/api-keys",
     "keyHint": "platform.openai.com \u2192 log in \u2192 Settings \u2192 API keys \u2192 \"Create new secret key\" (copy the sk-... key immediately; it is shown once)",
-    "testPath": "v1/models"
+    "testPath": "v1/models",
+    "timeoutMs": 120000
   },
   "openweathermap": {
     "label": "OpenWeatherMap",

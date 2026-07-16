@@ -1,11 +1,17 @@
 {
-  "_comment": "Copy to auth-hosts.json and add your own API hosts. One line per host: the broker injects the matching vault secret by host name so the agent calls `broker call http_call '{\"host\":\"...\",\"path\":\"...\"}'` and never sees a key. Scheme is one of: bearer | header | basic | query | oauth2.",
+  "_comment": "Copy to auth-hosts.json and add your own API hosts. One line per host: the broker injects the matching vault secret by host name so the agent calls `broker call http_call '{\"host\":\"...\",\"path\":\"...\"}'` and never sees a key. Scheme is one of: bearer | header | basic | query | oauth2. Optional per-host `timeoutMs` (default 15000, max 300000) gives a genuinely slow endpoint — image generation, large uploads — a longer request budget; every other host stays on the tight default.",
 
   "api.github.com": {
     "scheme": "bearer",
     "vaultKey": "GITHUB_PAT",
     "extraHeaders": { "Accept": "application/vnd.github+json", "User-Agent": "yodacode" },
     "note": "GitHub API — Authorization: Bearer <secret>"
+  },
+  "api.example-slow.com": {
+    "scheme": "bearer",
+    "vaultKey": "EXAMPLE_API_KEY",
+    "timeoutMs": 120000,
+    "note": "Pattern: a slow endpoint (e.g. image generation) that needs longer than the 15s default"
   },
   "api.example-bearer.com": {
     "scheme": "bearer",

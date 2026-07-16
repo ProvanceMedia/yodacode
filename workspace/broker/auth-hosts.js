@@ -32,8 +32,24 @@ export function loadAuthHosts() {
   }
 }
 
+// Normalise the host the same way everywhere (trim + lowercase) so no caller can
+// desync — e.g. a padded "api.example.com\n" must resolve to the same entry (and thus
+// the same timeout) whether it's the URL builder or the outer-timeout resolver asking.
 export function lookupHost(hostname) {
-  return hosts[String(hostname).toLowerCase()];
+  return hosts[String(hostname ?? '').trim().toLowerCase()];
+}
+
+// Per-host request timeout. Everything is on a tight 15s/18s leash by default; a host
+// entry may set `timeoutMs` to give a genuinely slow endpoint (image generation, large
+// uploads) a longer budget. The broker applies it as BOTH the outbound fetch timeout
+// and the outer hard-kill, so raising one field lifts both. Clamped so a typo can't
+// pin a call open indefinitely, and never shorter than the default.
+export const DEFAULT_TIMEOUT_MS = 15_000;
+export const MAX_TIMEOUT_MS = 300_000;
+export function hostTimeoutMs(desc) {
+  const t = Number(desc?.timeoutMs);
+  if (!Number.isFinite(t) || t <= 0) return DEFAULT_TIMEOUT_MS;
+  return Math.min(Math.max(t, DEFAULT_TIMEOUT_MS), MAX_TIMEOUT_MS);
 }
 
 export function authHostsCount() {
