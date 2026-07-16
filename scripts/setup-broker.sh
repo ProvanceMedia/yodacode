@@ -51,6 +51,15 @@ chgrp -R "$AGENT_GROUP" "$WORKSPACE" 2>/dev/null || true
 find "$WORKSPACE" -type d -not -path "*/.ssh*" -exec chmod g+rwxs {} + 2>/dev/null || true
 find "$WORKSPACE" -type f -not -path "*/.ssh*" -not -name 'secrets.json' -exec chmod g+rw {} + 2>/dev/null || true
 mkdir -p "$ROOT/logs"; chgrp "$AGENT_GROUP" "$ROOT/logs"; chmod g+rwxs "$ROOT/logs"
+# cron-tasks lives beside the workspace, not inside it, so the sweep above misses it —
+# but the agent authors cron YAMLs here (a headline feature), so it needs the same
+# group-share. Cron definitions aren't secrets; directory write lets the agent add and
+# remove crons, setgid makes new files inherit the group.
+if [[ -d "$ROOT/cron-tasks" ]]; then
+  chgrp -R "$AGENT_GROUP" "$ROOT/cron-tasks" 2>/dev/null || true
+  find "$ROOT/cron-tasks" -type d -exec chmod g+rwxs {} + 2>/dev/null || true
+  find "$ROOT/cron-tasks" -type f -exec chmod g+rw {} + 2>/dev/null || true
+fi
 
 # The broker's code + credential map are a TRUST ANCHOR. The agent may READ them
 # (refresh-capabilities.py lists configured hosts) but must NEVER write them: a

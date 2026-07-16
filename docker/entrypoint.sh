@@ -54,6 +54,17 @@ if [[ "$(id -u)" == "0" ]]; then
   chgrp -R yodacode /app/logs 2>/dev/null || true
   chmod -R g+w /app/logs 2>/dev/null || true
   chmod g+s /app/logs 2>/dev/null || true
+  # cron-tasks is bind-mounted and the agent AUTHORS cron YAMLs there — creating,
+  # editing and deleting them is a headline feature. It ships root-owned from the git
+  # checkout, so like logs it must be made agent-writable in BOTH chown modes (cron
+  # definitions aren't secrets). Directory write is what lets the agent add/remove a
+  # cron; setgid on the dirs keeps new files group-yodacode so you can still edit them
+  # from the host (matching how the workspace mount behaves).
+  if [[ -d /app/cron-tasks ]]; then
+    chgrp -R yodacode /app/cron-tasks 2>/dev/null || true
+    chmod -R g+rwX /app/cron-tasks 2>/dev/null || true
+    find /app/cron-tasks -type d -exec chmod g+s {} + 2>/dev/null || true
+  fi
   # Recursive: /home/yoda is a named volume holding Claude session state, and
   # a PUID change between deployments must not strand it under the old uid.
   chown -R yoda:yodacode /home/yoda 2>/dev/null || true
