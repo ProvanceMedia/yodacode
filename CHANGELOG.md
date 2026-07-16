@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.14.0 — 2026-07-16
+
+- feat(broker): per-host request timeout for slow endpoints
+
 ## v2.13.0 — 2026-07-16
 
 - feat(broker): binary file uploads via http_call (real .xlsx, images, PDFs)
