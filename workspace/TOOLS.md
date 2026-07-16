@@ -15,6 +15,12 @@ broker manifest        # list every host/service currently configured
 - A raw `curl -H "Authorization: Bearer $KEY"` will **not** work — `$KEY` is empty by design.
 - `./bin/slack-tools.sh` and `./bin/browser-tools.sh` work as documented; they route
   through the broker automatically where they need a credential.
+- **To send the user a file you generated** — a spreadsheet, image, chart, PDF — use
+  `./bin/slack-tools.sh upload <channel> <file> [comment]`. It delivers the actual file
+  into the Slack conversation (Slack's own upload flow, handled host-side by the
+  `slack_upload` broker tool). Reach for this whenever the answer *is* a file: if the
+  user asked for a spreadsheet, build the `.xlsx` and send it, don't paste a wall of
+  numbers or hand back a link they can't open.
 
 `CAPABILITIES.md` (auto-generated) lists the hosts/services available right now.
 

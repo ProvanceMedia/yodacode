@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # @yoda-tool
 # name: slack-tools.sh
-# summary: Slack API helper — fetch, post, react, thread, mark. Multi-channel via per-channel last-seen state.
+# summary: Slack API helper — fetch, post, react, thread, mark, upload files. Multi-channel via per-channel last-seen state.
 # tags: slack, messaging
 # requires: SLACK_BOT_TOKEN
 # usage:
@@ -15,9 +15,11 @@
 #   slack-tools.sh reply <channel> <thread_ts> <text>  — post a thread reply
 #   slack-tools.sh thread <channel> <thread_ts>        — print full thread history
 #   slack-tools.sh mark <channel> <ts>                 — write last-seen for a channel
+#   slack-tools.sh upload <channel> <file> [comment]   — send a file (spreadsheet, image, PDF…) to a channel/DM
 # examples:
 #   ./bin/slack-tools.sh post C0123456789 "hello"
 #   ./bin/slack-tools.sh react C0123456789 1234.5678 thumbsup
+#   ./bin/slack-tools.sh upload C0123456789 ./report.xlsx "Here's this month's numbers"
 # @end
 #
 # Reads SLACK_BOT_TOKEN from env. State file: ./state/last-seen.json
@@ -233,6 +235,53 @@ json.dump(d, open(p, "w"))
 PY
 }
 
+# Send a file to Slack. In broker mode the file is base64'd and handed to the slack_upload
+# tool, which runs Slack's 3-step external-upload flow host-side. In direct (token) mode we
+# run the same three calls with curl. Usage: upload <channel> <file> [comment]
+cmd_upload() {
+  local channel=$1 file=$2 comment=${3:-}
+  if [[ -z "$channel" || -z "$file" ]]; then
+    echo "usage: $0 upload <channel> <file> [comment]" >&2; exit 2
+  fi
+  if [[ ! -f "$file" ]]; then
+    echo "ERROR: no such file: $file" >&2; exit 2
+  fi
+  if [[ "$BROKER_MODE" == "1" ]]; then
+    python3 - "$channel" "$file" "$comment" <<'PYB'
+import base64, json, os, sys
+sys.path.insert(0, os.environ["BROKER_PY_DIR"])
+from _broker_client import mediated_call
+channel, path, comment = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path, "rb") as f:
+    b64 = base64.b64encode(f.read()).decode()
+args = {"channel": channel, "filename": os.path.basename(path), "contentBase64": b64}
+if comment:
+    args["comment"] = comment
+res = mediated_call("slack_upload", args)
+if res.get("ok"):
+    d = res.get("data") or {}
+    print(d.get("permalink") or d.get("file_id") or "uploaded")
+else:
+    print(json.dumps({"ok": False, "error": res.get("error", "broker error")}), file=sys.stderr)
+    sys.exit(1)
+PYB
+  else
+    local fn size r1 upload_url file_id files_json
+    fn=$(basename "$file")
+    size=$(wc -c < "$file" | tr -d ' ')
+    r1=$(curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+      --data-urlencode "filename=$fn" --data-urlencode "length=$size" \
+      "$API/files.getUploadURLExternal")
+    upload_url=$(printf '%s' "$r1" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["upload_url"]) if d.get("ok") else sys.exit("getUploadURLExternal failed: "+str(d.get("error")))')
+    file_id=$(printf '%s' "$r1" | python3 -c 'import sys,json; print(json.load(sys.stdin)["file_id"])')
+    curl -sS -X POST -H "Content-Type: application/octet-stream" --data-binary @"$file" "$upload_url" >/dev/null
+    files_json=$(python3 -c 'import json,sys; print(json.dumps([{"id":sys.argv[1],"title":sys.argv[2]}]))' "$file_id" "$fn")
+    local complete_args=(--data-urlencode "files=$files_json" --data-urlencode "channel_id=$channel")
+    if [[ -n "$comment" ]]; then complete_args+=(--data-urlencode "initial_comment=$comment"); fi
+    curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" "${complete_args[@]}" "$API/files.completeUploadExternal"
+  fi
+}
+
 case "${1:-}" in
   whoami)         cmd_whoami ;;
   list)           cmd_list ;;
@@ -244,5 +293,6 @@ case "${1:-}" in
   reply)          shift; cmd_reply "$1" "$2" "$3" ;;
   thread)         shift; cmd_thread "$1" "$2" ;;
   mark)           shift; cmd_mark "$1" "$2" ;;
-  *) echo "usage: $0 {whoami|list|fetch|post|update|react|unreact|reply|thread|mark} ..." >&2; exit 1 ;;
+  upload)         shift; cmd_upload "${1:-}" "${2:-}" "${3:-}" ;;
+  *) echo "usage: $0 {whoami|list|fetch|post|update|react|unreact|reply|thread|mark|upload} ..." >&2; exit 1 ;;
 esac

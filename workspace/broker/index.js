@@ -10,6 +10,7 @@ import { pruneRotatedTokens } from './token-store.js';
 import { httpCall, httpCallDef } from './http-call.js';
 import { slackPost, slackPostDef } from './slack-post.js';
 import { slackApi, slackApiDef } from './slack-api.js';
+import { slackUpload, slackUploadDef } from './slack-upload.js';
 import { sshExec, sshExecDef } from './exec-tools.js';
 
 export { unsealVault, vaultSize, reloadVault } from './vault.js';
@@ -19,6 +20,7 @@ const internalTools = new Map([
   [httpCallDef.name, { def: httpCallDef, handler: httpCall }],
   [slackPostDef.name, { def: slackPostDef, handler: slackPost }],
   [slackApiDef.name, { def: slackApiDef, handler: slackApi }],
+  [slackUploadDef.name, { def: slackUploadDef, handler: slackUpload }],
   [sshExecDef.name, { def: sshExecDef, handler: sshExec }],
 ]);
 
@@ -59,9 +61,11 @@ export function brokerStatus() {
 
 export { authHostsList };
 
-// Per-tool hard ceilings — remote ssh commands legitimately run long; plain HTTP
-// tools stay on a tight leash.
-const TOOL_TIMEOUTS = { ssh_exec: 310_000 };
+// Per-tool hard ceilings — remote ssh commands legitimately run long; a Slack file
+// upload is three chained round-trips (reserve URL 20s + byte upload up to 75s +
+// finalize 20s = 115s of work), backstopped here comfortably under the broker client's
+// 140s socket read; plain HTTP tools stay on a tight leash.
+const TOOL_TIMEOUTS = { ssh_exec: 310_000, slack_upload: 130_000 };
 
 export async function handleMediatedCall(tool, args, hardTimeoutMs) {
   const internal = internalTools.get(tool);
