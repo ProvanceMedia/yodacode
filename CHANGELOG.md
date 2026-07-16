@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.15.0 — 2026-07-16
+
+- feat(broker): slack_upload tool + slack-tools.sh upload for sending files
+
 ## v2.14.0 — 2026-07-16
 
 - feat(broker): per-host request timeout for slow endpoints
