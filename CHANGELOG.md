@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.13.0 — 2026-07-16
+
+- feat(broker): binary file uploads via http_call (real .xlsx, images, PDFs)
+
 ## v2.12.3 — 2026-07-16
 
 - docs(microsoft): name AADSTS500113 as the missing-redirect-URI error
