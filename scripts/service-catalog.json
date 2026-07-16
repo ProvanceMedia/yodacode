@@ -703,7 +703,7 @@
     },
     "signInNotes": [
       "Microsoft's sign-in code expires about 60 SECONDS after you approve — keep this terminal open beside the browser and paste as soon as you're done. (If it expires, the wizard just prints a fresh link.)",
-      "If the browser shows an error INSTEAD of redirecting (AADSTS50011 / 'redirect URI does not match'), your app registration is missing the redirect URI: Entra portal -> your app -> Authentication -> Add a platform -> Mobile and desktop applications -> http://localhost -> Save, then re-run. Upgrading from an older device-code sign-in? Also set 'Allow public client flows' back to No."
+      "If the browser shows an error INSTEAD of redirecting (AADSTS500113 'no reply address is registered', or AADSTS50011 'redirect URI does not match'), your app registration needs the redirect URI: Entra portal -> your app -> Authentication -> Add a platform -> Mobile and desktop applications -> http://localhost -> Save, then re-run. AADSTS500113 (no reply address at all) is the usual one when upgrading from an older device-code sign-in, which never had a redirect URI — in that case also set 'Allow public client flows' back to No."
     ],
     "setupSteps": [
       {

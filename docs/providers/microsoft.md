@@ -177,8 +177,9 @@ browser flow it still works — until your tenant enables the device-code block,
 point it dies with `AADSTS530036` and no amount of retrying helps. Two Entra changes fix
 it permanently, because the old registration was built for a flow that needs no redirect:
 
-1. **Add the redirect URI** (setup step 4) — without it the browser shows `AADSTS50011`
-   and never hands back a code.
+1. **Add the redirect URI** (setup step 4) — without it the browser shows
+   `AADSTS500113` ("no reply address is registered", because a device-code registration
+   has none) and never hands back a code.
 2. **Set "Allow public client flows" back to No** (step 5) — the old setup required it
    to be *Yes*. Turning it off is what stops this registration ever being used with the
    blocked flow again.
@@ -195,7 +196,8 @@ volume — nothing for you to manage, but it's why that volume exists.
 | Symptom | Cause / fix |
 |---|---|
 | `AADSTS7000218` (mentions `client_secret`/`client_assertion`) — fails *after* you approve and paste | Your redirect URI is registered under the **Web** platform, so Entra treats the app as confidential. Delete it and re-add `http://localhost` under **Mobile and desktop applications** (step 4). |
-| `AADSTS50011` / *redirect URI mismatch* — fails **in the browser**, nothing to paste | `http://localhost` isn't registered at all. Add the platform per step 4. |
+| `AADSTS500113` (*no reply address is registered*) — fails **in the browser**, nothing to paste | The registration has **no** redirect URI (typical after a device-code sign-in). Add `http://localhost` per step 4, then re-run. |
+| `AADSTS50011` (*redirect URI does not match*) — fails **in the browser** | A redirect URI exists but not `http://localhost` under **Mobile and desktop applications** — add it per step 4. |
 | `AADSTS9002327` (SPA redirect / cross-origin) | The redirect URI is registered under **Single-page application**; a SPA code can only be redeemed from a browser. Re-add it under **Mobile and desktop applications** (step 4). |
 | *"the sign-in code expired"* | Microsoft codes last ~**60 seconds** from when you approve. The wizard prints a fresh link — this time have the terminal open beside the browser and paste straight away. |
 | `AADSTS530036` (refresh token invalid, auth-flow checks) | An old **device-code** sign-in that your tenant now blocks. Add the redirect URI (step 4), then `yodacode connect microsoft --renew`. |
