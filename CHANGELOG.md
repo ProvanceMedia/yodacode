@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.12.0 — 2026-07-16
+
+- feat(connect): Microsoft 365 gains Excel and Teams meetings
+
 ## v2.11.0 — 2026-07-16
 
 - feat(connect): Microsoft signs in with auth code + PKCE, not device code
