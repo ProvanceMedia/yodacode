@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.12.3 — 2026-07-16
+
+- docs(microsoft): name AADSTS500113 as the missing-redirect-URI error
+
 ## v2.12.2 — 2026-07-16
 
 - chore: drop the unused pollers/ write-sandbox entry
