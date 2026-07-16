@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.15.2 — 2026-07-16
+
+- fix(agent): neutral personal-preferences placeholder; place added default lines so installs merge cleanly
+
 ## v2.15.1 — 2026-07-16
 
 - docs(agent): stronger default writing-style + pronouns + scoped-consent
