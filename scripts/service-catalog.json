@@ -772,24 +772,48 @@
         "note": "Microsoft Graph calendar (v1.0/me/events, calendarView)"
       },
       "onedrive": {
-        "label": "OneDrive",
-        "aliases": ["one drive", "ms drive", "microsoft drive"],
+        "label": "OneDrive & Excel",
+        "aliases": ["one drive", "ms drive", "microsoft drive", "excel", "xlsx", "workbook", "files"],
         "hosts": ["graph.microsoft.com"],
         "scopeTiers": [
           {
             "key": "read",
-            "label": "Read-only — read and download files",
+            "label": "Read-only — read and download your own files and spreadsheets",
             "scopes": ["Files.Read"]
           },
           {
             "key": "full",
-            "label": "Read, upload + edit files (recommended)",
+            "label": "Read, upload + edit your own files and spreadsheets (recommended)",
             "scopes": ["Files.ReadWrite"],
             "default": true
+          },
+          {
+            "key": "all",
+            "label": "Also files shared with you and in SharePoint / Teams sites (needs admin approval)",
+            "scopes": ["Files.ReadWrite.All"]
           }
         ],
         "testPath": "v1.0/me/drive",
-        "note": "Microsoft Graph OneDrive (v1.0/me/drive) — the user's own drive, not SharePoint sites"
+        "note": "Microsoft Graph files (v1.0/me/drive) AND the live Excel workbook API (v1.0/me/drive/items/{id}/workbook) — ONE grant covers both, because Excel has no permission of its own; it's gated by the same Files.* scope. So the tier you pick here is the access the bot has to spreadsheets too. Files.ReadWrite is the user's OWN drive only — files in SharePoint or Teams channels need 'all'. The workbook API is work/school only (unsupported on personal OneDrive)"
+      },
+      "ms-meetings": {
+        "label": "Teams Meetings",
+        "aliases": ["online meetings", "teams meetings", "meetings"],
+        "hosts": ["graph.microsoft.com"],
+        "scopeTiers": [
+          {
+            "key": "read",
+            "label": "Read-only — look up a meeting's details and join info",
+            "scopes": ["OnlineMeetings.Read"]
+          },
+          {
+            "key": "full",
+            "label": "Create + manage meetings, including lobby and presenter options (recommended)",
+            "scopes": ["OnlineMeetings.ReadWrite"],
+            "default": true
+          }
+        ],
+        "note": "Microsoft Graph online meetings (v1.0/me/onlineMeetings) — standalone meetings not tied to a calendar event, plus lobby/presenter/attendee settings. Work/school only; normally needs admin approval. NOT required just to create a Teams meeting — the Calendar service already does that for free via an event with isOnlineMeeting. There is no list endpoint (every read needs a meeting id or a JoinWebUrl filter), so no testPath is possible"
       },
       "ms-contacts": {
         "label": "Outlook Contacts",

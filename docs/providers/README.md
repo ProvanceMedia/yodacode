@@ -4,7 +4,7 @@
 pasteable API keys. Guides per provider:
 
 - **[Google](google.md)** — Gmail, Calendar, Drive, Contacts, Tasks, Sheets, Docs, YouTube.
-- **[Microsoft 365](microsoft.md)** — Outlook Mail, Calendar, OneDrive, Contacts.
+- **[Microsoft 365](microsoft.md)** — Outlook Mail, Calendar, OneDrive, Excel, Contacts, Teams meetings.
 
 ## How it works (any provider)
 

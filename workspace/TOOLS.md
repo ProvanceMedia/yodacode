@@ -95,10 +95,42 @@ Supported providers come from the built-in catalog. Currently:
 
 - **google** — services `gmail`, `calendar`, `drive`, `contacts`, `tasks`, `sheets`,
   `docs`, `youtube`, `searchconsole`, `analytics` (GA4)
-- **microsoft** — services `outlook-mail`, `ms-calendar`, `onedrive`, `ms-contacts`
+- **microsoft** — services `outlook-mail`, `ms-calendar`, `onedrive` (files + Excel),
+  `ms-contacts`, `ms-meetings`
 
 For an OAuth service that is NOT in the catalog, say honestly that it isn't supported
 yet — do not invent an auth flow or handle tokens in chat.
+
+### Microsoft 365 — things that will trip you up
+
+Everything is one host: `graph.microsoft.com` (`v1.0/…`), one sign-in, one token.
+
+- **Excel is live, not a download** — on **work/school accounts**. `.xlsx` in OneDrive
+  have a real spreadsheet API:
+  `v1.0/me/drive/items/{id}/workbook/worksheets/{id}/range(address='A1:B2')` reads and
+  writes cells, plus tables, formulas and `…/charts/{id}/Image(width=0,height=0)` for a
+  chart as base64 PNG. Don't download and parse a workbook when this exists. It is gated
+  by the **OneDrive** grant (there is no separate Excel scope), so writing a cell needs
+  the OneDrive `full`/`all` tier — check `CAPABILITIES.md`. Two traps: a call with **no
+  session header writes through** (there is no read-only default), and Microsoft says
+  **do not parallelise** calls to the same workbook — go sequential. On **personal**
+  OneDrive the workbook API is unsupported — fall back to download → edit → upload.
+- **Word has no content API.** Graph can only move the file and convert it
+  (`v1.0/me/drive/items/{id}/content?format=pdf`). To edit a `.docx`, download it, use a
+  local library, upload it back.
+- **Teams meetings: default to the calendar.** `POST v1.0/me/events` with
+  `"isOnlineMeeting": true, "onlineMeetingProvider": "teamsForBusiness"` returns a real
+  join link in `onlineMeeting.joinUrl`, needs nothing beyond the calendar *write*
+  permission (`Calendars.ReadWrite`), and puts the meeting in everyone's diary — that's
+  what "set up a call" means. (Read
+  `onlineMeeting.joinUrl`; `onlineMeetingUrl` is a dead Skype-era field.) Only reach for
+  `v1.0/me/onlineMeetings` (the `ms-meetings` service, if connected) when you need what
+  the calendar can't do: a meeting with **no** calendar entry, or lobby/presenter
+  settings. It has **no list endpoint** — you can only fetch one back by id or by
+  filtering on its join URL, so record the id when you create one.
+- **`Files.ReadWrite` is the user's OWN drive only.** Files shared with the user, or in
+  SharePoint or a Teams channel, need the OneDrive `all` tier — check `CAPABILITIES.md`
+  before promising to open a shared team file or spreadsheet.
 
 When the user asks ("connect my gmail", "connect my outlook"):
 

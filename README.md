@@ -120,11 +120,11 @@ directly (`yodacode addkey github`), and
 (the agent never sees it) and the new host shows up in the agent's `CAPABILITIES.md`.
 
 **Connecting Google or Microsoft 365** (Gmail, Google Calendar/Drive/Docs…; Outlook Mail,
-Calendar, OneDrive…): these use a browser sign-in instead of a pasteable key — run
+Calendar, OneDrive, Excel…): these use a browser sign-in instead of a pasteable key — run
 `yodacode connect google` / `yodacode connect microsoft` (or just ask the bot: *"connect my
 gmail"*, then run `yodacode connect`). The wizard walks you through creating your own OAuth
 client (one-time — your data stays strictly between your server and the provider), then prints
-a sign-in link to open on your laptop, and verifies each service with a live call before
+a sign-in link to open on your laptop, and verifies each connected service that has a quick check with a live call before
 storing anything. Tokens live in the broker vault; the agent never sees them. Renewals
 (`--renew`) take ~2 minutes, and `yodacode doctor` diagnoses expired sign-ins. Details:
 [docs/providers/](docs/providers/).

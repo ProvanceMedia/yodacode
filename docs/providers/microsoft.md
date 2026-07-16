@@ -1,4 +1,4 @@
-# Connecting Microsoft 365 (Outlook Mail, Calendar, OneDrive, Contacts)
+# Connecting Microsoft 365 (Outlook Mail, Calendar, OneDrive, Excel, Contacts, Teams Meetings)
 
 `yodacode connect microsoft` signs your bot into your Microsoft account through an
 **app registration that you create yourself**. That "bring your own app" model is the
@@ -18,7 +18,8 @@ detail, plus troubleshooting.
 - The Application (client) ID and one **refresh token** stored in the broker vault.
   The bot itself never sees them; it calls Microsoft Graph through the broker.
 - One sign-in covering every Microsoft service you selected (Mail, Calendar,
-  OneDrive, Contacts) — they all live on one API host, `graph.microsoft.com`.
+  OneDrive, Excel, Contacts, Teams Meetings) — they all live on one API host,
+  `graph.microsoft.com`.
 
 ## The one-time Entra setup (~5 minutes)
 
@@ -81,7 +82,7 @@ The server has no browser, so the wizard prints a link:
    > expire you lose nothing: the wizard prints a fresh link and you try again.
 
 The wizard exchanges the code on the server, shows you **which account** signed in,
-test-calls each service, and only then stores anything.
+test-calls each service that has a quick check, and only then stores anything.
 
 ### Why a browser sign-in and not a device code?
 
@@ -110,6 +111,53 @@ switch.
 - To **reduce** access or disconnect: revoke the app at
   <https://account.live.com/consent/Manage> (personal) or via My Apps / your admin
   (work), then re-run `yodacode connect microsoft` for a narrower grant.
+
+### What each service actually gets you
+
+| Service | Notes |
+|---|---|
+| **Outlook Mail** / **Calendar** | The obvious things. Both tiers of each normally need admin approval (see below). |
+| **Outlook Contacts** | **Read-only** — the bot can look people up, but can't add or edit contacts. |
+| **OneDrive & Excel** | One grant, because Excel has no permission of its own — it's the same `Files.*` scope. So the tier you pick is the access the bot has to *both* your files and your spreadsheets. `full` (recommended) reaches **your own** drive; files shared with you, or in a SharePoint library or Teams channel, are *not* "your files" and need the `all` tier. Excel gives you a live spreadsheet API over `.xlsx` (read/write cells, tables, formulas, render a chart to an image — no download) on **work/school accounts only**; on personal OneDrive the bot falls back to editing files by downloading them. |
+| **Teams Meetings** | **Optional — most people don't need it.** The Calendar service *already* creates Teams meetings for free (see below). Tick this only for what the calendar can't do: meetings with **no** diary entry, or lobby/presenter/attendee settings. Work/school only, and normally needs admin approval. |
+
+> **Teams chat isn't offered**, deliberately. Microsoft's Teams API terms cap polling a
+> resource at once a day, so a bot could never *watch* Teams — only read it when asked.
+> And reaching people **in** Teams properly means the bot living there as a surface (a
+> different thing entirely), not holding a Graph scope. Teams *meetings* are unaffected
+> and work fine — see below.
+
+**Creating a Teams meeting needs no extra permission.** With just the Calendar service
+the bot can create an event flagged as an online meeting, and Microsoft returns a real
+Teams join link — which is what "set up a call with Sam tomorrow" actually wants, since
+it also lands in everyone's diary. The separate **Teams Meetings** service exists for
+the two things that route can't do: a standalone meeting with no calendar entry, and
+meeting options (lobby bypass, who can present, who's admitted). It has no "list my
+meetings" endpoint — you fetch one back by id or by its join URL — so the calendar
+remains the way to enumerate what's coming up.
+
+**Word isn't a service** because Microsoft has no API for editing document *content* —
+only for moving the file and converting it (e.g. to PDF). The bot can do both with the
+OneDrive service, and can edit a `.docx` by downloading it, changing it locally, and
+uploading it back.
+
+### About admin approval
+
+On a work/school tenant Microsoft's default settings stop ordinary users consenting to
+several of these permissions themselves — mail, calendar, meetings and `all`-tier file
+access among them. **If you own the tenant this is one click**: Entra portal → your app
+→ **API permissions** → **Grant admin consent**. If you don't, your IT admin has to do
+it, and there is no way around that.
+
+Two things worth knowing:
+
+- It's a **tenant setting, not a property of the permission** — a tenant configured with
+  the older consent policy may let you self-consent to everything. The only way to know
+  is to try.
+- Consent is **all or nothing**: if one requested permission needs an admin, the whole
+  sign-in stops — you don't get a partial grant. So if you're not an admin, tick fewer
+  services: OneDrive & Excel (`read` or `full`) and Contacts need no approval, while
+  mail, calendar, the OneDrive `all` tier and Meetings normally do.
 
 ## When the sign-in dies
 

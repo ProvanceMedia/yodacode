@@ -58,3 +58,55 @@ test('microsoft uses auth-code + PKCE, never device code', () => {
   assert.match(JSON.stringify(ms.signInNotes ?? []), /60 SECONDS/i, 'warns about the ~60s code expiry');
   assert.match(ms.exchangeHints?.invalid_grant ?? '', /60 seconds/i, 'expiry hint names the real lifetime');
 });
+
+test('Excel is folded into OneDrive, not a separate service (they share the Files.* scope)', () => {
+  const svcs = catalog.microsoft.services;
+  // A separate excel service with its own tiers would let a user pick onedrive=read +
+  // excel=full, silently over-granting write while CAPABILITIES reports read-only.
+  assert.ok(!svcs.excel, 'no standalone excel service');
+  const od = svcs.onedrive;
+  assert.ok(od, 'onedrive service present');
+  // "connect excel" / "workbook" must still route here.
+  for (const a of ['excel', 'xlsx', 'workbook']) {
+    assert.ok(od.aliases.includes(a), `onedrive should answer to "${a}"`);
+  }
+  // Invariant: no two Microsoft services may share a file scope, or their tiers could
+  // disagree and CAPABILITIES.md would misreport the effective access.
+  const owners = {};
+  for (const [slug, s] of Object.entries(svcs)) {
+    for (const scope of s.scopeTiers.flatMap((t) => t.scopes)) {
+      if (/^Files\./.test(scope)) (owners[scope] ??= []).push(slug);
+    }
+  }
+  for (const [scope, using] of Object.entries(owners)) {
+    assert.deepEqual(using, ['onedrive'], `${scope} must live in exactly one service, found ${using}`);
+  }
+});
+
+// Teams chat/channel access is deliberately NOT offered: it can only be read
+// on demand (Microsoft's terms cap polling at once a day, so the bot could never
+// watch Teams), and reaching people in Teams properly needs a Teams *surface*,
+// not a Graph scope. Meetings are separate and DO ship — see ms-meetings.
+test('no Teams chat/channel scopes are requested anywhere', () => {
+  const all = Object.values(catalog.microsoft.services).flatMap((s) => s.scopeTiers.flatMap((t) => t.scopes));
+  for (const chatty of ['Chat.Read', 'Chat.ReadBasic', 'Chat.ReadWrite', 'Chat.Create',
+                        'ChatMessage.Send', 'ChannelMessage.Send', 'ChannelMessage.Read.All',
+                        'Team.ReadBasic.All', 'Channel.ReadBasic.All', 'Presence.Read']) {
+    assert.ok(!all.includes(chatty), `${chatty} would put a scope on the consent screen we don't use`);
+  }
+  assert.ok(!catalog.microsoft.services.teams, 'no teams service');
+});
+
+test('ms-meetings is standalone, OnlineMeetings-only, and has no testPath (no list endpoint exists)', () => {
+  const m = catalog.microsoft.services['ms-meetings'];
+  assert.ok(m, 'ms-meetings service present');
+  const scopes = m.scopeTiers.flatMap((t) => t.scopes);
+  assert.ok(scopes.every((s) => s.startsWith('OnlineMeetings.')), `expected only OnlineMeetings.*, got ${scopes}`);
+  // Graph has no list-online-meetings API: every read needs a meeting id or a
+  // JoinWebUrl filter, so any testPath we invented would fail for everyone.
+  assert.ok(!m.testPath, 'no testPath — there is nothing account-level to probe');
+  // Creating a meeting must stay free via the calendar; this service is the extras.
+  assert.match(m.note ?? '', /NOT required just to create/i, 'note says the calendar already covers creation');
+  const cal = catalog.microsoft.services['ms-calendar'].scopeTiers.find((t) => t.key === 'full');
+  assert.ok(cal.scopes.includes('Calendars.ReadWrite'), 'the free meeting-creation route still exists');
+});
