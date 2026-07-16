@@ -115,6 +115,15 @@ Everything is one host: `graph.microsoft.com` (`v1.0/…`), one sign-in, one tok
   session header writes through** (there is no read-only default), and Microsoft says
   **do not parallelise** calls to the same workbook — go sequential. On **personal**
   OneDrive the workbook API is unsupported — fall back to download → edit → upload.
+- **Creating a NEW `.xlsx`**: build a real workbook locally — Python `openpyxl` supports
+  formulas — then upload the bytes with `http_call` using **`bodyBase64`** (base64 of the
+  file) + `contentType:
+  application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` to
+  `PUT v1.0/me/drive/root:/Name.xlsx:/content`. That produces a genuine workbook that
+  opens in Excel Online. Do **not** hand-write an old-style SpreadsheetML `.xml` and
+  call it an Excel file — it isn't one, and won't open in the browser. (This same
+  `bodyBase64` param uploads any binary — images, PDFs — through the broker; plain
+  `body` is text/JSON only.)
 - **Word has no content API.** Graph can only move the file and convert it
   (`v1.0/me/drive/items/{id}/content?format=pdf`). To edit a `.docx`, download it, use a
   local library, upload it back.

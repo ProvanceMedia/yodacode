@@ -7,6 +7,50 @@ import { getSecret } from './vault.js';
 import { getAccessToken, invalidateAccessToken } from './oauth.js';
 import { doFetch, ssrfCheck } from './http-fetch.js';
 
+// Reject an upload body over ~8M base64 chars (≈ 6MB of binary) before the base64
+// decode allocates the bytes again and before we forward it upstream. Bigger files
+// need a resumable upload session (out of scope). (This bounds what the broker
+// decodes/forwards, not the raw frame — the socket buffers that first.)
+const MAX_BODY_B64 = 8_000_000;
+// A bare MIME type is short; cap the length so a caller can't set a giant header.
+const MAX_CONTENT_TYPE = 128;
+
+/**
+ * Shape the outbound request body from the agent's args. Returns { body, contentType }
+ * (contentType is a default, applied only if the host didn't already set one), {} for
+ * no body, or { error } on a bad payload. Exported for unit tests — the full httpCall
+ * path can't be integration-tested because the SSRF guard blocks loopback.
+ *
+ * The agent can only send text over the broker socket, so a BINARY upload (a real
+ * .xlsx, an image, a PDF) is passed base64-encoded via `bodyBase64` and decoded to
+ * bytes here. `contentType` describes the agent's OWN body — safe for it to set, but
+ * validated as a bare MIME type so it can't smuggle a second header.
+ */
+export function encodeRequestBody(args) {
+  // Optional caller-set Content-Type describing the agent's OWN body — validated as a
+  // bounded, bare MIME (type/subtype) so it can't smuggle a second header via CRLF.
+  // Honoured on both the binary and the text path; each falls back to its own default.
+  let ct = null;
+  if (args.contentType != null) {
+    ct = String(args.contentType);
+    if (ct.length > MAX_CONTENT_TYPE || !/^[\w.+-]+\/[\w.+-]+$/.test(ct)) {
+      return { error: 'contentType must be a plain MIME type, e.g. application/pdf' };
+    }
+  }
+  if (args.bodyBase64 != null) {
+    const b64 = String(args.bodyBase64).replace(/\s+/g, '');
+    if (b64.length > MAX_BODY_B64) return { error: 'bodyBase64 too large (max ~6MB of binary) — use an upload session for bigger files' };
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) return { error: 'bodyBase64 is not valid base64' };
+    const buf = Buffer.from(b64, 'base64');
+    if (!buf.length) return { error: 'bodyBase64 decoded to nothing' };
+    return { body: buf, contentType: ct ?? 'application/octet-stream' };
+  }
+  if (args.body != null) {
+    return { body: typeof args.body === 'string' ? args.body : JSON.stringify(args.body), contentType: ct ?? 'application/json' };
+  }
+  return {};
+}
+
 export async function httpCall(args) {
   const host = String(args.host ?? '')
     .trim()
@@ -85,10 +129,13 @@ export async function httpCall(args) {
   }
 
   const init = { method, headers };
-  const body = args.body;
-  if (body != null && method !== 'GET' && method !== 'HEAD') {
-    init.body = typeof body === 'string' ? body : JSON.stringify(body);
-    if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) headers['Content-Type'] = 'application/json';
+  if (method !== 'GET' && method !== 'HEAD') {
+    const enc = encodeRequestBody(args);
+    if (enc.error) return { ok: false, error: enc.error };
+    if (enc.body !== undefined) {
+      init.body = enc.body;
+      if (!Object.keys(headers).some((h) => h.toLowerCase() === 'content-type')) headers['Content-Type'] = enc.contentType;
+    }
   }
 
   const started = Date.now();
@@ -117,12 +164,14 @@ export async function httpCall(args) {
 export const httpCallDef = {
   name: 'http_call',
   description:
-    'Make an authenticated HTTPS request to a configured API host — the broker injects the API key for you (you never see it). Use this for any host listed in auth-hosts.json instead of curl. Params: host (e.g. api.stripe.com), path (e.g. v1/events), method (default GET), query (without leading ?), body (JSON, for writes).',
+    'Make an authenticated HTTPS request to a configured API host — the broker injects the API key for you (you never see it). Use this for any host listed in auth-hosts.json instead of curl. Params: host (e.g. api.stripe.com), path (e.g. v1/events), method (default GET), query (without leading ?), body (JSON/text, for writes). To upload a BINARY file (a real .xlsx, an image, a PDF), pass bodyBase64 (base64 of the bytes) instead of body, with contentType set to the file MIME type.',
   params: {
     host: { type: 'string', description: 'the API hostname, e.g. api.stripe.com' },
     path: { type: 'string', description: 'path after the host, e.g. crm/v3/objects/contacts' },
-    method: { type: 'string', description: 'GET/POST/PATCH/DELETE (default GET)', optional: true },
+    method: { type: 'string', description: 'GET/POST/PUT/PATCH/DELETE (default GET)', optional: true },
     query: { type: 'string', description: 'querystring without the leading ? (optional)', optional: true },
-    body: { type: 'string', description: 'JSON body for writes (optional)', optional: true },
+    body: { type: 'string', description: 'JSON/text body for writes (optional)', optional: true },
+    bodyBase64: { type: 'string', description: 'base64-encoded BINARY body for file uploads, e.g. a .xlsx or image (optional; use instead of body). Max ~6MB.', optional: true },
+    contentType: { type: 'string', description: "MIME type for bodyBase64 uploads, e.g. 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' for .xlsx (optional; default application/octet-stream)", optional: true },
   },
 };
