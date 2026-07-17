@@ -52,13 +52,22 @@ services:
       PGID: ${PGID:-1000}
       YODA_BROKER_SOCK: /run/yodacode-broker/broker.sock
       TZ: ${TZ:-UTC}
-      # Only what the supervisor itself needs — Slack (Socket Mode) + the model's
-      # own OAuth token. Service API keys are deliberately NOT passed here; they
-      # live only in the broker. Add non-secret YODA_* behaviour knobs as needed.
+      # Only what the supervisor itself needs: a SURFACE's own transport credential
+      # (Slack Socket Mode tokens; the Google Chat service-account key) plus the
+      # model's OAuth token. Non-surface service API keys (OpenAI, GitHub, ...) are
+      # deliberately NOT passed here — those live only in the broker. Keep a surface
+      # SA narrowly scoped (Pub/Sub Subscriber on its one subscription + chat.bot) so
+      # its blast radius stays bot-token-sized. Add non-secret YODA_* knobs as needed.
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
       SLACK_TEST_CHANNEL_ID: ${SLACK_TEST_CHANNEL_ID:-}
+      # Google Chat surface (only used when 'googlechat' is in YODA_SURFACES).
+      GOOGLE_CHAT_SA_KEY: ${GOOGLE_CHAT_SA_KEY:-}
+      GOOGLE_CHAT_SUBSCRIPTION: ${GOOGLE_CHAT_SUBSCRIPTION:-}
+      YODA_GCHAT_AUTHORIZED: ${YODA_GCHAT_AUTHORIZED:-}
+      YODA_GCHAT_SPACES: ${YODA_GCHAT_SPACES:-}
+      YODA_GCHAT_DM_OPEN: ${YODA_GCHAT_DM_OPEN:-0}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       YODA_SURFACES: ${YODA_SURFACES:-slack}
       YODA_CLAUDE_MODEL: ${YODA_CLAUDE_MODEL:-}

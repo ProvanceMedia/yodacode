@@ -29,6 +29,11 @@ export function curatedAgentEnv() {
 function legacyEnv() {
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
+  // A surface transport secret the supervisor holds but the model never needs:
+  // strip the Google Chat service-account private key so a non-deroot SDK child
+  // can't read it. (Under YODA_DEROOT=1 it's already excluded by deroot.js's
+  // ENV_ALLOWLIST; this closes the same gap in legacy/non-deroot mode.)
+  delete env.GOOGLE_CHAT_SA_KEY;
   return env;
 }
 

@@ -73,6 +73,38 @@ export const config = {
     qrSlackChannel: process.env.YODA_WHATSAPP_QR_SLACK_CHANNEL || '',
   },
 
+  // Google Chat config — only required if 'googlechat' is in YODA_SURFACES.
+  // Inbound events arrive over a Pub/Sub PULL subscription (an outbound-only
+  // connection, no public webhook endpoint — the same no-ingress model as Slack
+  // Socket Mode); outbound replies go via the Chat REST API. Auth is a Google
+  // service-account key. For this first cut the key lives here in the supervisor
+  // (exactly like Slack's bot token); a later hardening moves it into the broker.
+  googlechat: {
+    // Google user resource names ("users/1234567890") allowed to DM the bot.
+    // The Chat app's own Visibility setting is the first gate; this is a second.
+    authorizedUsers: new Set(csv('YODA_GCHAT_AUTHORIZED', '')),
+    // Space resource names ("spaces/AAAA") the bot may act in when @mentioned.
+    // Default empty = ignore all spaces (respond in DMs only).
+    allowedSpaces: new Set(csv('YODA_GCHAT_SPACES', '')),
+    // Open DMs to anyone the Chat app is visible to (skip the authorizedUsers gate).
+    dmOpen: process.env.YODA_GCHAT_DM_OPEN === '1',
+    // Full Pub/Sub subscription resource the bot pulls from:
+    // "projects/<PROJECT>/subscriptions/<SUB>".
+    get subscription() { return required('GOOGLE_CHAT_SUBSCRIPTION'); },
+    // Service-account key as JSON, or base64 of the JSON (for a clean single-line
+    // .env). Grants Pub/Sub pull + Chat bot send. Parsed once at surface start.
+    get serviceAccountKey() {
+      const raw = required('GOOGLE_CHAT_SA_KEY').trim();
+      const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+      try {
+        return JSON.parse(json);
+      } catch {
+        console.error('FATAL: GOOGLE_CHAT_SA_KEY is not valid JSON (or base64 of JSON)');
+        process.exit(2);
+      }
+    },
+  },
+
   // Bot identity (the user id of the bot itself, used to ignore self-messages
   // and detect mentions). Discoverable at startup via auth.test if not set.
   botUserId: process.env.BOT_USER_ID || null,
