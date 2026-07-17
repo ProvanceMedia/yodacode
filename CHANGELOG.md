@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.16.1 — 2026-07-17
+
+- fix(update): auto-resolve persona-doc conflicts instead of wedging the repo
+
 ## v2.16.0 — 2026-07-17
 
 - feat(surface): Google Chat via Pub/Sub pull
