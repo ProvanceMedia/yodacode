@@ -96,6 +96,18 @@ test('normalise: honours the newer spaceType=DIRECT_MESSAGE as well as legacy ty
   }).isDirect, true);
 });
 
+test('normalise: extracts attachments and keeps a caption-less file message', () => {
+  const withFile = normalizeChatEvent(dm({
+    text: '', argumentText: '',
+    attachment: [{ contentName: 'report.xlsx', contentType: 'application/xlsx', source: 'UPLOADED_CONTENT', attachmentDataRef: { resourceName: 'spaces/DM1/messages/m1/attachments/a1' } }],
+  }));
+  assert.ok(withFile, 'a file sent with no caption is NOT dropped');
+  assert.equal(withFile.attachments.length, 1);
+  assert.equal(withFile.attachments[0].contentName, 'report.xlsx');
+  // but a truly empty message (no text, no files) is still dropped
+  assert.equal(normalizeChatEvent(dm({ text: '', argumentText: '', attachment: [] })), null);
+});
+
 test('statusText: collapses thinking/generic phases to a bare "working…", keeps real tool-use detail', () => {
   // generic phases carry no detail → bare working, italicised, no "thinking" leaking
   assert.equal(statusText('thinking…'), '_working…_');

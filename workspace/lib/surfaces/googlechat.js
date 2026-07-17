@@ -18,6 +18,9 @@
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const PUBSUB_BASE = 'https://pubsub.googleapis.com/v1';
 const CHAT_BASE = 'https://chat.googleapis.com/v1';
@@ -82,7 +85,10 @@ export function normalizeChatEvent(event) {
 
   // argumentText has the leading "@Bot" mention stripped in spaces; fall back to text.
   const text = String(msg.argumentText ?? msg.text ?? '').trim();
-  if (!text) return null;
+  // A file sent with no caption is still a real message — keep it if it carries
+  // attachments, even when the text is empty (otherwise it would vanish).
+  const attachments = Array.isArray(msg.attachment) ? msg.attachment : [];
+  if (!text && !attachments.length) return null;
 
   const rawThread = msg.thread?.name || null;
   const thread = rawThread && THREAD_RE.test(rawThread) ? rawThread : null;
@@ -100,6 +106,7 @@ export function normalizeChatEvent(event) {
     // non-DM message here is by definition a mention.
     isMention: !isDirect,
     replyTarget: { space: spaceName, thread },
+    attachments, // raw Chat Attachment objects; fetchContext downloads them locally
     raw: event,
   };
 }
@@ -151,6 +158,62 @@ async function chatUpdate(name, text) {
 async function chatDelete(name) {
   const token = await getAccessToken();
   return gfetch(`${CHAT_BASE}/${name}`, { method: 'DELETE', token });
+}
+
+// Download a user's inbound attachments so the agent can Read them locally. Chat's
+// media DOWNLOAD supports app auth (unlike upload). UPLOADED_CONTENT is fetched via
+// the media API; a DRIVE_FILE isn't downloadable this way (needs Drive) so it's
+// flagged, letting the agent tell the user rather than silently ignore it. Mirrors
+// slack.js's downloadAttachments; returns { name, mimetype, size, path } | { name, error }.
+async function downloadAttachments(attachments, msgId) {
+  if (!attachments?.length) return [];
+  const safeId = String(msgId || 'msg').replace(/[^A-Za-z0-9._-]/g, '_');
+  const baseDir = path.join(os.tmpdir(), 'yoda-attachments', safeId);
+  mkdirSync(baseDir, { recursive: true });
+  const token = await getAccessToken();
+  const out = [];
+  for (const a of attachments) {
+    const name = a.contentName || 'attachment';
+    const resourceName = a.attachmentDataRef?.resourceName;
+    // Google Chat stores most attachments as Drive files. The Chat bot can't fetch
+    // those via the media API, but the agent has the user's Google connection — so
+    // hand it the id/type/link and let it read the file itself (a Doc via the Docs
+    // API, a Sheet via Sheets, else Drive). Only genuinely UPLOADED_CONTENT falls
+    // through to the direct media download below.
+    if (a.source === 'DRIVE_FILE' || a.driveDataRef?.driveFileId) {
+      const fileId = a.driveDataRef?.driveFileId;
+      out.push({
+        name,
+        note: `Google Drive file (type ${a.contentType || 'unknown'}${fileId ? `, id ${fileId}` : ''}). `
+          + `Read it with your Google connection: a Doc via docs.googleapis.com, a Sheet via `
+          + `sheets.googleapis.com, otherwise the Drive API (drive/v3/files/${fileId || '<id>'}?alt=media). `
+          + `If you truly can't read it, share this link with the user: https://drive.google.com/open?id=${fileId || ''}`,
+      });
+      continue;
+    }
+    if (!resourceName) {
+      out.push({ name, error: 'no downloadable reference' });
+      continue;
+    }
+    try {
+      const res = await fetch(`${CHAT_BASE}/media/${resourceName}?alt=media`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        out.push({ name, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 120)}` });
+        continue;
+      }
+      const buf = Buffer.from(await res.arrayBuffer());
+      const filePath = path.join(baseDir, name.replace(/[^A-Za-z0-9._-]/g, '_'));
+      writeFileSync(filePath, buf);
+      out.push({ name, mimetype: a.contentType || 'application/octet-stream', size: buf.length, path: filePath });
+      logger.info('googlechat: downloaded attachment', { name, bytes: buf.length });
+    } catch (e) {
+      out.push({ name, error: e.message });
+      logger.warn('googlechat: attachment download failed', { name, err: e.message });
+    }
+  }
+  return out;
 }
 
 // ─── Pub/Sub pull loop ───────────────────────────────────────────────────────
@@ -265,12 +328,14 @@ const googlechatSurface = {
 
   async fetchContext(event) {
     // Chat gives a bot no "fetch last N" for arbitrary history; context is the
-    // current message and the thread's resumed session carries the rest.
+    // current message (plus any files it carried) and the resumed session carries the rest.
+    const attachments = await downloadAttachments(event.attachments, event.messageId);
     return {
-      messages: [{ user: event.userId, ts: event.messageId, text: event.text }],
+      messages: [{ user: event.userId, ts: event.messageId, text: event.text || '(sent a file)' }],
       replyTargetTs: event.messageId,
       convName: event.replyTarget.space,
       isIm: event.isDirect,
+      attachments,
     };
   },
 

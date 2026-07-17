@@ -498,10 +498,12 @@ function formatAttachments(attachments) {
   if (!attachments.length) return '';
   const lines = ['', 'Attachments on the marked message (use the Read tool to view them):'];
   for (const a of attachments) {
-    if (a.error) {
-      lines.push(`  - ${a.name || a.id}: download failed (${a.error})`);
-    } else {
+    if (a.path) {
       lines.push(`  - ${a.name} (${a.mimetype}, ${a.size} bytes) → ${a.path}`);
+    } else if (a.note) {
+      lines.push(`  - ${a.name}: ${a.note}`);
+    } else {
+      lines.push(`  - ${a.name || a.id}: download failed (${a.error || 'unknown'})`);
     }
   }
   return lines.join('\n');
