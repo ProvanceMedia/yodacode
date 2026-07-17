@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.17.1 — 2026-07-17
+
+- fix(googlechat): clean tool-use status instead of the raw stream
+
 ## v2.17.0 — 2026-07-17
 
 - feat(googlechat): one-command setup wizard + provider doc
