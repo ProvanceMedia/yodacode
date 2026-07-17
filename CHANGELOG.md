@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.18.1 — 2026-07-17
+
+- docs(googlechat): put the "untick add-on" gotcha into the wizard + doc
+
 ## v2.18.0 — 2026-07-17
 
 - feat(googlechat): read inbound file attachments
