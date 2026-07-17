@@ -44,11 +44,24 @@ events into your topic — granting it Publisher is what makes events flow to yo
 Open the Chat API configuration:
 <https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat>
 
+- **⚠ UNTICK "Build this Chat app as a Workspace add-on" at the very top — do this FIRST.**
+  Google now ticks it by default and **locks it after the first Save**. Left ticked, the
+  app looks configured but your messages silently never arrive over Pub/Sub (Chat logs a
+  `code 13 INTERNAL` and shows "not responding"). This is the single most common failure —
+  it's why the project must be a fresh one you can untick before saving.
+- **App status: LIVE - available to users.**
 - App name, avatar URL, description.
 - **Interactive features** ON; tick **Receive 1:1 messages** and **Join spaces**.
-- **Connection settings → Cloud Pub/Sub**, topic `projects/PROJECT/topics/yodacode-chat`.
+- **Connection settings → Cloud Pub/Sub**, topic `projects/PROJECT/topics/yodacode-chat`
+  (must be in the **same project** as the Chat app — Google rejects a cross-project topic).
 - **Visibility** → your email (or your whole domain). This is what gates who can reach it.
 - **Save.**
+
+> **File attachments:** the bot reads files you send it. Google Chat stores attachments as
+> Drive files, so it reads Google **Docs and Sheets** natively through its Google connection
+> (if you've run `yodacode connect google`). A bot cannot *upload* attachments of its own —
+> that's a Google restriction (media upload is user-auth only) — so to hand you a file it
+> shares a link (e.g. a Doc/Sheet it created).
 
 ### 3. Configure YodaCode
 In `.env`:

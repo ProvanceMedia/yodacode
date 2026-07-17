@@ -197,8 +197,9 @@ configure_googlechat() {
   echo ""
 
   echo -e "  ${B}1) Your Google Cloud project.${X}"
-  echo -e "  ${D}At https://console.cloud.google.com make or pick a project and copy its Project ID"
-  echo -e "  (like my-assistant-471203 — the ID, not the display name).${X}"
+  echo -e "  ${D}At https://console.cloud.google.com make or pick a project that has NO Chat app yet"
+  echo -e "  (a fresh one is cleanest — a Chat app's add-on setting locks after its first save).${X}"
+  echo -e "  ${D}Copy its Project ID (like my-assistant-471203 — the ID, not the display name).${X}"
   echo ""
   project="$(ask 'Project ID' "$(env_get GOOGLE_CHAT_PROJECT)")"; project="$(echo "$project" | tr -d '[:space:]')"
   [[ -n "$project" ]] || { fail "Need a project ID to continue."; return 1; }
@@ -237,12 +238,16 @@ SCRIPT
   [[ -n "$sakey" ]] || { fail "No valid key — nothing saved."; return 1; }
 
   echo ""
-  echo -e "  ${B}4) Switch the bot on${X} — one screen of boxes:"
+  echo -e "  ${B}4) Switch the bot on${X} — the config screen. The FIRST box is the one that matters:"
   echo -e "     open ${B}https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat?project=${project}${X}"
-  echo -e "       • App name: ${B}${BOT_NAME}${X}   • Avatar: any image URL   • Description: your assistant"
-  echo -e "       • Turn ${B}Interactive features${X} ON; tick ${B}Receive 1:1 messages${X} and ${B}Join spaces${X}"
-  echo -e "       • Connection settings → pick ${B}Cloud Pub/Sub${X}, topic: ${B}projects/${project}/topics/${topic}${X}"
-  echo -e "       • Visibility → make it available to ${B}your email${X} (or your whole domain)"
+  echo -e "       • ${Y}⚠ UNTICK \"Build this Chat app as a Workspace add-on\" at the top — do this FIRST.${X}"
+  echo -e "         ${D}It greys out (locks) once you Save, and left ticked your messages silently never"
+  echo -e "         arrive over Pub/Sub. This is THE step people miss.${X}"
+  echo -e "       • App status: ${B}LIVE - available to users${X}"
+  echo -e "       • App name: ${B}${BOT_NAME}${X}   • Avatar: any https image   • Description: your assistant"
+  echo -e "       • ${B}Interactive features${X} ON; tick ${B}Receive 1:1 messages${X} and ${B}Join spaces${X}"
+  echo -e "       • Connection settings → ${B}Cloud Pub/Sub${X}, topic: ${B}projects/${project}/topics/${topic}${X}"
+  echo -e "       • Visibility → ${B}your email${X} (or your whole domain)"
   echo -e "       • ${B}Save${X}"
   echo ""
   read -r -p "  Press Enter once that screen is saved… " _
