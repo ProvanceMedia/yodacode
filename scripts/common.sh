@@ -174,6 +174,87 @@ set_env() {
   printf '%s=%s\n' "$1" "$2" >> "$ENVF"
   chmod 600 "$ENVF" 2>/dev/null || true   # the tmp+mv replace path drops to 644 otherwise — .env holds tokens
 }
+
+# Add a surface to YODA_SURFACES without dropping the ones already enabled.
+_enable_surface() {
+  local name="$1" cur; cur="$(env_get YODA_SURFACES)"; cur="${cur:-slack}"
+  case ",$cur," in *",$name,"*) ;; *) cur="$cur,$name" ;; esac
+  set_env YODA_SURFACES "$cur"
+}
+
+# Guided Google Chat setup. Google requires a Cloud project + a service account for
+# ANY chat bot (no "paste a token" like Slack, and OpenClaw needs the same) — so this
+# boils it to: paste one script into Google's Cloud Shell, paste the key back, tick one
+# screen. We use Pub/Sub pull, so there is NO public endpoint/tunnel (unlike OpenClaw).
+configure_googlechat() {
+  ensure_env
+  : "${BOT_NAME:=$(env_get BOT_NAME)}"; : "${BOT_NAME:=Yoda}"
+  local project sub sakey topic="yodacode-chat" sa="yodacode-chat"
+
+  echo -e "  ${B}Connect Google Chat.${X} Google puts every chat bot behind a Cloud project — there's"
+  echo -e "  no quick token like Slack. Three steps: paste a script into Google's own terminal,"
+  echo -e "  paste the key it prints back here, tick a few boxes. No installing anything."
+  echo ""
+
+  echo -e "  ${B}1) Your Google Cloud project.${X}"
+  echo -e "  ${D}At https://console.cloud.google.com make or pick a project and copy its Project ID"
+  echo -e "  (like my-assistant-471203 — the ID, not the display name).${X}"
+  echo ""
+  project="$(ask 'Project ID' "$(env_get GOOGLE_CHAT_PROJECT)")"; project="$(echo "$project" | tr -d '[:space:]')"
+  [[ -n "$project" ]] || { fail "Need a project ID to continue."; return 1; }
+
+  echo ""
+  echo -e "  ${B}2) Create the Google side.${X} Open the terminal (you're already signed in):"
+  echo -e "     ${B}https://console.cloud.google.com/?cloudshell=true&project=${project}${X}"
+  echo -e "  Paste this whole block, press Enter, and click ${B}Authorize${X} if it asks:"
+  echo ""
+  echo -e "  ${C}┄┄┄ copy from here ┄┄┄${X}"
+  cat <<SCRIPT | sed 's/^/  /'
+gcloud config set project ${project}
+gcloud services enable chat.googleapis.com pubsub.googleapis.com
+gcloud iam service-accounts create ${sa} --display-name "${BOT_NAME} Chat" 2>/dev/null || true
+SA="${sa}@${project}.iam.gserviceaccount.com"
+gcloud pubsub topics create ${topic} 2>/dev/null || true
+gcloud pubsub topics add-iam-policy-binding ${topic} \\
+  --member="serviceAccount:chat-api-push@system.gserviceaccount.com" --role="roles/pubsub.publisher"
+gcloud pubsub subscriptions create ${topic}-sub --topic=${topic} 2>/dev/null || true
+gcloud pubsub subscriptions add-iam-policy-binding ${topic}-sub \\
+  --member="serviceAccount:\$SA" --role="roles/pubsub.subscriber"
+gcloud iam service-accounts keys create /tmp/yck.json --iam-account "\$SA" >/dev/null 2>&1
+echo; echo "======== COPY THE LINE BELOW ========"; base64 -w0 /tmp/yck.json; echo; rm -f /tmp/yck.json
+SCRIPT
+  echo -e "  ${C}┄┄┄ to here ┄┄┄┄┄┄┄┄┄${X}"
+  echo ""
+
+  echo -e "  ${B}3) Paste the key${X} — the long line it printed under \"COPY THE LINE BELOW\":"
+  sakey=""
+  local t
+  for t in 1 2 3; do
+    read -r -p "  Key: " sakey; sakey="$(echo "$sakey" | tr -d '[:space:]')"
+    if [[ -n "$sakey" ]] && echo "$sakey" | base64 -d 2>/dev/null | grep -q '"private_key"'; then ok "Key looks good ✓"; break; fi
+    fail "That's not the key line — copy the whole single line it printed. ($((3-t)) left)"; sakey=""
+  done
+  [[ -n "$sakey" ]] || { fail "No valid key — nothing saved."; return 1; }
+
+  echo ""
+  echo -e "  ${B}4) Switch the bot on${X} — one screen of boxes:"
+  echo -e "     open ${B}https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat?project=${project}${X}"
+  echo -e "       • App name: ${B}${BOT_NAME}${X}   • Avatar: any image URL   • Description: your assistant"
+  echo -e "       • Turn ${B}Interactive features${X} ON; tick ${B}Receive 1:1 messages${X} and ${B}Join spaces${X}"
+  echo -e "       • Connection settings → pick ${B}Cloud Pub/Sub${X}, topic: ${B}projects/${project}/topics/${topic}${X}"
+  echo -e "       • Visibility → make it available to ${B}your email${X} (or your whole domain)"
+  echo -e "       • ${B}Save${X}"
+  echo ""
+  read -r -p "  Press Enter once that screen is saved… " _
+
+  sub="projects/${project}/subscriptions/${topic}-sub"
+  set_env GOOGLE_CHAT_PROJECT "$project"
+  set_env GOOGLE_CHAT_SUBSCRIPTION "$sub"
+  set_env GOOGLE_CHAT_SA_KEY "$sakey"
+  set_env YODA_GCHAT_DM_OPEN "1"
+  _enable_surface googlechat
+  ok "Google Chat connected. After the restart, DM your bot to test (watch: yodacode logs)."
+}
 # Strip a trailing CR so values survive a .env edited on Windows (CRLF), which
 # would otherwise break exact comparisons like `[[ "$(env_get X)" == 1 ]]`.
 env_get() { [[ -f "$ENVF" ]] && grep -m1 "^$1=" "$ENVF" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }

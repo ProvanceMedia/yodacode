@@ -51,6 +51,7 @@ $(echo -e "${B}Run${X}")
 
 $(echo -e "${B}Configure${X}")
   yodacode slack        (re)connect the Slack app + tokens
+  yodacode googlechat   connect Google Chat (guided; needs Google Workspace)
   yodacode persona      change bot name, your name, timezone
   yodacode model [name] show / set the Claude model
   yodacode tools        toggle reflectors & guardrails
@@ -352,6 +353,7 @@ cmd_logs()    { require_docker; exec docker compose logs -f agent; }
 cmd_shell()   { require_docker; exec docker compose exec agent bash; }
 
 cmd_slack()   { title "Reconfigure Slack"; if configure_slack; then restart_if_running; else fail "Slack setup didn't complete — nothing saved past the last ✓."; return 1; fi; }
+cmd_googlechat() { title "Connect Google Chat"; if configure_googlechat; then restart_if_running; else fail "Google Chat setup didn't finish — nothing saved past the last ✓."; return 1; fi; }
 cmd_persona() { title "Reconfigure persona"; configure_persona && restart_if_running; }
 cmd_addkey()  { exec ./quickstart.sh addkey "$@"; }
 cmd_connect() { exec ./quickstart.sh connect "$@"; }
@@ -609,6 +611,7 @@ case "$CMD" in
   logs)                 cmd_logs ;;
   shell)                cmd_shell ;;
   slack)                cmd_slack ;;
+  googlechat)           cmd_googlechat ;;
   persona)              cmd_persona ;;
   model)                cmd_model "$@" ;;
   tools)                cmd_tools "$@" ;;
