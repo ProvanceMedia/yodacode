@@ -245,6 +245,29 @@ cmd_update() {
   local a; a="$(ask 'Pull and rebuild now? [Y/n]' 'Y')"
   [[ "${a,,}" =~ ^n ]] && { note "Skipped."; return 0; }
 
+  # Heal a repo left WEDGED by a past update: a prior stash-pop conflict can leave
+  # an unmerged file, which then blocks every future 'git pull' with a cryptic
+  # "Pulling is not possible because you have unmerged files". Resolve it the same
+  # way a live conflict is (your edits win on the clashing lines), so a stuck box
+  # recovers itself instead of needing a manual git rescue.
+  if git diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
+    warn "Found unresolved conflicts from a previous update — healing them (your edits win):"
+    local healed hrc
+    healed="$(merge_favor_operator)"; hrc=$?
+    [[ -n "$healed" ]] && printf '%s\n' "$healed" | sed 's/^/    /'
+    if [[ $hrc -ne 0 ]]; then
+      fail "Some non-persona files are still conflicted and need you:"
+      git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    /'
+      note "Resolve their <<<< / ==== / >>>> markers, run: git add <files>, then re-run yodacode update."; return 1
+    fi
+    # A stash parked by that earlier failed pop is now fully represented in the tree —
+    # drop it BY REF. Never a bare `git stash drop` (that removes stash@{0}, which could
+    # be an unrelated stash the operator made while troubleshooting the stuck box).
+    local sref; sref="$(git stash list 2>/dev/null | grep -m1 'yodacode update' | sed 's/:.*//')"
+    [[ -n "$sref" ]] && git stash drop --quiet "$sref" 2>/dev/null || true
+    ok "Healed the leftover conflicts; continuing the update."
+  fi
+
   # Legacy installs kept the agent's service notes in the tracked TOOLS.md, which
   # would block a fast-forward. Rescue them into the gitignored TOOLS.local.md and
   # restore TOOLS.md first, so that one file stays clean.
@@ -268,14 +291,27 @@ cmd_update() {
     if git stash pop --quiet 2>/dev/null; then
       ok "Re-applied your local customizations onto the update."
     else
-      # A real merge conflict between your edits and the update — needs a human.
-      # The code is updated; leave the marked files for you and skip the rebuild
-      # so the bot keeps running the current image until you resolve them.
-      warn "Your local edits conflict with the update in:"
-      git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    /'
-      note "Edit those files to resolve the <<<< / ==== / >>>> markers, then: docker compose up -d --build"
-      note "Your shelved edits are also safe in: git stash show -p"
-      return 1
+      # The pop hit a conflict. Auto-resolve operator-owned persona docs in YOUR
+      # favour (upstream's non-clashing changes still land); leave anything else for
+      # a human. This stops a conflict from wedging the repo against future updates —
+      # the failure mode that used to require a manual git rescue.
+      local resolved rrc
+      resolved="$(merge_favor_operator)"; rrc=$?
+      if [[ $rrc -ne 0 ]]; then
+        warn "Your local edits conflict with the update in files I won't auto-resolve:"
+        git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/    /'
+        note "Resolve their <<<< / ==== / >>>> markers, run: git add <files>, then: docker compose up -d --build"
+        note "Your shelved edits are also safe in: git stash show -p"
+        return 1
+      fi
+      # Conflicts resolved — a conflicted pop leaves the stash parked, so drop it now.
+      git stash drop --quiet 2>/dev/null || true
+      if [[ -n "$resolved" ]]; then
+        ok "Re-applied your customizations (kept your version where it clashed with the update):"
+        printf '%s\n' "$resolved" | sed 's/^/    /'
+      else
+        ok "Re-applied your local customizations onto the update."
+      fi
     fi
   fi
 

@@ -233,6 +233,54 @@ ensure_tools_local() {
   fi
 }
 
+# Operator-owned docs: when an update's changes collide with local edits to one of
+# these, the operator's version wins on the CLASHING lines while upstream's other
+# changes still land. These are the persona/instruction files people deliberately
+# personalise (see the YODA_RESCUE_DOCS note above for why they MERGE, not revert).
+YODA_OPERATOR_DOCS="workspace/SOUL.md workspace/AGENTS.md workspace/skills/INDEX.md"
+
+_is_operator_doc() {
+  local d
+  for d in $YODA_OPERATOR_DOCS; do [[ "$1" == "$d" ]] && return 0; done
+  return 1
+}
+
+# Resolve unmerged files left by a conflicted stash-pop / merge. For an operator-
+# owned doc, redo the merge FAVOURING the operator on conflicting hunks (keeping
+# upstream's non-conflicting changes); any other unmerged file is left for a human.
+# Prints each auto-resolved path (one per line). Returns 0 if the tree ends fully
+# merged, 1 if a non-operator file is still unmerged. Relies on the index still
+# holding the 3 merge stages (:1 base, :2 ours=upstream, :3 theirs=operator) — the
+# standard state a conflicted merge/stash-pop leaves behind.
+merge_favor_operator() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  local f base ours theirs out unmerged manual=0
+  unmerged="$(git diff --name-only --diff-filter=U 2>/dev/null)" || return 0
+  [[ -z "$unmerged" ]] && return 0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if _is_operator_doc "$f" \
+       && git show ":1:$f" >/dev/null 2>&1 \
+       && git show ":2:$f" >/dev/null 2>&1 \
+       && git show ":3:$f" >/dev/null 2>&1; then
+      base="$(mktemp)"; ours="$(mktemp)"; theirs="$(mktemp)"; out="$(mktemp)"
+      git show ":1:$f" > "$base"; git show ":2:$f" > "$ours"; git show ":3:$f" > "$theirs"
+      # Merge base->theirs(operator) onto ours(upstream); --theirs = operator wins ties.
+      if git merge-file -q -p --theirs "$ours" "$base" "$theirs" > "$out" 2>/dev/null \
+         && mv "$out" "$f" && git add -- "$f" 2>/dev/null; then
+        printf '%s\n' "$f"
+      else
+        rm -f "$out"; manual=1   # couldn't auto-resolve/stage — leave for a human
+      fi
+      rm -f "$base" "$ours" "$theirs"
+    else
+      manual=1
+    fi
+  done <<< "$unmerged"
+  [[ "$manual" == 1 ]] && return 1
+  return 0
+}
+
 # Collect name / user name / context / timezone, render persona docs, persist to
 # .env. Pre-fills from existing .env so it doubles as a reconfigure step. Sets
 # globals BOT_NAME, USER_NAME, TZ_FINAL.
