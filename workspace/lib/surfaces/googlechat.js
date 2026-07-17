@@ -219,6 +219,24 @@ async function pullLoop() {
   logger.info('googlechat: pull loop stopped');
 }
 
+// ─── live status (mirrors Slack's status card) ───────────────────────────────
+// The dispatcher streams progress via setStatus; without it the raw stream (its
+// "thinking…" phases and tool chatter) gets dumped into the message. This
+// collapses the generic phases to a bare "working · 4s…" and keeps only real
+// tool-use detail, italicised so it reads as a system indicator, not a reply.
+function formatElapsed(startedAt) {
+  const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? `${s % 60}s` : ''}`;
+}
+export function statusText(status, startedAt) {
+  const clean = String(status || '').trim() || 'working…';
+  const elapsed = startedAt ? ` · ${formatElapsed(startedAt)}` : '';
+  const body = /^(thinking|starting up|working)/i.test(clean)
+    ? `working${elapsed}…`
+    : `working${elapsed} · ${clean}`;
+  return `_${body}_`;
+}
+
 // ─── surface contract ────────────────────────────────────────────────────────
 
 const googlechatSurface = {
@@ -262,6 +280,7 @@ const googlechatSurface = {
       surface: 'googlechat',
       messageName: msg.name,
       conversationId: `gchat:${replyTarget.thread || replyTarget.space}`,
+      startedAt: Date.now(),
     };
   },
 
@@ -271,6 +290,18 @@ const googlechatSurface = {
       await chatUpdate(handle.messageName, text);
     } catch (e) {
       logger.debug('googlechat: message update failed', { err: e.message });
+    }
+  },
+
+  // Live tool-use status during a run — a clean "working · 4s · reading …" line,
+  // NOT the raw stream (which would surface the model's thinking phases). The
+  // dispatcher prefers this over updateMessage when present, matching Slack.
+  async setStatus(handle, text) {
+    if (!handle?.messageName) return;
+    try {
+      await chatUpdate(handle.messageName, statusText(text, handle.startedAt));
+    } catch (e) {
+      logger.debug('googlechat: status update failed', { err: e.message });
     }
   },
 

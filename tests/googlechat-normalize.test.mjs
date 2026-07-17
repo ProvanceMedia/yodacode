@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 process.env.YODA_GCHAT_AUTHORIZED = 'users/alice';
 process.env.YODA_GCHAT_SPACES = 'spaces/ROOM_OK';
 
-const { normalizeChatEvent, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
+const { normalizeChatEvent, statusText, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
 
 const dm = (over = {}) => ({
   type: 'MESSAGE',
@@ -94,6 +94,18 @@ test('normalise: honours the newer spaceType=DIRECT_MESSAGE as well as legacy ty
     space: { name: 'spaces/DM2', spaceType: 'DIRECT_MESSAGE' },
     message: { name: 'm', sender: { name: 'users/z', type: 'HUMAN' }, text: 'hi', space: { name: 'spaces/DM2', spaceType: 'DIRECT_MESSAGE' } },
   }).isDirect, true);
+});
+
+test('statusText: collapses thinking/generic phases to a bare "working…", keeps real tool-use detail', () => {
+  // generic phases carry no detail → bare working, italicised, no "thinking" leaking
+  assert.equal(statusText('thinking…'), '_working…_');
+  assert.equal(statusText('working'), '_working…_');
+  assert.equal(statusText('starting up'), '_working…_');
+  assert.equal(statusText(''), '_working…_');
+  // a real tool-use verb is kept
+  assert.equal(statusText('reading config.js'), '_working · reading config.js_');
+  // elapsed time appears when startedAt is given (just assert the shape)
+  assert.match(statusText('reading config.js', Date.now() - 4000), /^_working · \ds · reading config\.js_$/);
 });
 
 test('isAuthorized: DM allowed only for listed users; space allowed only if listed', () => {
