@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.18.5 — 2026-07-18
+
+- fix(googlechat): don't reject real image attachments as "unsafe"
+
 ## v2.18.4 — 2026-07-18
 
 - fix(googlechat): delivery/media/config hardening from an implementation audit
