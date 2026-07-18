@@ -30,10 +30,6 @@ const SCOPES = ['https://www.googleapis.com/auth/pubsub', 'https://www.googleapi
 // validated too so a hostile value can't reshape a reply.
 const SPACE_RE = /^spaces\/[A-Za-z0-9_-]+$/;
 const THREAD_RE = /^spaces\/[A-Za-z0-9_-]+\/threads\/[A-Za-z0-9_.-]+$/;
-// Media resourceName is interpolated into the media-download URL; only allow the
-// characters a real Chat attachment resource name uses, so a hostile value can't
-// reshape the request (query/host injection).
-const RESOURCE_RE = /^[A-Za-z0-9._/-]+$/;
 const PULL_TIMEOUT_MS = 90_000; // abort a stuck long-poll so a dead connection recovers
 // Chat's per-message text limit is 4096 chars; leave margin and chunk longer
 // replies across messages so a long answer is never rejected (HTTP 400) and lost.
@@ -262,6 +258,23 @@ async function chatDelete(name) {
   return gfetch(`${CHAT_BASE}/${name}`, { method: 'DELETE', token });
 }
 
+// Build the media-download URL for an attachment resourceName. The resourceName
+// is an OPAQUE Google token that legitimately contains base64 characters (+ / =),
+// so we must NOT whitelist characters (that rejected real images). Instead parse
+// the assembled URL and require it stays on the media endpoint — which accepts
+// every real token verbatim while still blocking path-traversal or a reshaped
+// query. Returns the href, or null if the value would escape the endpoint.
+export function buildMediaUrl(resourceName) {
+  try {
+    const u = new URL(`${CHAT_BASE}/media/${resourceName}`);
+    if (u.origin !== 'https://chat.googleapis.com' || !u.pathname.startsWith('/v1/media/')) return null;
+    u.search = 'alt=media'; // overwrite any injected query with just what we intend
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
 // Read a fetch Response body into a Buffer, but never more than maxBytes — a
 // content-length pre-check rejects an oversized attachment before download, and
 // the streaming read aborts if the actual bytes run over (a lying or absent
@@ -328,14 +341,15 @@ async function downloadAttachments(attachments, msgId) {
       out.push({ name, error: 'no downloadable reference' });
       continue;
     }
-    if (!RESOURCE_RE.test(resourceName)) {
+    const mediaUrl = buildMediaUrl(resourceName);
+    if (!mediaUrl) {
       out.push({ name, error: 'unsafe media reference' });
       continue;
     }
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), MEDIA_TIMEOUT_MS);
     try {
-      const res = await fetch(`${CHAT_BASE}/media/${resourceName}?alt=media`, {
+      const res = await fetch(mediaUrl, {
         headers: { Authorization: `Bearer ${token}` }, signal: ac.signal,
       });
       if (!res.ok) {

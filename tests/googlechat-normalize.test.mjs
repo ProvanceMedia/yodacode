@@ -15,7 +15,7 @@ const STATE_DIR = path.join(os.tmpdir(), `yc-gchat-test-${process.pid}`);
 rmSync(STATE_DIR, { recursive: true, force: true });
 process.env.YODA_STATE_DIR = STATE_DIR;
 
-const { normalizeChatEvent, statusText, appendCapped, chunkText, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
+const { normalizeChatEvent, statusText, appendCapped, chunkText, buildMediaUrl, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
 
 // Build a DM event with full control over space, message id, text, thread and
 // createTime (the dm() helper below only overrides message fields).
@@ -257,6 +257,21 @@ test('chunkText: leaves a short reply whole, splits a long one under the limit (
   const broken = chunkText(withBreak, 4000);
   assert.equal(broken[0], 'a'.repeat(3900), 'first chunk ends at the newline, not mid-word');
   assert.equal(broken[1], 'b'.repeat(3900));
+});
+
+test('buildMediaUrl: accepts real base64 resourceNames, blocks traversal/injection (fixes the "unsafe image" regression)', () => {
+  // A real Chat attachment resourceName is an opaque token with base64 chars the
+  // old character-whitelist wrongly rejected — this is exactly what broke images.
+  const tok = 'CO4l7fMd+EAIaFwoT/ABPK9w=';
+  const url = buildMediaUrl(tok);
+  assert.ok(url, 'a base64 resourceName (+ / =) is NOT rejected');
+  assert.ok(url.startsWith('https://chat.googleapis.com/v1/media/'), 'stays on the media endpoint');
+  assert.ok(url.includes(tok), 'the token is preserved verbatim (same URL that worked before v2.18.4)');
+  assert.ok(url.endsWith('alt=media'));
+  // Still blocks the things the guard is actually for:
+  assert.equal(buildMediaUrl('../../v1/spaces/secret'), null, 'path traversal off /media/ is rejected');
+  const injected = buildMediaUrl('tok?alt=json&steal=1');
+  assert.ok(injected && !injected.includes('steal=1') && injected.endsWith('alt=media'), 'injected query params are dropped');
 });
 
 test('normalise: singleUserBotDm marks a DM even without type/spaceType (A5)', () => {
