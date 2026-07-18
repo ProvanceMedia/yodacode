@@ -30,7 +30,17 @@ const SCOPES = ['https://www.googleapis.com/auth/pubsub', 'https://www.googleapi
 // validated too so a hostile value can't reshape a reply.
 const SPACE_RE = /^spaces\/[A-Za-z0-9_-]+$/;
 const THREAD_RE = /^spaces\/[A-Za-z0-9_-]+\/threads\/[A-Za-z0-9_.-]+$/;
+// Media resourceName is interpolated into the media-download URL; only allow the
+// characters a real Chat attachment resource name uses, so a hostile value can't
+// reshape the request (query/host injection).
+const RESOURCE_RE = /^[A-Za-z0-9._/-]+$/;
 const PULL_TIMEOUT_MS = 90_000; // abort a stuck long-poll so a dead connection recovers
+// Chat's per-message text limit is 4096 chars; leave margin and chunk longer
+// replies across messages so a long answer is never rejected (HTTP 400) and lost.
+const CHAT_TEXT_LIMIT = 4000;
+// Cap inbound media so a huge/hostile upload can't OOM or hang the agent.
+const MEDIA_MAX_BYTES = (parseInt(process.env.GOOGLE_CHAT_MEDIA_MAX_MB || '20', 10) || 20) * 1024 * 1024;
+const MEDIA_TIMEOUT_MS = 60_000;
 
 let onMessageCallback = null;
 let stopping = false;
@@ -146,7 +156,10 @@ export function normalizeChatEvent(event) {
 
   // Chat exposes both a legacy `type` ('ROOM'|'DM') and a newer `spaceType'
   // ('SPACE'|'GROUP_CHAT'|'DIRECT_MESSAGE'); honour whichever is present.
-  const isDirect = space.type === 'DM' || space.spaceType === 'DIRECT_MESSAGE';
+  // Honour every DM signal Chat may send: legacy type, newer spaceType, and the
+  // singleUserBotDm flag on abbreviated payloads. Missing all three would lane a
+  // DM by thread — and DMs are unthreaded, so the bot would forget every turn.
+  const isDirect = space.type === 'DM' || space.spaceType === 'DIRECT_MESSAGE' || space.singleUserBotDm === true;
 
   const sender = msg.sender || event.user || {};
   const userId = sender.name;
@@ -249,6 +262,37 @@ async function chatDelete(name) {
   return gfetch(`${CHAT_BASE}/${name}`, { method: 'DELETE', token });
 }
 
+// Read a fetch Response body into a Buffer, but never more than maxBytes — a
+// content-length pre-check rejects an oversized attachment before download, and
+// the streaming read aborts if the actual bytes run over (a lying or absent
+// content-length can't OOM us). Falls back to arrayBuffer only if the body isn't
+// a readable stream (still size-checked afterward).
+async function readBoundedBody(res, maxBytes) {
+  const declared = Number(res.headers.get('content-length') || 0);
+  if (declared && declared > maxBytes) {
+    throw new Error(`attachment too large (${declared} bytes > ${maxBytes} cap)`);
+  }
+  const reader = res.body?.getReader?.();
+  if (!reader) {
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > maxBytes) throw new Error(`attachment too large (${buf.length} bytes > ${maxBytes} cap)`);
+    return buf;
+  }
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`attachment exceeded ${maxBytes} byte cap mid-download`);
+    }
+    parts.push(Buffer.from(value));
+  }
+  return Buffer.concat(parts);
+}
+
 // Download a user's inbound attachments so the agent can Read them locally. Chat's
 // media DOWNLOAD supports app auth (unlike upload). UPLOADED_CONTENT is fetched via
 // the media API; a DRIVE_FILE isn't downloadable this way (needs Drive) so it's
@@ -284,15 +328,21 @@ async function downloadAttachments(attachments, msgId) {
       out.push({ name, error: 'no downloadable reference' });
       continue;
     }
+    if (!RESOURCE_RE.test(resourceName)) {
+      out.push({ name, error: 'unsafe media reference' });
+      continue;
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), MEDIA_TIMEOUT_MS);
     try {
       const res = await fetch(`${CHAT_BASE}/media/${resourceName}?alt=media`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` }, signal: ac.signal,
       });
       if (!res.ok) {
         out.push({ name, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 120)}` });
         continue;
       }
-      const buf = Buffer.from(await res.arrayBuffer());
+      const buf = await readBoundedBody(res, MEDIA_MAX_BYTES);
       const filePath = path.join(baseDir, name.replace(/[^A-Za-z0-9._-]/g, '_'));
       writeFileSync(filePath, buf);
       out.push({ name, mimetype: a.contentType || 'application/octet-stream', size: buf.length, path: filePath });
@@ -300,6 +350,8 @@ async function downloadAttachments(attachments, msgId) {
     } catch (e) {
       out.push({ name, error: e.message });
       logger.warn('googlechat: attachment download failed', { name, err: e.message });
+    } finally {
+      clearTimeout(timer);
     }
   }
   return out;
@@ -387,6 +439,24 @@ export function statusText(status, startedAt) {
     ? `working${elapsed}…`
     : `working${elapsed} · ${clean}`;
   return `_${body}_`;
+}
+
+// Split a reply into pieces that fit Chat's per-message limit, breaking on a
+// newline near the edge where possible so a long answer spans clean messages
+// instead of being rejected wholesale (HTTP 400). Returns [text] when it fits.
+export function chunkText(text, limit = CHAT_TEXT_LIMIT) {
+  const s = String(text ?? '');
+  if (s.length <= limit) return [s];
+  const chunks = [];
+  let rest = s;
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf('\n', limit);
+    if (cut < limit * 0.5) cut = limit; // no useful newline near the edge → hard cut
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n/, '');
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
 }
 
 // ─── surface contract ────────────────────────────────────────────────────────
@@ -477,6 +547,10 @@ const googlechatSurface = {
     return {
       surface: 'googlechat',
       messageName: msg.name,
+      // Carry the space/thread so updateMessage can send a fresh message if the
+      // placeholder edit fails, and post overflow chunks into the same thread.
+      space: replyTarget.space,
+      thread: replyTarget.thread,
       // Same lane key normalizeChatEvent computed — DMs by space, not per-message
       // thread — so the stop-handler and session store correlate to one lane.
       conversationId: replyTarget.conversationId,
@@ -484,12 +558,27 @@ const googlechatSurface = {
     };
   },
 
+  // Deliver the final reply (or an inline notice). Edits the placeholder with the
+  // first chunk; if that edit FAILS (429/5xx, or the placeholder was deleted), it
+  // sends the chunk as a NEW message so the answer is never silently lost (the old
+  // behaviour swallowed the error and froze on "_thinking…_"). Anything past
+  // Chat's per-message limit is posted as follow-up messages in the same thread.
   async updateMessage(handle, text) {
     if (!handle?.messageName) return;
+    const chunks = chunkText(text);
     try {
-      await chatUpdate(handle.messageName, text);
+      await chatUpdate(handle.messageName, chunks[0]);
     } catch (e) {
-      logger.debug('googlechat: message update failed', { err: e.message });
+      logger.debug('googlechat: placeholder edit failed, sending fresh', { err: e.message });
+      if (handle.space) {
+        try { await chatSend(handle.space, handle.thread, chunks[0]); }
+        catch (e2) { logger.warn('googlechat: reply delivery failed', { err: e2.message }); }
+      }
+    }
+    for (let i = 1; i < chunks.length; i++) {
+      if (!handle.space) break;
+      try { await chatSend(handle.space, handle.thread, chunks[i]); }
+      catch (e) { logger.warn('googlechat: overflow chunk send failed', { chunk: i, err: e.message }); }
     }
   },
 
@@ -519,6 +608,7 @@ const googlechatSurface = {
     return `Surface formatting hints (Google Chat):
 - Google Chat markdown: *bold*, _italic_, ~strike~, \`inline code\`, and triple-backtick code blocks
 - Use plain URLs (Chat auto-links them). No Slack <url|text> or <@USER_ID> syntax.
+- You cannot attach files here (a Chat bot can't upload). To hand over a file, create it in Google Drive via your Google connection and share the link.
 - Your reply posts into the same thread; keep it tight and skimmable.`;
   },
 };

@@ -147,6 +147,32 @@ cmd_doctor() {
     else fail "Slack app token rejected — missing connections:write?"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
   fi
 
+  # Google Chat (Pub/Sub pull) — live check: mint a token from the SA key and
+  # prove the subscription is reachable. Catches the add-on-box / IAM / wrong-
+  # subscription failures that otherwise only surface in the logs after the fact.
+  if [[ -n "$(env_get GOOGLE_CHAT_SA_KEY)" || "$(env_get YODA_SURFACES)" == *googlechat* ]]; then
+    if [[ -z "$(env_get GOOGLE_CHAT_SA_KEY)" ]]; then
+      fail "Google Chat: GOOGLE_CHAT_SA_KEY missing"; note "   fix: yodacode googlechat"; problems=$((problems+1))
+    elif [[ -z "$(env_get GOOGLE_CHAT_SUBSCRIPTION)" ]]; then
+      fail "Google Chat: GOOGLE_CHAT_SUBSCRIPTION missing"; note "   fix: yodacode googlechat"; problems=$((problems+1))
+    elif ! grep -qx agent <<<"$ps"; then
+      note "Google Chat configured — live check skipped (agent not running)"
+    else
+      tmp="$(mktemp)"
+      # </dev/null: compose exec keeps stdin attached (-T only drops the TTY).
+      if docker compose exec -T --workdir /app/workspace agent node lib/googlechat-doctor.js </dev/null >"$tmp" 2>&1; then
+        ok "Google Chat: Pub/Sub subscription reachable"
+      else
+        fail "Google Chat: $(tail -1 "$tmp" | head -c 180)"
+        note "   Likely: the 'Build this Chat app as a Workspace add-on' box is still ticked (untick it — it silently breaks Pub/Sub),"
+        note "   the topic isn't granted Publisher for chat-api-push@system.gserviceaccount.com, or GOOGLE_CHAT_SUBSCRIPTION is wrong."
+        note "   fix: yodacode googlechat"
+        problems=$((problems+1))
+      fi
+      rm -f "$tmp"
+    fi
+  fi
+
   # OAuth sign-ins (Google etc.) — one live token mint per connected provider,
   # through the broker, so a dead refresh token is caught here and not mid-chat.
   if [[ -s workspace/broker/oauth-grants.json ]] && command -v python3 >/dev/null 2>&1; then

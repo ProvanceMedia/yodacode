@@ -90,18 +90,38 @@ export const config = {
     dmOpen: process.env.YODA_GCHAT_DM_OPEN === '1',
     // Full Pub/Sub subscription resource the bot pulls from:
     // "projects/<PROJECT>/subscriptions/<SUB>".
-    get subscription() { return required('GOOGLE_CHAT_SUBSCRIPTION'); },
+    get subscription() {
+      const sub = required('GOOGLE_CHAT_SUBSCRIPTION');
+      if (!/^projects\/[^/]+\/subscriptions\/[^/]+$/.test(sub)) {
+        console.error('FATAL: GOOGLE_CHAT_SUBSCRIPTION must look like projects/<PROJECT>/subscriptions/<SUB>');
+        process.exit(2);
+      }
+      return sub;
+    },
     // Service-account key as JSON, or base64 of the JSON (for a clean single-line
-    // .env). Grants Pub/Sub pull + Chat bot send. Parsed once at surface start.
+    // .env). Grants Pub/Sub pull + Chat bot send. Parsed + validated once at start.
     get serviceAccountKey() {
       const raw = required('GOOGLE_CHAT_SA_KEY').trim();
       const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+      let key;
       try {
-        return JSON.parse(json);
+        key = JSON.parse(json);
       } catch {
         console.error('FATAL: GOOGLE_CHAT_SA_KEY is not valid JSON (or base64 of JSON)');
         process.exit(2);
       }
+      // Validate the key shape so a wrong/partial file fails clearly at startup —
+      // and a doctored key can't redirect the token exchange to an attacker host.
+      const googleHost = (u) => { try { return /(^|\.)(googleapis|google)\.com$/.test(new URL(u).hostname); } catch { return false; } };
+      if (key?.type !== 'service_account' || !key.client_email || !key.private_key) {
+        console.error('FATAL: GOOGLE_CHAT_SA_KEY is not a service-account key (need type/client_email/private_key)');
+        process.exit(2);
+      }
+      if ((key.token_uri && !googleHost(key.token_uri)) || (key.auth_uri && !googleHost(key.auth_uri))) {
+        console.error('FATAL: GOOGLE_CHAT_SA_KEY token_uri/auth_uri is not a Google host — refusing (possible tampering)');
+        process.exit(2);
+      }
+      return key;
     },
   },
 

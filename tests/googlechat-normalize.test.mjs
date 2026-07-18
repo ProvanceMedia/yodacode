@@ -15,7 +15,7 @@ const STATE_DIR = path.join(os.tmpdir(), `yc-gchat-test-${process.pid}`);
 rmSync(STATE_DIR, { recursive: true, force: true });
 process.env.YODA_STATE_DIR = STATE_DIR;
 
-const { normalizeChatEvent, statusText, appendCapped, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
+const { normalizeChatEvent, statusText, appendCapped, chunkText, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
 
 // Build a DM event with full control over space, message id, text, thread and
 // createTime (the dm() helper below only overrides message fields).
@@ -242,6 +242,35 @@ test('statusText: collapses thinking/generic phases to a bare "working…", keep
   assert.equal(statusText('reading config.js'), '_working · reading config.js_');
   // elapsed time appears when startedAt is given (just assert the shape)
   assert.match(statusText('reading config.js', Date.now() - 4000), /^_working · \ds · reading config\.js_$/);
+});
+
+test('chunkText: leaves a short reply whole, splits a long one under the limit (A1)', () => {
+  assert.deepEqual(chunkText('hi there', 4000), ['hi there'], 'short text is one chunk, unchanged');
+  // A single 10k-char line has no newline to break on → hard cuts, nothing lost.
+  const long = 'x'.repeat(10000);
+  const parts = chunkText(long, 4000);
+  assert.ok(parts.length >= 3, 'a 10k line splits into multiple messages');
+  assert.ok(parts.every((p) => p.length <= 4000), 'every chunk is within Chat’s limit');
+  assert.equal(parts.join(''), long, 'hard-cut chunks reassemble to the original');
+  // Prefers a newline near the boundary.
+  const withBreak = 'a'.repeat(3900) + '\n' + 'b'.repeat(3900);
+  const broken = chunkText(withBreak, 4000);
+  assert.equal(broken[0], 'a'.repeat(3900), 'first chunk ends at the newline, not mid-word');
+  assert.equal(broken[1], 'b'.repeat(3900));
+});
+
+test('normalise: singleUserBotDm marks a DM even without type/spaceType (A5)', () => {
+  const e = normalizeChatEvent({
+    type: 'MESSAGE',
+    space: { name: 'spaces/DMX', singleUserBotDm: true },
+    message: {
+      name: 'spaces/DMX/messages/m', sender: { name: 'users/alice', type: 'HUMAN' },
+      text: 'hi', thread: { name: 'spaces/DMX/threads/t1' },
+      space: { name: 'spaces/DMX', singleUserBotDm: true },
+    },
+  });
+  assert.equal(e.isDirect, true, 'singleUserBotDm is recognised as a DM');
+  assert.equal(e.conversationId, 'gchat:spaces/DMX', 'so it lanes by space, not the unthreaded thread');
 });
 
 test('isAuthorized: DM allowed only for listed users; space allowed only if listed', () => {
