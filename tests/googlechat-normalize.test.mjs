@@ -42,12 +42,42 @@ test('normalise: a DM message maps to the surface event shape', () => {
   const e = normalizeChatEvent(dm());
   assert.equal(e.surface, 'googlechat');
   assert.equal(e.userId, 'users/alice');
-  assert.equal(e.conversationId, 'gchat:spaces/DM1/threads/t1');
+  // DMs are unthreaded — lane by SPACE, not the per-message thread, so the
+  // session resumes across messages instead of forgetting each turn.
+  assert.equal(e.conversationId, 'gchat:spaces/DM1');
   assert.equal(e.messageId, 'spaces/DM1/messages/m1');
   assert.equal(e.text, 'hello there');
   assert.equal(e.isDirect, true);
   assert.equal(e.isMention, false);
-  assert.deepEqual(e.replyTarget, { space: 'spaces/DM1', thread: 'spaces/DM1/threads/t1' });
+  // replyTarget still carries the actual thread (the reply threads onto the
+  // triggering message) plus the canonical lane key for postPlaceholder.
+  assert.deepEqual(e.replyTarget, {
+    space: 'spaces/DM1',
+    thread: 'spaces/DM1/threads/t1',
+    conversationId: 'gchat:spaces/DM1',
+  });
+});
+
+test('normalise: successive DM messages in different threads share ONE lane (session continuity)', () => {
+  // Google Chat gives each new top-level DM message a fresh thread name. Both
+  // must resolve to the same conversationId or the bot loses all context.
+  const first = normalizeChatEvent(dm({ name: 'spaces/DM1/messages/m1', thread: { name: 'spaces/DM1/threads/tA' } }));
+  const second = normalizeChatEvent(dm({ name: 'spaces/DM1/messages/m2', thread: { name: 'spaces/DM1/threads/tB' } }));
+  assert.equal(first.conversationId, 'gchat:spaces/DM1');
+  assert.equal(second.conversationId, first.conversationId, 'same DM space → same session lane');
+});
+
+test('normalise: a group chat is unthreaded too — laned by space', () => {
+  const gc = normalizeChatEvent({
+    type: 'MESSAGE',
+    space: { name: 'spaces/GC1', spaceType: 'GROUP_CHAT' },
+    message: {
+      name: 'spaces/GC1/messages/m', sender: { name: 'users/alice', type: 'HUMAN' },
+      text: 'hi all', thread: { name: 'spaces/GC1/threads/tz' },
+      space: { name: 'spaces/GC1', spaceType: 'GROUP_CHAT' },
+    },
+  });
+  assert.equal(gc.conversationId, 'gchat:spaces/GC1');
 });
 
 test('normalise: a space message is a mention, and argumentText (mention stripped) wins over text', () => {

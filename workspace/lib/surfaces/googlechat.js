@@ -93,19 +93,30 @@ export function normalizeChatEvent(event) {
   const rawThread = msg.thread?.name || null;
   const thread = rawThread && THREAD_RE.test(rawThread) ? rawThread : null;
 
+  // Session lane. DMs and group chats are UNTHREADED in Google Chat: every new
+  // top-level message gets a brand-new thread name, so laning by thread would
+  // start a fresh session on every message — the bot would forget the whole
+  // conversation between turns (context lives in the resumed session, and Chat
+  // gives a bot no history to rebuild it from). So lane an unthreaded space by
+  // the SPACE itself (the space IS the conversation; a DM space is 1:1). Named
+  // spaces are threaded by default, so there we keep laning by thread to hold
+  // parallel threads apart. The lane rides in replyTarget too, so postPlaceholder
+  // reproduces the exact same key (matches the Slack/WhatsApp adapters).
+  const isGroupChat = space.spaceType === 'GROUP_CHAT';
+  const unthreaded = isDirect || isGroupChat;
+  const conversationId = `gchat:${unthreaded ? spaceName : (thread || spaceName)}`;
+
   return {
     surface: 'googlechat',
     userId,
-    // Lane by thread where there is one (keeps threaded conversations separate),
-    // else by space — mirrors the Slack channel:thread / WhatsApp jid choice.
-    conversationId: `gchat:${thread || spaceName}`,
+    conversationId,
     messageId: msg.name,
     text,
     isDirect,
     // Chat only delivers space events to the app when it's @mentioned, so a
     // non-DM message here is by definition a mention.
     isMention: !isDirect,
-    replyTarget: { space: spaceName, thread },
+    replyTarget: { space: spaceName, thread, conversationId },
     attachments, // raw Chat Attachment objects; fetchContext downloads them locally
     raw: event,
   };
@@ -344,7 +355,9 @@ const googlechatSurface = {
     return {
       surface: 'googlechat',
       messageName: msg.name,
-      conversationId: `gchat:${replyTarget.thread || replyTarget.space}`,
+      // Same lane key normalizeChatEvent computed — DMs by space, not per-message
+      // thread — so the stop-handler and session store correlate to one lane.
+      conversationId: replyTarget.conversationId,
       startedAt: Date.now(),
     };
   },
