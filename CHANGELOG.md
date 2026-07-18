@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.18.2 — 2026-07-18
+
+- fix(googlechat): keep DM session context across messages
+
 ## v2.18.1 — 2026-07-17
 
 - docs(googlechat): put the "untick add-on" gotcha into the wizard + doc
