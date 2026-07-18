@@ -2,12 +2,31 @@
 // paths (Pub/Sub pull, Chat REST send) are integration-only. Run: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { rmSync } from 'node:fs';
 
-// Configure authz BEFORE importing config.js (its Sets are built eagerly at import).
+// Configure authz + an isolated state dir BEFORE importing config.js (its values
+// are read eagerly at import). The history buffer persists under stateDir, so a
+// throwaway dir keeps the test hermetic.
 process.env.YODA_GCHAT_AUTHORIZED = 'users/alice';
 process.env.YODA_GCHAT_SPACES = 'spaces/ROOM_OK';
+const STATE_DIR = path.join(os.tmpdir(), `yc-gchat-test-${process.pid}`);
+rmSync(STATE_DIR, { recursive: true, force: true });
+process.env.YODA_STATE_DIR = STATE_DIR;
 
-const { normalizeChatEvent, statusText, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
+const { normalizeChatEvent, statusText, appendCapped, default: surface } = await import('../workspace/lib/surfaces/googlechat.js');
+
+// Build a DM event with full control over space, message id, text, thread and
+// createTime (the dm() helper below only overrides message fields).
+const dmEvent = (space, msgName, text, thread, createTime) => ({
+  type: 'MESSAGE',
+  space: { name: space, type: 'DM' },
+  message: {
+    name: msgName, sender: { name: 'users/alice', type: 'HUMAN' },
+    text, thread: { name: thread }, space: { name: space, type: 'DM' }, createTime,
+  },
+});
 
 const dm = (over = {}) => ({
   type: 'MESSAGE',
@@ -136,6 +155,81 @@ test('normalise: extracts attachments and keeps a caption-less file message', ()
   assert.equal(withFile.attachments[0].contentName, 'report.xlsx');
   // but a truly empty message (no text, no files) is still dropped
   assert.equal(normalizeChatEvent(dm({ text: '', argumentText: '', attachment: [] })), null);
+});
+
+test('normalise: derives an orderable createdTs from createTime (empty when absent)', () => {
+  const e = normalizeChatEvent(dm({ createTime: '2026-07-18T08:00:00.000Z' }));
+  assert.equal(e.createdTs, String(Date.parse('2026-07-18T08:00:00.000Z')));
+  assert.match(e.createdTs, /^\d+$/, 'createdTs is all-digits so the dispatcher can order on it');
+  assert.equal(normalizeChatEvent(dm()).createdTs, '', 'no createTime → empty (falls back to messageId)');
+});
+
+test('appendCapped: keeps the newest N and drops a redelivered duplicate id', () => {
+  let l = [];
+  for (let i = 0; i < 30; i++) l = appendCapped(l, { id: 'x' + i, text: 'm' + i }, 24);
+  assert.equal(l.length, 24);
+  assert.equal(l[0].text, 'm6', 'oldest trimmed to the cap');
+  assert.equal(l[23].text, 'm29');
+  const n = l.length;
+  l = appendCapped(l, { id: 'x29', text: 'dup-redelivery' }, 24); // same id as last → ignored
+  assert.equal(l.length, n, 'redelivered message is not appended twice');
+  assert.equal(l[l.length - 1].text, 'm29');
+});
+
+test('history: a DM keeps its transcript across messages (the context fix)', async () => {
+  // Message 1: the user states a fact, in thread tA. recordInbound runs at
+  // ingress (as the dispatcher does), then the bot replies.
+  const e1 = normalizeChatEvent(dmEvent('spaces/DMH', 'spaces/DMH/messages/m1', 'my name is Sam', 'spaces/DMH/threads/tA', '2026-07-18T08:00:00.000Z'));
+  assert.equal(e1.conversationId, 'gchat:spaces/DMH');
+  surface.recordInbound(e1);
+  const c1 = await surface.fetchContext(e1);
+  assert.deepEqual(c1.messages.map((m) => m.text), ['my name is Sam']);
+  surface.recordReply(e1, 'Nice to meet you, Sam.');
+
+  // Message 2 arrives in a DIFFERENT thread (unthreaded DM) — in production the
+  // SDK session has also rotated away. The transcript must still carry both the
+  // earlier user message AND the bot's reply, or the bot answers blank.
+  const e2 = normalizeChatEvent(dmEvent('spaces/DMH', 'spaces/DMH/messages/m2', "what's my name?", 'spaces/DMH/threads/tB', '2026-07-18T08:05:00.000Z'));
+  assert.equal(e2.conversationId, e1.conversationId, 'same DM lane despite the new thread');
+  surface.recordInbound(e2);
+  const c2 = await surface.fetchContext(e2);
+  assert.deepEqual(
+    c2.messages.map((m) => m.text),
+    ['my name is Sam', 'Nice to meet you, Sam.', "what's my name?"],
+    'the bot now sees the whole conversation, not just the latest message',
+  );
+  // The newest message is the marked reply target and ordered last.
+  assert.equal(c2.replyTargetTs, e2.createdTs);
+  assert.equal(c2.messages[c2.messages.length - 1].ts, e2.createdTs);
+  // The bot's own line is tagged so the dispatcher's effort-scan/self-filter
+  // skip it — the model cannot escalate its own effort by quoting "ultrathink".
+  const botLine = c2.messages.find((m) => m.text === 'Nice to meet you, Sam.');
+  assert.equal(botLine.bot_id, 'assistant', 'bot reply carries a bot marker');
+  assert.equal(c2.messages.find((m) => m.text === 'my name is Sam').bot_id, undefined, 'user lines are unmarked');
+});
+
+test('history: a coalesced mid-burst message is still kept for context (finding A)', async () => {
+  // Three rapid messages: in production the queue coalesces, so the MIDDLE one's
+  // worker never runs. recordInbound fires at ingress for every message, so the
+  // correction is not lost from context even though it was never replied to.
+  const s = 'spaces/BURST';
+  surface.recordInbound(normalizeChatEvent(dmEvent(s, `${s}/messages/m1`, 'book Paris', `${s}/threads/a`, '2026-07-18T09:00:00.000Z')));
+  surface.recordInbound(normalizeChatEvent(dmEvent(s, `${s}/messages/m2`, 'actually London', `${s}/threads/b`, '2026-07-18T09:00:01.000Z')));
+  const last = normalizeChatEvent(dmEvent(s, `${s}/messages/m3`, 'and a hotel', `${s}/threads/c`, '2026-07-18T09:00:02.000Z'));
+  surface.recordInbound(last);
+  const ctx = await surface.fetchContext(last); // worker runs only for the last (pending) event
+  assert.deepEqual(ctx.messages.map((m) => m.text), ['book Paris', 'actually London', 'and a hotel'],
+    'the coalesced-away "London" correction survives in the transcript');
+});
+
+test('history: synthetic wake events are not recorded (finding C)', async () => {
+  const s = 'spaces/WAKE';
+  const real = normalizeChatEvent(dmEvent(s, `${s}/messages/m1`, 'ping', `${s}/threads/a`, '2026-07-18T10:00:00.000Z'));
+  surface.recordInbound(real);
+  // A background-watch wake carries synthetic:true / a wake object / empty text.
+  surface.recordInbound({ conversationId: `gchat:${s}`, synthetic: true, wake: {}, userId: 'users/alice', messageId: 'wake-1', text: '' });
+  const ctx = await surface.fetchContext(real);
+  assert.deepEqual(ctx.messages.map((m) => m.text), ['ping'], 'no phantom "(sent a file)" line from the wake');
 });
 
 test('statusText: collapses thinking/generic phases to a bare "working…", keeps real tool-use detail', () => {

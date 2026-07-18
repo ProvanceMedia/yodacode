@@ -48,6 +48,16 @@ export async function handleMessage(event, surface) {
     }
   }
 
+  // A surface that keeps its own transcript (Google Chat, which can't fetch its
+  // history) records every inbound message HERE — before the queue coalesces a
+  // burst — so a mid-burst message whose worker never runs is still kept for
+  // context. Skip synthetic wake events (not real user messages). Optional hook,
+  // best-effort. Real user messages only reach here past the stop + authz checks.
+  if (!event.synthetic && surface.recordInbound) {
+    try { surface.recordInbound(event); }
+    catch (e) { logger.debug('recordInbound failed', { err: e.message }); }
+  }
+
   // 3. Queue per conversation. Rapid messages coalesce — the worker picks up
   // the most recent state when it next runs.
   queue.submit(event.conversationId, event, async (ev) => {
@@ -274,6 +284,13 @@ async function processReply(event, surface) {
   // different artefacts. Both opt-in via env vars. Never blocks the response.
   const parsedFinal = result.ok && result.finalText ? parseFinalReply(result.finalText) : null;
   if (parsedFinal && parsedFinal.kind === 'text') {
+    // Let a surface that can't fetch its own history (Google Chat) record the
+    // reply into its rolling transcript, so the next tick sees both sides even
+    // after the SDK session rotates. Optional hook, best-effort.
+    if (surface.recordReply) {
+      try { surface.recordReply(event, parsedFinal.text); }
+      catch (e) { logger.debug('recordReply failed', { err: e.message }); }
+    }
     const reflectionArgs = {
       surface: event.surface,
       conversationId: event.conversationId,

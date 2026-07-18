@@ -18,7 +18,7 @@
 
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -54,6 +54,76 @@ function firstSight(id) {
     for (const k of keep) seenMessageIds.add(k);
   }
   return true;
+}
+
+// ─── conversation history buffer ─────────────────────────────────────────────
+// A Google Chat bot has NO way to fetch a DM's history: spaces.messages.list
+// returns 403 for the chat.bot scope, and 400 "DMs are not supported for methods
+// requiring app authentication" even with chat.messages.readonly. Yet the
+// dispatcher rotates (drops) the SDK session whenever a tick's input grows past
+// YODA_SESSION_ROTATE_TOKENS — with a heavy persona that's EVERY tick — after
+// which resume is gone and, with no history to rebuild from, the bot would reply
+// with zero context. So we keep our own rolling transcript from the messages we
+// already handle (every inbound event in fetchContext, every reply in
+// recordReply) and hand it back in fetchContext — the same fallback Slack gets
+// for free from conversations.history. Persisted so it survives a restart.
+const HISTORY_FILE = path.join(config.stateDir, 'googlechat-history.json');
+const HISTORY_PER_LANE = 24;    // messages kept per conversation (both sides)
+const HISTORY_MAX_LANES = 2000; // bound the file on busy installs
+let historyCache = null;
+
+function loadHistory() {
+  if (historyCache) return historyCache;
+  try {
+    historyCache = existsSync(HISTORY_FILE) ? JSON.parse(readFileSync(HISTORY_FILE, 'utf8')) : {};
+    if (!historyCache || typeof historyCache !== 'object' || Array.isArray(historyCache)) historyCache = {};
+  } catch { historyCache = {}; }
+  return historyCache;
+}
+
+function laneTouch(list) {
+  const last = Array.isArray(list) ? list[list.length - 1] : null;
+  return last ? Number(last.ts) || 0 : 0;
+}
+
+function persistHistory() {
+  try {
+    const lanes = Object.entries(historyCache || {});
+    if (lanes.length > HISTORY_MAX_LANES) {
+      lanes.sort((a, b) => laneTouch(b[1]) - laneTouch(a[1])); // keep most-recent lanes
+      historyCache = Object.fromEntries(lanes.slice(0, HISTORY_MAX_LANES));
+    }
+    mkdirSync(config.stateDir, { recursive: true });
+    // Atomic write: a crash or full disk mid-write would otherwise leave a
+    // truncated file, and loadHistory resets to {} on a parse error — one bad
+    // write would wipe every conversation's memory. Write a temp then rename
+    // (atomic on the same filesystem), so the live file is only ever whole.
+    const tmp = `${HISTORY_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(historyCache));
+    renameSync(tmp, HISTORY_FILE);
+  } catch (e) {
+    logger.warn('googlechat: history persist failed', { err: e.message });
+  }
+}
+
+// pure: append entry to a capped list, dropping a redelivered duplicate (same id
+// as the last entry) and trimming to the newest `cap` entries.
+export function appendCapped(list, entry, cap) {
+  const out = Array.isArray(list) ? list.slice() : [];
+  if (entry.id && out.length && out[out.length - 1].id === entry.id) return out;
+  out.push(entry);
+  return out.length > cap ? out.slice(out.length - cap) : out;
+}
+
+function recordMessage(conversationId, entry) {
+  const cache = loadHistory();
+  cache[conversationId] = appendCapped(cache[conversationId], entry, HISTORY_PER_LANE);
+  persistHistory();
+}
+
+function recentMessages(conversationId, n = HISTORY_PER_LANE) {
+  const list = loadHistory()[conversationId] || [];
+  return list.slice(Math.max(0, list.length - n));
 }
 
 // ─── pure: native Chat event → normalised surface event ──────────────────────
@@ -106,11 +176,19 @@ export function normalizeChatEvent(event) {
   const unthreaded = isDirect || isGroupChat;
   const conversationId = `gchat:${unthreaded ? spaceName : (thread || spaceName)}`;
 
+  // An orderable timestamp (epoch ms) from the Chat createTime, so the history
+  // buffer and the dispatcher's delta selection can sort/cut on it. The message
+  // resource name isn't orderable, so fall back to no-ts (still marked as the
+  // reply target, just not used as a delta cutoff).
+  const created = msg.createTime ? Date.parse(msg.createTime) : NaN;
+  const createdTs = Number.isFinite(created) ? String(created) : '';
+
   return {
     surface: 'googlechat',
     userId,
     conversationId,
     messageId: msg.name,
+    createdTs,
     text,
     isDirect,
     // Chat only delivers space events to the app when it's @mentioned, so a
@@ -338,16 +416,60 @@ const googlechatSurface = {
   },
 
   async fetchContext(event) {
-    // Chat gives a bot no "fetch last N" for arbitrary history; context is the
-    // current message (plus any files it carried) and the resumed session carries the rest.
+    // Chat gives a bot no way to fetch history (see the history-buffer note), so
+    // we serve our OWN rolling transcript instead of a single message. The
+    // messages are recorded at ingress (recordInbound) and after each reply
+    // (recordReply); here we only READ the recent window, so a rotated/expired
+    // session still answers with the conversation in view. Bot entries are tagged
+    // with bot_id so the dispatcher's effort scan and self-filters skip them (the
+    // model must not be able to escalate its own effort by quoting "ultrathink").
     const attachments = await downloadAttachments(event.attachments, event.messageId);
+    const messages = recentMessages(event.conversationId).map((m) => (
+      m.bot
+        ? { user: m.user, ts: m.ts, text: m.text, bot_id: 'assistant' }
+        : { user: m.user, ts: m.ts, text: m.text }
+    ));
     return {
-      messages: [{ user: event.userId, ts: event.messageId, text: event.text || '(sent a file)' }],
-      replyTargetTs: event.messageId,
+      messages,
+      replyTargetTs: event.createdTs || event.messageId,
       convName: event.replyTarget.space,
       isIm: event.isDirect,
       attachments,
     };
+  },
+
+  // Record an inbound user message into the rolling transcript. Called by the
+  // dispatcher at ingress — BEFORE the per-conversation queue can coalesce a
+  // rapid burst — so a message whose worker never runs is still kept for context
+  // (Slack recovers such messages by re-fetching history; a Chat bot can't).
+  // Skips synthetic wake events, which aren't real user messages.
+  recordInbound(event) {
+    if (!event?.conversationId || event.synthetic || event.wake) return;
+    try {
+      recordMessage(event.conversationId, {
+        user: event.userId,
+        ts: event.createdTs || event.messageId,
+        text: event.text || '(sent a file)',
+        id: event.messageId,
+      });
+    } catch (e) {
+      logger.debug('googlechat: recordInbound failed', { err: e.message });
+    }
+  },
+
+  // Record the bot's own reply into the rolling transcript so the next tick sees
+  // both sides of the conversation. Called by the dispatcher after a text reply
+  // is delivered (optional surface hook; a no-op for surfaces that can fetch
+  // their own history). Best-effort — never let a bookkeeping failure surface.
+  recordReply(event, text) {
+    if (!event?.conversationId || !text) return;
+    try {
+      recordMessage(event.conversationId, {
+        user: 'assistant', ts: String(Date.now()), text: String(text).slice(0, 8000), bot: true,
+      });
+    } catch (e) {
+      logger.debug('googlechat: recordReply failed', { err: e.message });
+    }
   },
 
   async postPlaceholder(replyTarget, text) {
