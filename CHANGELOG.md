@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.19.1 — 2026-07-19
+
+- fix(commitments): ban the throat-clearing move, not just its phrases
+
 ## v2.19.0 — 2026-07-19
 
 - feat(commitments): daily sweep of what you promised, with drafts that sound like you
