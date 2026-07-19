@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.20.1 — 2026-07-19
+
+- fix(skills): actually ship the copywriting doctrine; drop a stray index entry
+
 ## v2.20.0 — 2026-07-19
 
 - feat(skills): default copywriting doctrine — human copy, enforced before drafting
