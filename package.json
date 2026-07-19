@@ -1,6 +1,6 @@
 {
   "name": "yodacode",
-  "version": "2.18.5",
+  "version": "2.19.0",
   "private": true,
   "type": "module",
   "description": "YodaCode root — installer + scripts. The actual agent runtime lives in ./workspace.",
