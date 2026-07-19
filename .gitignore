@@ -45,6 +45,7 @@ workspace/TOOLS.local.md
 # User-created skills (skill-reflector writes here). INDEX.md is shipped.
 workspace/skills/*.md
 !workspace/skills/INDEX.md
+!workspace/skills/copywriting-doctrine.md
 
 # User-defined cron tasks. _template.yaml + examples/ stay tracked.
 cron-tasks/*.yaml
