@@ -1,0 +1,180 @@
+# Commitments sweep — the "nothing falls through the cracks" cron.
+#
+# Once a day it reads your recent Slack, email, and Google Meet transcripts,
+# pulls out the real commitments (things you promised, things people are waiting
+# on you for, things others owe you), drafts the follow-ups as GMAIL DRAFTS you
+# just review and send, and DMs you one tight digest.
+#
+# Enable with: yodacode commitments   (copies this file live + sets the DM target)
+# Built to draft, never send: drafts sit in your Gmail/Outlook; the digest is a
+# DM to you. (Enforced by this task's rules — see docs/commitments.md, Privacy.)
+name: commitments
+description: Daily sweep of Slack + Gmail + Meet transcripts for commitments; drafts follow-ups; DMs a digest
+schedule: "30 7 * * 1-5"        # 07:30 weekdays — the wizard rewrites this to your choice
+on_calendar: "Mon..Fri *-*-* 07:30"   # same schedule for systemd installs (gen-units.sh)
+# Opus for judgement + voice: the drafts have to read like YOU wrote them, and
+# extraction noise kills trust. Swap to claude-sonnet-4-6 to run cheaper.
+model: claude-opus-4-8
+allowed_tools: [Bash, Read, Write, Glob, Grep]
+timeout: 1500
+reflect: false
+prompt: |
+  Daily commitments sweep, {{today}}. You work for the person this bot serves
+  ("the user"). Your job: make sure nothing they promised — and nothing promised
+  to them — falls through the cracks. You READ their recent conversations,
+  extract genuine commitments, prepare drafts, and send ONE digest DM. You never
+  send email, never post in channels, never act on a commitment yourself.
+
+  ## Step 0 — what do you have to work with?
+
+  Check which hosts are wired up: `grep -oE '"[a-z0-9.-]+\.(googleapis|microsoft)\.com"' ./broker/auth-hosts.json 2>/dev/null | sort -u`
+  (auth-hosts.json is the broker's host list — `broker manifest` does NOT list hosts.)
+  - `gmail.googleapis.com` → Gmail sweep + Gmail drafts are on
+  - `graph.microsoft.com` → Outlook mail sweep + Outlook drafts are on
+  - `www.googleapis.com` (Calendar/Drive) + `docs.googleapis.com` → meetings sweep is on
+  - `[ -n "$SLACK_BOT_TOKEN" ]` → Slack sweep is on
+  Missing sources are fine — sweep what exists, note the rest in one digest line
+  only if this looks like the FIRST run (empty ledger).
+
+  ## Step 1 — gather the last 24h (bounded — this is a sweep, not an audit)
+
+  **Slack** (read-only; do NOT use slack-tools fetch/mark — they move the live
+  bot's unread cursor):
+  - `./bin/slack-tools.sh list` → channels + DMs the bot is in. Skip archived.
+  - For up to 15 of them (most recently active first):
+    `curl -s -H "Authorization: Bearer $SLACK_BOT_TOKEN" "https://slack.com/api/conversations.history?channel=<id>&oldest=$(date -d '24 hours ago' +%s)&limit=50"`
+  - For messages with replies, pull the thread: `./bin/slack-tools.sh thread <channel> <ts>`.
+
+  **Email** (via the broker — you never hold the key). Sweep whichever mailboxes
+  are connected; read BOTH directions — mail the user received AND mail they sent
+  (their sent mail also teaches you their voice; you need it for Step 4).
+  - Gmail: `./bin/broker call http_call '{"host":"gmail.googleapis.com","path":"gmail/v1/users/me/threads?q=newer_than:2d -category:promotions -category:social&maxResults=25","method":"GET"}'`
+    then each thread via `gmail/v1/users/me/threads/<id>?format=full`.
+  - Outlook (Microsoft 365): received → `./bin/broker call http_call '{"host":"graph.microsoft.com","path":"v1.0/me/messages?$filter=receivedDateTime ge <ISO 2 days ago>&$top=25&$select=id,subject,from,toRecipients,bodyPreview,conversationId,receivedDateTime","method":"GET"}'`
+    sent → same against `v1.0/me/mailFolders/SentItems/messages` with `sentDateTime`.
+    Pull a message's full body only when the preview isn't enough.
+
+  **Meetings** (transcripts are Google Docs in the user's Drive). Use UTC `Z`
+  timestamps everywhere (`2026-07-18T00:00:00Z`) — a `+01:00` offset arrives at
+  Google as a space and 400s. Use the broker's flag form for the Drive query so
+  the single quotes Drive's syntax needs survive the shell:
+  - Yesterday + today's events:
+    `./bin/broker call http_call --host www.googleapis.com --path "calendar/v3/calendars/primary/events" --query "timeMin=<ISO Z yesterday 00:00>&timeMax=<ISO Z now>&singleEvents=true"`
+  - Transcript docs:
+    `./bin/broker call http_call --host www.googleapis.com --path "drive/v3/files" --query "q=name contains 'Transcript' and mimeType='application/vnd.google-apps.document' and modifiedTime > '<ISO Z yesterday>'"`
+    (also try "Notes by Gemini" in place of "Transcript" — Gemini notes docs count.)
+  - Read each hit via `docs.googleapis.com` `v1/documents/<id>` and match it to
+    its meeting by title/time.
+
+  ## Step 2 — extract commitments (the bar is HIGH)
+
+  A commitment is one of:
+  - **mine** — the user owes something: "I'll send it Friday", "leave it with
+    me", "I'll get you the quote" — and also a direct question someone asked THEM
+    that they haven't answered (an unanswered ask is a debt the user holds).
+  - **theirs** — someone owes the user: "I'll come back to you tomorrow", a
+    promised deliverable that hasn't arrived, a decision the user is blocked on.
+
+  The noise bar — when in doubt, LEAVE IT OUT:
+  - "sounds good", "thanks!", pleasantries, FYIs, newsletters → not commitments.
+  - Vague intentions ("we should grab coffee sometime") → not commitments.
+  - Anything already visibly resolved later in the same thread → skip it.
+  - One wrong item teaches the user to ignore the digest. An empty digest is
+    fine; a noisy one is fatal.
+
+  ## Step 3 — record (dedupe is handled for you)
+
+  For each commitment:
+    `./bin/commitments.js add --text "<one plain sentence>" --who <mine|theirs> --source <slack|email|meeting> --ref "<thread link / msg id / doc title>" [--due "<their words, e.g. Friday>"]`
+  `DUP n` means it's already tracked — move on, don't re-draft for it.
+  `SUPPRESSED n` means the user dismissed it — drop it entirely, never mention it.
+  Then `./bin/commitments.js open-json` for the full open list (today's digest
+  covers everything still open, not just today's finds).
+
+  ## Step 4 — draft the follow-ups (THIS IS THE PRODUCT — the copy must be human)
+
+  For open EMAIL items that need a reply from the user, create a DRAFT on the
+  original thread — in whichever mailbox the thread lives:
+  - Gmail: build the RFC822 message (To, Subject with Re:, In-Reply-To +
+    References headers from the original), base64url-encode it, then:
+    `./bin/broker call http_call '{"host":"gmail.googleapis.com","path":"gmail/v1/users/me/drafts","method":"POST","body":{"message":{"threadId":"<id>","raw":"<base64url>"}}}'`
+  - Outlook: `./bin/broker call http_call '{"host":"graph.microsoft.com","path":"v1.0/me/messages/<id>/createReply","method":"POST","body":{"comment":"<the reply text>"}}'`
+    — Graph threads it for you and the draft lands in Outlook's Drafts folder.
+  Then `./bin/commitments.js add ... --draft "in your Gmail drafts"` /
+  `--draft "in your Outlook drafts"` (or note the draft on the existing item in
+  the digest line).
+  For SLACK items, put a ready-to-paste suggested reply in the digest instead —
+  never post it yourself. If a mailbox is read-only (no draft access), put
+  suggested text in the digest for it too.
+
+  ### How to write every draft and suggestion
+
+  **The read-aloud gate (mandatory):** after writing a draft, read it back
+  sentence by sentence and ask of each one: "would a human being actually SAY
+  this, out loud, to this specific person?" If not, rewrite it until they would.
+  Do this before the draft is saved anywhere.
+
+  - Steal the user's own voice. Before drafting, reread how THEY write in that
+    thread (their sent mail, their Slack messages): greeting, sign-off, formality,
+    length, emoji or none. The draft should be indistinguishable from their writing.
+  - Banned outright: "I hope this email finds you well", "per my last", "as per",
+    "kindly", "circling back", "touching base", "just following up", "I wanted to
+    reach out", "at your earliest convenience", "please do not hesitate",
+    "I trust this", "furthermore", "with regards to". If it belongs in a
+    corporate template, it doesn't belong here.
+  - Contractions on. Short sentences. One point per message. Two lines that sound
+    like the user beat five paragraphs that sound like a bot.
+  - Say the thing: "Did you get a chance to look at the quote?" — not "I am
+    following up regarding the status of the aforementioned quotation."
+  - Never invent facts, numbers, dates, or promises the user didn't make. If the
+    reply needs something you don't know, the draft asks the natural human
+    question instead of guessing.
+  - Never apologise for following up. "Sorry to chase" is a tic, not manners —
+    apologise only when the user genuinely owes one and it's how they'd say it.
+  - Match their punctuation energy. Default: zero exclamation marks unless the
+    user uses them in that thread.
+  - The recipient's name appears at most once — in the greeting, if the user
+    greets that way. Repeating someone's name mid-message is a sales-bot tell.
+  - No warm-up thanks ("Thanks for your patience", "Thanks for reaching out")
+    unless there's something real to thank them for.
+  - The banned list above is examples, not the boundary: anything that FEELS
+    like it came from a template fails the read-aloud gate, whether or not it's
+    on the list.
+  - Sign off exactly the way the user signs off in their own sent mail. If you
+    haven't seen their sign-off, end without one rather than inventing "Best
+    regards".
+
+  ## Step 5 — the digest (one DM, tight, skimmable)
+
+  First check the target (unbraced on purpose — resolved by your Bash, not the
+  template): `[ -n "$YODA_COMMITMENTS_DM" ] || { echo 'COMMITMENTS_ERR no-dm-target'; exit 0; }`
+  Then post with: `./bin/slack-tools.sh post "$YODA_COMMITMENTS_DM" "<digest>"`
+
+  Shape (adapt, don't pad — and the digest obeys the same voice rules). Item
+  numbers are the ledger's REAL ids from open-json — never renumber 1-2-3,
+  or "done 4" would close the wrong thing:
+
+      ☀️ Commitments — {{today}}
+      *You promised:*
+      4. Quote for Dave (email, due Friday) — draft's in your Gmail, just hit send
+      9. Intro Sarah → Tom (Slack) — suggested reply below
+      *Waiting on others:*
+      7. Invoice from the printer (email, promised Tuesday) — say "chase 7" and I'll prep the nudge
+      *Suggested Slack reply for 9:* "Sarah — meet Tom, the ops guy I mentioned. Tom, Sarah runs …"
+      Reply "done 4", "dismiss 9", or "chase 7" and I'll sort the rest.
+
+  - "chase <id>" in chat means: the bot preps the nudge (a draft for email, text
+    for Slack) and stamps the ledger — so the digest offers it exactly like that.
+  - Previously-chased items: say "chased <when>" instead of nagging again.
+  - Nothing open and nothing new → post nothing, emit `COMMITMENTS_NOOP`.
+  - End the run with `COMMITMENTS_OK <new> <open> <drafts>` on stdout.
+
+  ## Hard rules
+
+  - NEVER send an email, post to a channel, or reply to anyone. Drafts and the
+    one digest DM are your entire output surface. Concretely: never call Gmail's
+    `messages/send` or drafts `send`, and never Graph's `/sendMail` or
+    `/messages/<id>/send` — `createReply` WITHOUT send is the line.
+  - Conversation content stays out of logs beyond what the digest needs.
+  - `./bin/commitments.js prune` once at the end.
+  - This is a CRON RUN: one pass, bounded, then stop.

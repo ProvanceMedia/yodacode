@@ -68,6 +68,8 @@ services:
       YODA_GCHAT_AUTHORIZED: ${YODA_GCHAT_AUTHORIZED:-}
       YODA_GCHAT_SPACES: ${YODA_GCHAT_SPACES:-}
       YODA_GCHAT_DM_OPEN: ${YODA_GCHAT_DM_OPEN:-0}
+      # Commitments sweep (cron-tasks/commitments.yaml): where the digest DM goes.
+      YODA_COMMITMENTS_DM: ${YODA_COMMITMENTS_DM:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       YODA_SURFACES: ${YODA_SURFACES:-slack}
       YODA_CLAUDE_MODEL: ${YODA_CLAUDE_MODEL:-}

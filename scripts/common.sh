@@ -367,6 +367,73 @@ merge_favor_operator() {
   return 0
 }
 
+# Enable the daily commitments sweep: copies the example cron live, sets the
+# digest DM target and schedule. The cron reads recent Slack/Gmail/Meet
+# transcripts, extracts commitments, creates Gmail DRAFTS for follow-ups (never
+# sends), and DMs one digest.
+configure_commitments() {
+  ensure_env
+  note "Once a day, your bot reads your recent Slack, email and Meet transcripts,"
+  note "pulls out what you promised (and what people owe you), preps the follow-up"
+  note "emails as drafts in your Gmail, and sends you one tidy digest DM."
+  note "It's built to draft, never send — follow-ups wait in your drafts for you to hit send."
+  echo
+
+  # Connected mailboxes make it sing; Slack-only still works.
+  local has_google=0 has_ms=0
+  if [[ -s workspace/broker/oauth-grants.json ]]; then
+    grep -q '"google"' workspace/broker/oauth-grants.json 2>/dev/null && has_google=1
+    grep -q '"microsoft"' workspace/broker/oauth-grants.json 2>/dev/null && has_ms=1
+  fi
+  [[ $has_google == 1 ]] && ok "Google connected — Gmail + Meet transcripts swept, drafts land in Gmail"
+  [[ $has_ms == 1 ]] && ok "Microsoft 365 connected — Outlook swept, drafts land in Outlook"
+  if [[ $has_google == 0 && $has_ms == 0 ]]; then
+    warn "No mailbox connected yet — it'll sweep Slack only. Run 'yodacode connect google' and/or 'yodacode connect microsoft' for email + drafts."
+  fi
+
+  # Digest DM target: default to the owner's Slack member ID. Member IDs start
+  # U (or W) — a C/G/D id is a channel, and this digest is personal.
+  local def_dm cur_dm dm
+  cur_dm="$(env_get YODA_COMMITMENTS_DM)"
+  def_dm="${cur_dm:-$(env_get YODA_DM_AUTHORIZED_USERS | cut -d, -f1)}"
+  dm="$(ask "Slack member ID to DM the digest to" "$def_dm")"
+  [[ -z "$dm" ]] && { fail "Need a DM target (your Slack member ID, e.g. U12345678)."; return 1; }
+  if [[ ! "$dm" =~ ^[UW][A-Z0-9]{6,}$ ]]; then
+    warn "That doesn't look like a member ID (they start with U). If it's a channel, the digest — promises, chases, drafts — goes where everyone in it can read it."
+    local sure; sure="$(ask "Use $dm anyway? (y/N)" "N")"
+    [[ "$sure" =~ ^[Yy] ]] || { note "No changes made — find your member ID in Slack: your profile → ⋮ → Copy member ID."; return 1; }
+  fi
+  set_env YODA_COMMITMENTS_DM "$dm"
+  ok "Digest goes to $dm"
+
+  # Existing live task? Settle that BEFORE asking schedule questions, so a "keep
+  # mine" answer doesn't throw away answers we just collected.
+  local dst="cron-tasks/commitments.yaml"
+  if [[ -f "$dst" ]]; then
+    local ov; ov="$(ask "cron-tasks/commitments.yaml already exists — replace it with a fresh copy? (y/N)" "N")"
+    [[ "$ov" =~ ^[Yy] ]] || { note "Kept your existing task; updated only the DM target."; return 0; }
+  fi
+
+  # Schedule.
+  local t hh mm days cronex calex
+  t="$(ask "What time should the digest arrive? (24h HH:MM)" "07:30")"
+  [[ "$t" =~ ^([01]?[0-9]|2[0-3]):([0-5][0-9])$ ]] || { fail "That doesn't look like a time — use HH:MM, like 07:30."; return 1; }
+  hh="${t%%:*}"; mm="${t##*:}"
+  days="$(ask "Weekdays only, or every day? (weekdays/all)" "weekdays")"
+  case "$days" in
+    all|every*) cronex="$mm $hh * * *";   calex="*-*-* $t" ;;
+    *)          cronex="$mm $hh * * 1-5"; calex="Mon..Fri *-*-* $t" ;;
+  esac
+
+  # Copy the example live (the live copy is YOURS — updates never touch it).
+  sed -e "s|^schedule: .*|schedule: \"$cronex\"|" \
+      -e "s|^on_calendar: .*|on_calendar: \"$calex\"|" \
+      cron-tasks/examples/commitments.yaml > "$dst"
+  ok "Enabled: $dst (schedule: $cronex)"
+  note "Manage it in chat: your digest tells you — reply \"done 2\" / \"dismiss 3\" / \"chase 3\"."
+  note "Disable any time: delete cron-tasks/commitments.yaml (or set 'disabled: true' in it)."
+}
+
 # Collect name / user name / context / timezone, render persona docs, persist to
 # .env. Pre-fills from existing .env so it doubles as a reconfigure step. Sets
 # globals BOT_NAME, USER_NAME, TZ_FINAL.
