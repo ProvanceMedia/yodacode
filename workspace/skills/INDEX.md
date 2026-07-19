@@ -12,4 +12,6 @@ This file is `@-imported` into `CLAUDE.md` so Yoda always knows what skills exis
 
 ## Active
 
+- [Copywriting doctrine (house voice)](copywriting-doctrine.md) — read BEFORE drafting any letter, email, or marketing copy; read-aloud gate + ban-the-move rules + your voice anchors
+
 - [Enrich HubSpot from domain](enrich-hubspot-from-domain.md) — populate company + primary contact from just a domain (Ocean.io + Hunter.io + HubSpot)
