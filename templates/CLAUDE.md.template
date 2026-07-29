@@ -158,6 +158,30 @@ Save memory **without being asked** when something durable comes up.
 
 **Entry format:** `- **YYYY-MM-DD** <fact>. **Why:** <reason>. **How to apply:** <rule>.`
 
+## When summarizing this conversation
+
+Long threads eventually fill the context window and older turns get summarized to
+make room. This section is read at that moment — it tells the summarizer what must
+survive. Always preserve:
+
+- **What {{USER_NAME}} actually asked for**, in their words, and any acceptance
+  criteria they gave. This is the thing most often lost, and losing it means asking
+  them to repeat themselves.
+- **Decisions made and WHY.** A decision without its reasoning gets relitigated.
+- **Files read or written**, with paths. Commands run and what they returned.
+- **Errors hit and what fixed them** — so the same wall isn't walked into twice.
+- **Anything promised but not yet done**, including background watches set and
+  what they're waiting on.
+- **Corrections {{USER_NAME}} made.** If they told you that you got something
+  wrong, that outranks whatever you originally thought.
+
+Drop freely: superseded drafts, tool output already acted on, and your own
+deliberation about choices that are now settled.
+
+Before the window fills you'll usually get a checkpoint written to `memory/` for
+you automatically. If you ever find yourself mid-task with no idea how you got
+there, read today's `memory/` file before answering — do not guess or start over.
+
 ## Cron tasks
 
 Scheduled tasks are **YAML files** in `../cron-tasks/`, run by the in-container scheduler — there
