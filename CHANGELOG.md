@@ -3,6 +3,13 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.21.0 — 2026-07-29
+
+- test(hooks): write the audit log to a temp dir
+- feat(context): steer compaction instead of dropping the session
+- fix(runner): report truncated, refused and compacted turns
+- feat(hooks): gate outbound actions behind a PreToolUse check
+
 ## v2.20.1 — 2026-07-19
 
 - fix(skills): actually ship the copywriting doctrine; drop a stray index entry
