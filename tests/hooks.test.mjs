@@ -3,8 +3,18 @@
 // something irreversible. Run: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { classifyExternalWrite, isExternalActionAuthorized, buildHooks } from '../workspace/lib/hooks.js';
+// The hooks write a real audit log to config.stateDir. Point that at a temp
+// dir BEFORE the module graph loads, or running the suite drops a state/
+// directory in the repo root and dirties the working tree. config.js reads
+// the environment once at import, so this has to precede the import — hence
+// the dynamic form.
+process.env.YODA_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'yc-hooks-'));
+const { classifyExternalWrite, isExternalActionAuthorized, buildHooks } =
+  await import('../workspace/lib/hooks.js');
 
 // ─── classifier: things that reach the outside world ───────────────────────
 
