@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.21.1 — 2026-07-29
+
+- fix(hooks): make audit mode a real dry run
+
 ## v2.21.0 — 2026-07-29
 
 - test(hooks): write the audit log to a temp dir
