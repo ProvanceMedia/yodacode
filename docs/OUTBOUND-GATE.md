@@ -71,14 +71,25 @@ Set `YODA_CONFIRM_EXTERNAL` in `.env`:
 | `off` | No hooks at all. |
 
 It ships as `audit` on purpose: upgrading YodaCode should never silently change what your bot
-will do. Run it for a few days, read the log, see what your agent actually reaches for — then
-turn it up:
+will do.
+
+Audit mode is a **dry run**, not just a log. Every entry carries `wouldBlock` — whether `confirm`
+mode would have stopped that call — alongside `blocked`, which is what actually happened. So you
+can see the effect of turning the gate on before you turn it on.
 
 ```bash
-# what has it been doing?
-jq -r 'select(.event=="attempt") | "\(.at)  \(.kind)  \(.detail)  blocked=\(.blocked)"' \
+# Everything the agent has sent, uploaded or run remotely:
+jq -r 'select(.event=="attempt") | "\(.at)  \(.kind)  \(.detail)"' \
   workspace/state/external-calls.jsonl | tail -40
+
+# The preview that matters — what 'confirm' WOULD have stopped:
+jq -r 'select(.event=="attempt" and .wouldBlock) | "\(.at)  \(.kind)  \(.detail)"' \
+  workspace/state/external-calls.jsonl
 ```
+
+If that second list is empty after a week of normal use, `confirm` costs you nothing — switch it
+on. If it's full of things you did want sent, the classifier or the authorisation heuristic needs
+tuning first; open an issue with the lines (they contain no message content, only what was called).
 
 The log records both the attempt and its outcome, so it doubles as an audit trail of everything
 your agent has sent — which the reconstructed `state/tool-runs.json` never reliably captured,

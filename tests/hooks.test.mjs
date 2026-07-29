@@ -184,6 +184,21 @@ test('a subagent gets no exemption from the gate', async () => {
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
 });
 
+test('audit mode records what confirm mode WOULD have blocked', async () => {
+  // Without this, audit mode is not a dry run: it says an external call
+  // happened but not whether the gate would have stopped it.
+  const hooks = buildHooks({ mode: 'audit', authorized: false, conversationId: 'c9' });
+  const out = await runGate(hooks, 'broker call slack_post --channel C1 --text hi');
+  assert.deepEqual(out, {}, 'audit must not block');
+
+  const entry = fs.readFileSync(path.join(process.env.YODA_STATE_DIR, 'external-calls.jsonl'), 'utf8')
+    .trim().split('\n').map((l) => JSON.parse(l))
+    .find((l) => l.conversationId === 'c9');
+  assert.ok(entry, 'the attempt must be logged');
+  assert.equal(entry.blocked, false, 'audit mode blocks nothing');
+  assert.equal(entry.wouldBlock, true, 'but it must record that confirm WOULD have');
+});
+
 test('failed external calls are audited too, not just successful ones', () => {
   // A Bash command that exits non-zero fires PostToolUseFailure, NOT
   // PostToolUse. Registering only the latter loses every failed send.

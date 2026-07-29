@@ -208,9 +208,14 @@ export function buildHooks({
     // A subagent acting externally is the same risk as the main thread —
     // agent_id only tells us WHERE it came from, it doesn't earn an exemption.
     const via = input.agent_id ? `subagent ${input.agent_id}` : 'main';
-    const blocked = mode === 'confirm' && !authorized;
+    // wouldBlock is recorded in EVERY mode; blocked only in the mode that acts.
+    // That difference is what makes 'audit' a usable dry run: without it the
+    // log says an external call happened but not whether 'confirm' would have
+    // stopped it — which is the whole question you read the log to answer.
+    const wouldBlock = !authorized;
+    const blocked = mode === 'confirm' && wouldBlock;
 
-    audit({ at: new Date().toISOString(), ...base, event: 'attempt', ...hit, via, blocked });
+    audit({ at: new Date().toISOString(), ...base, event: 'attempt', ...hit, via, wouldBlock, blocked });
 
     if (!blocked) return {};
 
