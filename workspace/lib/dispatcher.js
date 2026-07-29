@@ -23,6 +23,7 @@ import { maybeReflect } from './skill-reflector.js';
 import { maybeReflectMemory } from './memory-reflector.js';
 import { sessionStore } from './session-store.js';
 import { watchStore } from './watch-store.js';
+import { isExternalActionAuthorized } from './hooks.js';
 
 /**
  * @param {object} event Normalised event (see lib/surface.js for shape)
@@ -127,6 +128,14 @@ async function processReply(event, surface) {
     });
   }
 
+  // 6c. May this turn act on the outside world? Judged from what the HUMAN
+  // said — asking for a send, or confirming one. A watch wake carries no human
+  // message at all, which is exactly the case worth gating: nobody asked for
+  // anything, so an outbound call would be the agent's own idea (or an
+  // injection's). The gate's mode lives in YODA_CONFIRM_EXTERNAL; in the
+  // default 'audit' mode this flag only decides what gets logged.
+  const externalAuthorized = !event.wake && isExternalActionAuthorized(event.text);
+
   // 7. Run claude with model fallback chain. If the primary model is
   // throttled (Anthropic 529), automatically retry with the next model in
   // YODA_CLAUDE_FALLBACK_MODELS. User-initiated stops, timeouts, and
@@ -159,6 +168,7 @@ async function processReply(event, surface) {
         model: model || undefined,
         effort,
         resume: resumeId,
+        externalAuthorized,
         onStatus: (text) => (surface.setStatus
           ? surface.setStatus(placeholder, text)
           : surface.updateMessage(placeholder, text)),
@@ -173,7 +183,9 @@ async function processReply(event, surface) {
           // unless this turn armed a background watch, which the user must be
           // able to see (an invisible "I'll get back to you" is a broken promise).
           const parsed = parseFinalReply(text);
-          const footer = watchFooter(event.conversationId, tickStartMs);
+          const footers = [watchFooter(event.conversationId, tickStartMs), meta?.truncatedNote]
+            .filter(Boolean);
+          const footer = footers.join('\n\n');
           if (parsed.kind === 'text') {
             return surface.updateMessage(placeholder, footer ? `${parsed.text}\n\n${footer}` : parsed.text);
           }

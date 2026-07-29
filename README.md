@@ -82,6 +82,13 @@ unprivileged user with no service keys in its environment and reaches every API 
 So a prompt injection or a confused agent has nothing to leak: the keys are on the other side of a
 container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
 
+The same idea covers what the agent *sends*. "Ask before acting externally" is a rule the agent
+can forget once its early context compacts away, and one that a poisoned web page can argue with
+on equal footing. So it's enforced outside the model instead: sends, uploads and remote commands
+pass a gate in the supervisor, and an outbound action nobody asked for gets stopped and turned
+into a question. It ships in audit-only mode — see
+[docs/OUTBOUND-GATE.md](docs/OUTBOUND-GATE.md) to turn it on.
+
 ## Day-to-day
 
 The installer drops a `yodacode` command on your PATH. Run `yodacode help` for the full list:

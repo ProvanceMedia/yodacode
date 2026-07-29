@@ -106,9 +106,12 @@ export function toolList(tools) {
  *   identity (YODA_CONVERSATION_ID/SURFACE/USER_ID/REPLY_TARGET) so a tool it
  *   runs, e.g. bin/watch.js, knows which thread to wake later. Must never carry
  *   secrets: it deliberately bypasses the allowlist that strips them.
+ * @param {object}  [args.hooks]    Lifecycle hooks (lib/hooks.js). Passed as a CODE
+ *   option, never via .claude/settings.json — yoda.js rewrites that file from
+ *   YODA_SANDBOX on every boot and would clobber anything stored there.
  */
 export function buildAgentOptions({
-  model, effort, allowedTools, permissionMode, cwd, abortController, env, stderr, deroot, resume, extraEnv,
+  model, effort, allowedTools, permissionMode, cwd, abortController, env, stderr, deroot, resume, extraEnv, hooks,
 }) {
   const isolation = env ? { env, spawnHook: null } : resolveRunIsolation(deroot);
   const options = {
@@ -119,6 +122,7 @@ export function buildAgentOptions({
     settingSources: ['user', 'project', 'local'],
     env: extraEnv ? { ...isolation.env, ...extraEnv } : isolation.env,
   };
+  if (hooks) options.hooks = hooks;
   if (isolation.spawnHook) options.spawnClaudeCodeProcess = isolation.spawnHook;
   if (resume) options.resume = resume;
   if (model) options.model = model;
@@ -147,7 +151,7 @@ export function isAbortError(e) {
  */
 export async function runAgentText({
   prompt, model, effort, allowedTools, permissionMode = 'acceptEdits',
-  cwd, timeoutMs, env, stderr, deroot,
+  cwd, timeoutMs, env, stderr, deroot, hooks,
 }) {
   const controller = new AbortController();
   let timedOut = false;
@@ -167,7 +171,7 @@ export async function runAgentText({
       prompt,
       options: buildAgentOptions({
         model, effort, allowedTools, permissionMode, cwd,
-        abortController: controller, env, stderr, deroot,
+        abortController: controller, env, stderr, deroot, hooks,
       }),
     });
     for await (const m of q) {

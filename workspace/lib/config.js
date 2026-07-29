@@ -205,6 +205,18 @@ export const config = {
     guardrailEnabled: process.env.YODA_GUARDRAIL_ENABLED !== '0',
     guardrailRepeatThreshold: parseInt(process.env.YODA_GUARDRAIL_REPEAT_THRESHOLD || '2', 10),
     guardrailNoProgressThreshold: parseInt(process.env.YODA_GUARDRAIL_NOPROGRESS_THRESHOLD || '3', 10),
+    // Outbound-action gate (lib/hooks.js, a PreToolUse hook — enforced in this
+    // process, so the model can't be talked out of it by anything it reads).
+    //   confirm — block sends/uploads/remote-exec unless the human asked for an
+    //             outbound action or confirmed one. The agent asks instead.
+    //   audit   — never block; just record every external attempt to
+    //             state/external-calls.jsonl. (default)
+    //   off     — no hooks at all.
+    // 'audit' is the default so an upgrade never silently changes what the bot
+    // will do; turn it up to 'confirm' once you've read a few days of the log.
+    confirmExternal: ['off', 'audit', 'confirm'].includes(process.env.YODA_CONFIRM_EXTERNAL)
+      ? process.env.YODA_CONFIRM_EXTERNAL
+      : 'audit',
   },
 
   // Skill self-generation. After a successful surface tick that crosses the
@@ -246,10 +258,19 @@ export const config = {
     // Threads idle longer than this start a fresh session (ms, default 14 days).
     maxAgeMs: msEnv('YODA_SESSION_MAX_AGE_MS', 14 * 24 * 3600 * 1000),
     // Retire a thread's session once a tick's total input (fresh + cached)
-    // reaches this many tokens — long-lived threads then restart fresh with
-    // the recent transcript instead of dragging an ever-growing session.
-    // 0 disables rotation.
-    rotateInputTokens: parseInt(process.env.YODA_SESSION_ROTATE_TOKENS || '120000', 10),
+    // reaches this many tokens. 0 disables rotation (the default).
+    //
+    // This used to default to 120000 to get ahead of the SDK's auto-compaction,
+    // on the theory that compaction quietly ate early context. The cure was
+    // worse: rotation drops the WHOLE session, so every long thread went blank
+    // at 120k and the agent lost what was agreed an hour ago.
+    //
+    // Compaction is now steered instead of dodged — the CLAUDE.md "When
+    // summarizing this conversation" section tells the compactor what to keep,
+    // and the PreCompact hook (lib/hooks.js) checkpoints to memory/ first. So
+    // threads are left to compact and keep going. Set a value here to bring
+    // rotation back as a hard cap on per-tick input cost.
+    rotateInputTokens: parseInt(process.env.YODA_SESSION_ROTATE_TOKENS || '0', 10),
   },
 
   // Background watches. During a turn the agent can set a "watch" (via

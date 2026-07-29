@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { runAgentText } from '../lib/agent-query.js';
 import { reflectAfterCron } from '../lib/cron-reflect.js';
+import { buildHooks } from '../lib/hooks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const BIN_DIR = path.dirname(__filename);
@@ -214,6 +215,11 @@ async function main() {
     cwd: WORKSPACE,
     deroot,
     timeoutMs,
+    // A cron task file is written by the operator and scheduled deliberately,
+    // so it IS the authorisation for whatever it sends — there is no human in
+    // the loop to ask. The hooks still audit every external call, and the
+    // PreCompact checkpoint still fires for long-running tasks.
+    hooks: buildHooks({ authorized: true, surface: 'cron', conversationId: def.name }),
     stderr: (data) => { if (stderrBuf.join('').length < 16384) stderrBuf.push(String(data)); },
   });
 
