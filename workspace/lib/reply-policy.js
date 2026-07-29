@@ -41,6 +41,16 @@ export function parseFinalReply(text) {
     const inner = say[1].trim();
     return inner ? { kind: 'text', text: inner } : { kind: 'silent' };
   }
+
+  // Opening tag but no closing one: the model was cut off mid-reply (output
+  // token limit, aborted run). Everything after the tag is still the reply —
+  // take it. Without this the "no tags at all" fallback below would post the
+  // whole output INCLUDING the scratchpad that preceded <say>.
+  const openSay = t.match(/<(?:say|reply)>([\s\S]*)$/i);
+  if (openSay) {
+    const inner = openSay[1].trim();
+    return inner ? { kind: 'text', text: inner } : { kind: 'silent' };
+  }
   // <react> is accepted from the model but this build has no reaction support on
   // its surfaces — treat an ack-without-text as silence rather than posting the tag.
   if (/<react>[^<]*<\/react>/i.test(t) || /<silent\s*\/?>/i.test(t)) return { kind: 'silent' };

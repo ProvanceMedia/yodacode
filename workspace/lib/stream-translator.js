@@ -62,6 +62,9 @@ export async function translateMessages(messages, {
   let model = null;
   let sessionId = null;
   let stop = false;
+  let truncated = false;  // stop_reason 'max_tokens' — the reply got cut off
+  let refused = false;    // stop_reason 'refusal' — the model declined
+  let compacted = false;  // the context window was summarised mid-run
 
   const send = async (text, force = false) => {
     if (text === lastTextSent && !force) return;
@@ -138,6 +141,18 @@ export async function translateMessages(messages, {
               }
               stop = true;
             }
+          } else if (ev.subtype === 'model_refusal_no_fallback') {
+            // Refused with nowhere to fall back to — the turn ends here.
+            refused = true;
+          } else if (ev.subtype === 'compact_boundary') {
+            // The window filled and older turns were summarised. The run
+            // continues — this is a progress note, not an error — but it's
+            // worth surfacing: the agent's recall of early context just got
+            // lossier, and the PreCompact hook (lib/hooks.js) has written a
+            // checkpoint to memory/ by the time this arrives.
+            compacted = true;
+            currentStatus = 'condensing context…';
+            await send(currentStatus, true);
           }
           break;
 
@@ -191,11 +206,17 @@ export async function translateMessages(messages, {
         case 'result':
           if (ev.is_error) {
             errorText = (ev.subtype === 'success' ? ev.result : (ev.errors || []).join('; '))
-              || ev.subtype || '(unknown error)';
+              || explainSubtype(ev.subtype) || '(unknown error)';
           } else if (ev.subtype === 'success') {
             finalText = (ev.result || '').trim();
+            // stop_reason 'max_tokens' means the model was CUT OFF mid-sentence,
+            // but the run still reports success — so a truncated reply is
+            // otherwise indistinguishable from a finished one and lands looking
+            // complete. Say so rather than passing off a half-answer.
+            if (ev.stop_reason === 'max_tokens') truncated = true;
+            else if (ev.stop_reason === 'refusal') refused = true;
           } else {
-            errorText = (ev.errors || []).join('; ') || ev.subtype || '(unknown error)';
+            errorText = (ev.errors || []).join('; ') || explainSubtype(ev.subtype) || '(unknown error)';
           }
           if (ev.usage) {
             usage = {
@@ -240,12 +261,25 @@ export async function translateMessages(messages, {
     final = finalText;
   } else if (finalChunks.length) {
     final = finalChunks.join('\n').trim();
+  } else if (refused) {
+    final = "⚠️ I declined to answer that one — try rephrasing, or tell me more about what you're after.";
   } else {
     final = '_(no output)_';
   }
 
+  // NB: the truncated/refused flags are returned rather than appended here.
+  // The dispatcher adds the user-facing note AFTER parseFinalReply() has
+  // extracted the <say> interior — anything appended at this point would be
+  // outside the tags and would be stripped as scratchpad.
+
   try {
-    await onFinal(final, { isError: !!errorText });
+    await onFinal(final, {
+      isError: !!errorText,
+      // The surface appends this AFTER the <say> interior is extracted.
+      truncatedNote: truncated && !errorText
+        ? "_(cut off — I hit the output limit. Ask me to carry on and I'll pick up where I stopped.)_"
+        : undefined,
+    });
   } catch (_) {
     // Final update failure is logged by the caller
   }
@@ -255,6 +289,9 @@ export async function translateMessages(messages, {
     finalText: final,
     error: errorText || undefined,
     throttled,
+    truncated,
+    refused,
+    compacted,
     tracker: tracker ? tracker.summary() : null,
     usage,
     sessionId,
@@ -262,6 +299,25 @@ export async function translateMessages(messages, {
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Turn an SDK result subtype into something a human would actually say.
+ * Without this the user sees the raw enum ("error_during_execution").
+ */
+function explainSubtype(subtype) {
+  switch (subtype) {
+    case 'error_max_turns':
+      return 'I hit my tool-use limit before finishing. Ask me to continue and I\'ll carry on.';
+    case 'error_max_budget_usd':
+      return 'I hit the spend limit for this run.';
+    case 'error_max_structured_output_retries':
+      return "I couldn't produce a valid structured result after several tries.";
+    case 'error_during_execution':
+      return 'Something broke mid-run — check logs/yoda.log.';
+    default:
+      return subtype || '';
+  }
+}
 
 function shorten(s, n = 80) {
   s = (s || '').replace(/\n/g, ' ').trim();
