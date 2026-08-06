@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.23.0 — 2026-08-06
+
+- feat: survive restarts mid-run and keep long runs visibly alive
+
 ## v2.22.0 — 2026-08-06
 
 - feat(skills): ship default planning, debugging and verification skills
