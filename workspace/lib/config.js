@@ -54,6 +54,11 @@ export const config = {
   slack: {
     get botToken() { return required('SLACK_BOT_TOKEN'); },
     get appToken() { return required('SLACK_APP_TOKEN'); },
+    // DMs show the ephemeral "thinking…" shimmer, which vanishes without a
+    // trace if the process dies. Once a run outlives this threshold (ms), a
+    // persistent status card is posted alongside it so long tasks leave a
+    // visible in-progress message. 0 = shimmer only.
+    dmCardAfterMs: msEnv('YODA_SLACK_DM_CARD_AFTER_MS', 60000),
   },
 
   // WhatsApp (Baileys) config — only required if 'whatsapp' is in YODA_SURFACES.
@@ -171,6 +176,11 @@ export const config = {
     // rarely needed — leave disabled unless you want a hard cap regardless of
     // progress.
     hardTimeoutMs: msEnv('YODA_CLAUDE_HARD_TIMEOUT_MS', 0),
+    // Status heartbeat (ms). One long silent tool call freezes the status
+    // card (nothing re-renders between stream events, elapsed counter
+    // included); the runner re-sends the last status on this wall clock so
+    // the card keeps ticking. 0 disables.
+    statusHeartbeatMs: msEnv('YODA_STATUS_HEARTBEAT_MS', 15000),
     // Bail out after N consecutive Anthropic api_retry events. Claude defaults
     // to 10 retries with exponential backoff, which can hang for 60+ seconds
     // on a sustained 529. Failing fast at ~3 retries (≈8s total) is a much
@@ -281,6 +291,17 @@ export const config = {
   // plain SDK turn ends when the model stops — any background task it started
   // dies with the run — so the durable poll lives here in the resident
   // supervisor, not in the agent's own (transient) process.
+  // Restart recovery (lib/orphan-recovery.js). When the previous process died
+  // with replies in flight, wake those threads at boot so the agent finishes
+  // the interrupted work instead of leaving the user hanging.
+  orphanRecovery: {
+    enabled: process.env.YODA_ORPHAN_RECOVERY !== '0',
+    // Ignore orphans whose run STARTED longer ago than this — after half a
+    // day the moment has passed; a surprise resurrection does more harm
+    // than good.
+    maxAgeMs: msEnv('YODA_ORPHAN_MAX_AGE_MS', 12 * 60 * 60 * 1000),
+  },
+
   watches: {
     // Master switch. When off, the watcher loop never starts and bin/watch.js
     // refuses to create watches (the injected YODA_WATCH_ENABLED tells it so).

@@ -579,6 +579,9 @@ const googlechatSurface = {
   // Chat's per-message limit is posted as follow-up messages in the same thread.
   async updateMessage(handle, text) {
     if (!handle?.messageName) return;
+    // Claim the handle: delivery owns the message from here — a late status
+    // write (heartbeat beat mid-flight) must not overwrite it.
+    handle.finished = true;
     const chunks = chunkText(text);
     try {
       await chatUpdate(handle.messageName, chunks[0]);
@@ -600,7 +603,7 @@ const googlechatSurface = {
   // NOT the raw stream (which would surface the model's thinking phases). The
   // dispatcher prefers this over updateMessage when present, matching Slack.
   async setStatus(handle, text) {
-    if (!handle?.messageName) return;
+    if (!handle?.messageName || handle.finished) return;
     try {
       await chatUpdate(handle.messageName, statusText(text, handle.startedAt));
     } catch (e) {
@@ -611,6 +614,7 @@ const googlechatSurface = {
   // Remove the placeholder without posting (a <silent/> final).
   async suppressPlaceholder(handle) {
     if (!handle?.messageName) return;
+    handle.finished = true;
     try {
       await chatDelete(handle.messageName);
     } catch (e) {

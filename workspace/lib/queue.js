@@ -77,6 +77,12 @@ class Queue {
     for (const lane of this.lanes.values()) if (lane.running) n++;
     return n;
   }
+
+  /** True when the lane has a worker running or work waiting. */
+  isBusy(key) {
+    const lane = this.lanes.get(key);
+    return !!lane && (lane.running || !!lane.pending || lane.queued.length > 0);
+  }
 }
 
 export const queue = new Queue();

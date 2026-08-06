@@ -20,28 +20,81 @@ import { buildAgentOptions, isAbortError } from './agent-query.js';
 import { buildHooks } from './hooks.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
+const ORPHANS_FILE = path.join(config.stateDir, 'orphaned-ticks.json');
 const TOOL_RUNS_FILE = path.join(config.stateDir, 'tool-runs.json');
 const TOOL_RUNS_MAX_ENTRIES = 100;
 const USAGE_FILE = path.join(config.stateDir, 'usage.jsonl');
 const STDERR_BUF_MAX = 8192;
+const TICK_EXCERPT_CHARS = 300;
 
 // conversationId → { conversationId, surface, placeholder, startedAt,
+//                    userId, replyTarget, textExcerpt,
 //                    controller, userStopped, killed, timedOut, timeoutKind }
 const activeTicks = new Map();
 
 // Runs live and die with this process (the SDK child is aborted, never
-// detached), so anything left in the mirror file is stale from a previous
-// process — reset it at startup.
+// detached), so anything left in the mirror file belongs to a previous process
+// whose runs were killed mid-task — a hard kill (OOM, docker rm) leaves them
+// in TICKS_FILE, a graceful shutdown moves them to ORPHANS_FILE (killAllTicks).
+// Collect both BEFORE resetting so the supervisor can offer restart recovery
+// (lib/orphan-recovery.js); the reset keeps the dashboard mirror truthful.
 mkdirSync(config.stateDir, { recursive: true });
-writeFileSync(TICKS_FILE, '{}');
+
+// Atomic write: the host-side drain gate (yodacode update) greps these files
+// while we write them; a torn read must never show a half-written file (a
+// false "idle" would let the rebuild kill a live run). Same-filesystem rename
+// is atomic, so readers always see a complete old or new version.
+function writeJsonAtomic(file, value) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+  fs.renameSync(tmp, file);
+}
+
+let bootOrphans = {};
+for (const f of [TICKS_FILE, ORPHANS_FILE]) {
+  try {
+    if (existsSync(f)) Object.assign(bootOrphans, JSON.parse(readFileSync(f, 'utf8')));
+  } catch (_) { /* unparseable = no orphans to recover from that file */ }
+}
+// Custody rules: keep the orphan records ON DISK (merged into ORPHANS_FILE)
+// until the recovery sweep actually takes them — if boot dies before the
+// sweep runs (bad token, no surfaces, crash), the records survive for the
+// next boot instead of being wiped by this one. Only the dashboard mirror is
+// reset here.
+try { if (Object.keys(bootOrphans).length) writeJsonAtomic(ORPHANS_FILE, bootOrphans); } catch (_) {}
+try { writeJsonAtomic(TICKS_FILE, '{}'); } catch (_) {}
+
+/**
+ * Hand over the ticks a previous process left behind. Called once by the
+ * orphan-recovery sweep after surfaces are up — which is when the on-disk
+ * record is cleared: from here custody is the sweep's.
+ */
+export function takeOrphanTicks() {
+  const out = bootOrphans;
+  bootOrphans = {};
+  try { writeJsonAtomic(ORPHANS_FILE, '{}'); } catch (_) {}
+  return out;
+}
+
+function tickRecord(t, extra) {
+  return {
+    surface: t.surface,
+    startedAt: t.startedAt,
+    userId: t.userId || null,
+    replyTarget: t.replyTarget || null,
+    textExcerpt: t.textExcerpt || null,
+    recoveryAttempt: t.recoveryAttempt || 0,
+    ...extra,
+  };
+}
 
 function persistTicks() {
   const out = {};
   for (const [id, t] of activeTicks) {
-    out[id] = { surface: t.surface, placeholder: t.placeholder, startedAt: t.startedAt };
+    out[id] = tickRecord(t, { placeholder: t.placeholder });
   }
   try {
-    writeFileSync(TICKS_FILE, JSON.stringify(out, null, 2));
+    writeJsonAtomic(TICKS_FILE, out);
   } catch (e) {
     logger.warn('ticks persist failed', { err: e.message });
   }
@@ -116,6 +169,9 @@ export async function runClaude({
   resume,
   userId,
   replyTarget,
+  originText,
+  recoveryAttempt = 0,
+  heartbeatEnabled = true,
   externalAuthorized = false,
   onStatus,
   onFinal,
@@ -126,11 +182,21 @@ export async function runClaude({
     surface,
     placeholder,
     startedAt: Date.now(),
+    userId: userId || null,
+    replyTarget: replyTarget || null,
+    // What the user asked for, for the restart-recovery prompt — the built
+    // prompt itself is too long and too internal to persist.
+    textExcerpt: originText ? String(originText).slice(0, TICK_EXCERPT_CHARS) : null,
+    // How many times restart recovery has already resurrected this work —
+    // caps crash-loop resurrection (see lib/orphan-plan.js).
+    recoveryAttempt,
     controller,
     userStopped: false, // explicit user "stop" via killTick
     killed: false,      // internal abort: throttle fail-fast, guardrail, shutdown
     timedOut: false,
     timeoutKind: null,  // 'idle' | 'hard'
+    delivering: false,  // onFinal delivery in flight
+    delivered: false,   // onFinal delivery completed — reply is on the surface
   };
   activeTicks.set(conversationId, tick);
   persistTicks();
@@ -151,10 +217,12 @@ export async function runClaude({
   // by maxIterations.
   let idleTimer = null;
   let hardTimer = null;
+  let beatTimer = null;
 
   const disarm = () => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+    if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
   };
 
   // Single-fire: whichever watchdog trips first wins, disarms its sibling, and
@@ -188,6 +256,37 @@ export async function runClaude({
   if (config.claude.hardTimeoutMs > 0) {
     hardTimer = setTimeout(() => fireTimeout('hard'), config.claude.hardTimeoutMs);
     hardTimer.unref();
+  }
+
+  // Status heartbeat. One long silent tool call (a slow build, a big curl)
+  // emits nothing between tool_use and tool_result, so the status card — and
+  // its elapsed counter, which only re-renders on updates — freezes for the
+  // whole call. Re-send the last status on a wall clock so the card keeps
+  // ticking. Disarmed with the watchdogs at onFinal, and the last in-flight
+  // beat is AWAITED before delivery (below) — clearInterval can't recall a
+  // beat already inside a surface call, and an unordered late beat would
+  // overwrite the delivered reply on card surfaces. Only armed when the
+  // caller says the surface can re-render cheaply (heartbeatEnabled): for
+  // surfaces that fall back to raw message edits, re-sending identical text
+  // is churn, not progress.
+  let lastStatusText = null;
+  let lastStatusAt = 0;
+  let beatInflight = Promise.resolve();
+  const beatMs = config.claude.statusHeartbeatMs;
+  if (heartbeatEnabled && beatMs > 0) {
+    beatTimer = setInterval(() => {
+      if (settled || stopped() || tick.delivering || !lastStatusText) return;
+      if (Date.now() - lastStatusAt < beatMs) return;
+      lastStatusAt = Date.now();
+      // CHAIN, don't replace: a replaced slot would let an older stalled
+      // beat (hung socket, rate-limit retry) escape the pre-delivery await
+      // and land AFTER the reply. Chaining serializes beats and makes the
+      // slot's promise cover every beat ever launched.
+      beatInflight = beatInflight
+        .then(() => (settled || stopped() || tick.delivering) ? null : onStatus(lastStatusText))
+        .catch(() => {});
+    }, Math.max(2000, Math.round(beatMs / 3)));
+    beatTimer.unref();
   }
 
   // Buffer the SDK child's stderr — logged at debug for normal runs,
@@ -260,6 +359,8 @@ export async function runClaude({
       onActivity: () => bumpIdle(),
       onStatus: async (text) => {
         if (stopped()) return;
+        lastStatusText = text;
+        lastStatusAt = Date.now();
         try { await onStatus(text); }
         catch (e) { logger.debug('onStatus failed', { err: e.message }); }
       },
@@ -267,10 +368,18 @@ export async function runClaude({
         if (stopped()) return;
         // Stream complete, reply composed — delivery has begun. Disarm the
         // watchdogs so a slow surface post (Slack 429s/retries) can't be
-        // misclassified as a timeout and overwrite the delivered reply.
+        // misclassified as a timeout and overwrite the delivered reply, and
+        // wait out any in-flight heartbeat: its surface edit and the final
+        // delivery may target the same message, and the beat's (retried)
+        // write landing second would replace the reply with a stale
+        // "working…" card.
+        tick.delivering = true;
         disarm();
-        try { await onFinal(text, meta); }
-        catch (e) { logger.warn('onFinal failed', { err: e.message }); }
+        try { await beatInflight; } catch (_) {}
+        try {
+          await onFinal(text, meta);
+          tick.delivered = true;
+        } catch (e) { logger.warn('onFinal failed', { err: e.message }); }
       },
       maxRetries: config.claude.maxRetries,
       onMaxRetries: () => {
@@ -322,6 +431,11 @@ export async function runClaude({
   } finally {
     settled = true;
     disarm();
+    // Wait out the beat chain before returning: the dispatcher posts
+    // failure/timeout notices onto the same placeholder right after this
+    // returns, and an in-flight beat landing later would overwrite them
+    // with a stale "working…" card.
+    try { await beatInflight; } catch (_) {}
     activeTicks.delete(conversationId);
     persistTicks();
   }
@@ -423,12 +537,40 @@ export function killTick(tick) {
 /**
  * Abort ALL in-flight runs. Used on shutdown so SDK children don't outlive
  * the yoda parent.
+ *
+ * Interrupted runs are recorded to ORPHANS_FILE first: each run's cleanup
+ * (the finally in runClaude) deletes its tick and rewrites the mirror, so by
+ * process exit current-ticks.json is empty — without this record a graceful
+ * shutdown (docker stop, `yodacode update`) would leave no trace for the
+ * next boot's restart recovery. User-stopped ticks are deliberately not
+ * recorded: the user ended those on purpose.
  */
 export function killAllTicks() {
   let killed = 0;
-  for (const t of activeTicks.values()) {
+  const orphans = {};
+  for (const [id, t] of activeTicks) {
+    // Record only runs that were genuinely interrupted mid-work. Not:
+    // user-stopped (ended on purpose), already killed/timed-out (they died
+    // for their own reasons and are just awaiting the abort backstop), or
+    // delivered (the reply is on the surface — resurrecting it would answer
+    // twice; `delivering` ones ARE recorded, the recovery prompt's
+    // check-the-thread-first rule covers the reply-landed-anyway case).
+    if (!t.userStopped && !t.killed && !t.timedOut && !t.delivered) {
+      orphans[id] = tickRecord(t, { reason: 'shutdown', orphanedAt: Date.now() });
+    }
     t.killed = true; // internal abort, not a user stop — no final text is posted
     try { t.controller.abort(); killed++; } catch (_) {}
+  }
+  if (Object.keys(orphans).length) {
+    let prev = {};
+    try {
+      if (existsSync(ORPHANS_FILE)) prev = JSON.parse(readFileSync(ORPHANS_FILE, 'utf8')) || {};
+    } catch (_) { prev = {}; }
+    try {
+      writeJsonAtomic(ORPHANS_FILE, { ...prev, ...orphans });
+    } catch (e) {
+      logger.warn('orphan ticks persist failed', { err: e.message });
+    }
   }
   persistTicks();
   return killed;

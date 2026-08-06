@@ -180,6 +180,9 @@ export async function translateMessages(messages, {
             } else if (block.type === 'tool_use') {
               if (tracker) tracker.recordUse(block.id, block.name, block.input);
               currentStatus = describeToolUse(block.name, block.input || {});
+              // Step counter: on long runs the moving number is the cheapest
+              // proof of forward progress ("step 24" vs a frozen verb).
+              if (tracker && tracker.useCount > 1) currentStatus += ` · step ${tracker.useCount}`;
               await send(currentStatus);
             }
           }

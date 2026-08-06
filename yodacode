@@ -23,9 +23,17 @@ version_string() {
   # Only append the git description when it adds info beyond the package version.
   [[ -n "$t" && "$t" != "v${v}" ]] && echo "v${v:-?} ($t)" || echo "v${v:-?}"
 }
-agent_running() { docker compose ps --status running --services 2>/dev/null | grep -qx agent; }
+agent_running() { agent_container_running; }
 restart_if_running() {
   agent_running || { note "Not running — changes apply next start (yodacode start)."; return 0; }
+  # Same courtesy as cmd_update: recreating the container kills any in-flight
+  # run dead. Offer to wait/force/abort before pulling the rug. An abort is
+  # NOT a failure here — the caller's config change is already saved, only
+  # the restart is deferred.
+  if ! wait_for_idle_agent "restarting" "Apply the saved changes when it's idle with: yodacode restart"; then
+    note "Your changes are saved — apply them when the agent is idle with: yodacode restart"
+    return 0
+  fi
   # Recreate (not `compose restart`) so config changes the caller just made
   # actually reach the container's environment.
   if spin "Restarting…" "$(mktemp)" docker compose up -d --force-recreate; then ok "Restarted."; else warn "Restart failed — try: yodacode restart"; fi
@@ -245,6 +253,83 @@ cmd_doctor() {
   else fail "$problems problem(s) found — see the fixes above."; return 1; fi
 }
 
+# The rebuild recreates the agent container, which kills any in-flight run
+# DEAD — the user who asked gets silence and (at best) restart recovery
+# apologising later. Gate the update on an idle agent: offer to wait, force,
+# or abort. Runs BEFORE any git mutation so an abort leaves nothing
+# half-updated. Non-interactive runs (no TTY answer) default to abort.
+wait_for_idle_agent() {
+  # NB: no apostrophes in the ${2:-…} default — a quote inside a parameter
+  # expansion opens a quoted string and derails the parser.
+  local verb="${1:-updating}" retry_hint="${2:-Re-run yodacode update when the agent is idle}"
+  agent_container_running || return 0
+  local n; n="$(agent_active_ticks)"
+  [[ "$n" == 0 ]] && return 0
+  local plural=""; [[ "$n" != 1 ]] && plural="s"
+  warn "The agent is mid-task right now ($n active run$plural) — $verb now would kill it."
+  local ans; ans="$(ask 'Wait for it to finish (w), force anyway (f), or abort (a)? [w/f/a]' 'a')"
+  case "${ans,,}" in
+    f) warn "Forcing — the in-flight run will be killed (restart recovery will pick it up after the restart)."
+       YC_FORCE_DRAIN=1; return 0 ;;
+    w)
+      note "Waiting for the agent to go idle (checking every 5s, up to 30 min — Ctrl-C to abort)…"
+      local waited=0
+      while (( waited < 1800 )); do
+        sleep 5; waited=$((waited + 5))
+        # Container gone = nothing left to drain (its tick mirror is stale).
+        agent_container_running || { warn "Agent container is gone — nothing left to drain."; return 0; }
+        [[ "$(agent_active_ticks)" == 0 ]] && { ok "Agent is idle — continuing."; return 0; }
+      done
+      fail "Still busy after 30 min — aborting. ${retry_hint}."; return 1 ;;
+    *) fail "Aborted — the agent is busy. ${retry_hint}, or answer 'f' to force."; return 1 ;;
+  esac
+}
+
+# Quiet drain used at the points of no return (before mutating the workspace,
+# before recreating the container): the operator already committed to the
+# update at the interactive gate, so no re-prompt — wait up to 10 min for a
+# freshly-started run, then proceed with a warning so the update can't stall
+# forever.
+drain_quietly() {
+  local why="$1"
+  # The operator answered 'f' at the gate: they chose to kill the run —
+  # making them wait for it anyway would contradict that choice.
+  [[ "${YC_FORCE_DRAIN:-}" == 1 ]] && return 0
+  agent_container_running || return 0
+  [[ "$(agent_active_ticks)" == 0 ]] && return 0
+  note "A run is in flight — giving it up to 10 min to finish before ${why}…"
+  local waited=0
+  while (( waited < 600 )); do
+    sleep 5; waited=$((waited + 5))
+    agent_container_running || { warn "Agent container is gone — continuing."; return 0; }
+    [[ "$(agent_active_ticks)" == 0 ]] && { ok "Agent is idle — continuing with ${why}."; return 0; }
+  done
+  warn "Still busy after 10 min — continuing with ${why} anyway (restart recovery will pick the run up)."
+}
+
+# Set once the pull has landed, cleared only after the container is running
+# the new image. If the update is interrupted in between (Ctrl-C during the
+# build or a drain wait), the repo is new but the container is old — and a
+# re-run would otherwise say "Already up to date" and never restart it.
+UPDATE_PENDING_MARKER=".update-pending"
+
+update_restart_tail() {
+  local log; log="$(mktemp)"
+  # Build the image FIRST (minutes, harmless to the running container), so the
+  # window between the final idle check and the actual container recreation is
+  # seconds, not the whole build.
+  if ! spin "Building the updated image (may take a few minutes)…" "$log" docker compose build; then
+    fail "Build failed — last lines:"; tail -8 "$log" 2>/dev/null | sed 's/^/    /'; return 1
+  fi
+  drain_quietly "the restart"
+  if spin "Restarting on the new image…" "$log" docker compose up -d; then
+    rm -f "$UPDATE_PENDING_MARKER"
+    ok "Rebuilt and restarted."
+  else
+    fail "Restart failed — last lines:"; tail -8 "$log" 2>/dev/null | sed 's/^/    /'; return 1
+  fi
+}
+
 cmd_update() {
   title "Updating yodacode"
   require_docker
@@ -265,13 +350,27 @@ cmd_update() {
          note "Set one: git branch --set-upstream-to=origin/main"; return 1; fi
   fi
   behind="$(git rev-list --count "HEAD..$up" 2>/dev/null || echo 0)"
-  if [[ "$behind" == 0 ]]; then ok "Already up to date."; return 0; fi
+  if [[ "$behind" == 0 ]]; then
+    if [[ -f "$UPDATE_PENDING_MARKER" ]]; then
+      warn "A previous update pulled new code but was interrupted before the restart — the container is still on the old version."
+      wait_for_idle_agent || return 1
+      update_restart_tail || return 1
+      install_cli_wrapper
+      ok "Finished the interrupted update — now on $(version_string)."
+      return 0
+    fi
+    ok "Already up to date."; return 0
+  fi
 
   echo "  $behind new commit(s):"
   git log --oneline "HEAD..$up" 2>/dev/null | head -15 | sed 's/^/    /'
   echo ""
   local a; a="$(ask 'Pull and rebuild now? [Y/n]' 'Y')"
   [[ "${a,,}" =~ ^n ]] && { note "Skipped."; return 0; }
+
+  # Don't kill work in flight (checked before any git mutation so an abort
+  # leaves the checkout untouched).
+  wait_for_idle_agent || return 1
 
   # Heal a repo left WEDGED by a past update: a prior stash-pop conflict can leave
   # an unmerged file, which then blocks every future 'git pull' with a cryptic
@@ -301,6 +400,10 @@ cmd_update() {
   # restore TOOLS.md first, so that one file stays clean.
   ensure_tools_local
 
+  # The pull mutates the live workspace bind-mount — a run that started since
+  # the interactive gate would execute against half-updated files.
+  drain_quietly "the workspace update"
+
   # Any OTHER locally-modified tracked file (a customized AGENTS.md/SOUL.md, a
   # patched broker script, the agent-maintained skills/INDEX.md) is a deliberate
   # edit we must PRESERVE, not discard. Shelve them, fast-forward, then re-apply:
@@ -314,6 +417,8 @@ cmd_update() {
     [[ -n "$stashed" ]] && git stash pop --quiet 2>/dev/null || true
     fail "git pull failed — the repo history has diverged (local commits?)."
     note "Check 'git status', reconcile with origin/main, then re-run yodacode update."; return 1; fi
+  # Code has landed; the container is now stale until the restart completes.
+  touch "$UPDATE_PENDING_MARKER"
 
   if [[ -n "$stashed" ]]; then
     if git stash pop --quiet 2>/dev/null; then
@@ -353,12 +458,7 @@ cmd_update() {
     -e "s|{{TIMEZONE}}|${tz:-UTC}|g" -e "s|{{INSTALL_DIR}}|$PWD|g" -e "s|{{DATE}}|$(date +%F)|g" \
     templates/CLAUDE.md.template > workspace/CLAUDE.md
 
-  local log; log="$(mktemp)"
-  if spin "Rebuilding & restarting (may take a few minutes)…" "$log" docker compose up -d --build; then
-    ok "Rebuilt and restarted."
-  else
-    fail "Rebuild failed — last lines:"; tail -8 "$log" 2>/dev/null | sed 's/^/    /'; return 1
-  fi
+  update_restart_tail || return 1
   install_cli_wrapper   # self-heal the wrapper if this update added/moved it
   ok "Updated to $(version_string)."
   # A playwright version bump in the new image expects a different chromium
@@ -375,7 +475,7 @@ cmd_stop()    { require_docker; if docker compose down; then ok "Stopped."; else
 # up -d --force-recreate, NOT `compose restart`: restart reuses the container's
 # original environment, so .env edits silently never load. Recreating is the only
 # way "apply .env changes" is actually true.
-cmd_restart() { require_docker; if spin "Restarting…" "$(mktemp)" docker compose up -d --force-recreate; then ok "Restarted (fresh .env applied)."; else fail "Restart failed."; return 1; fi; }
+cmd_restart() { require_docker; wait_for_idle_agent "restarting" "Re-run yodacode restart when it's idle" || return 1; if spin "Restarting…" "$(mktemp)" docker compose up -d --force-recreate; then ok "Restarted (fresh .env applied)."; else fail "Restart failed."; return 1; fi; }
 cmd_logs()    { require_docker; exec docker compose logs -f agent; }
 cmd_shell()   { require_docker; exec docker compose exec agent bash; }
 

@@ -33,6 +33,7 @@ import { registerSurface } from './lib/surface.js';
 import { killAllTicks } from './lib/claude-runner.js';
 import { startUpdateNotifier } from './lib/update-notifier.js';
 import { startWatcher, stopWatcher } from './lib/watcher.js';
+import { sweepOrphanTicks } from './lib/orphan-recovery.js';
 import { startUI, stopUI } from './ui/server.js';
 
 const startedSurfaces = [];
@@ -213,6 +214,14 @@ async function main() {
   } catch (e) {
     logger.warn('watcher failed to start (non-fatal)', { err: e.message });
   }
+
+  // Restart recovery. If the previous process died with runs in flight (an
+  // update rebuilding the containers, a crash), wake those threads so the
+  // agent finishes the interrupted work instead of leaving the user hanging.
+  // Fire-and-forget: recovery must never block or fail startup.
+  sweepOrphanTicks().catch((e) => {
+    logger.warn('orphan recovery sweep failed (non-fatal)', { err: e.message });
+  });
 
   // Graceful shutdown
   let shuttingDown = false;

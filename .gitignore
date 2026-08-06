@@ -57,6 +57,9 @@ workspace/skills/*.md
 cron-tasks/*.yaml
 !cron-tasks/_template.yaml
 
+# Update-in-progress marker (pull landed, container restart still owed)
+.update-pending
+
 # Temp
 *.png
 *.jpg

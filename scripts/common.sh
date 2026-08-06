@@ -319,6 +319,36 @@ ensure_tools_local() {
   fi
 }
 
+# Count in-flight agent runs. The runner mirrors active runs ("ticks") to
+# workspace/state/current-ticks.json — the file is {} when idle. Count only
+# the TICK-level "startedAt" (4-space indent under 2-space pretty-printing):
+# each tick also embeds its surface placeholder handle, which carries its own
+# startedAt one level deeper — an unanchored grep would double-count. Prints 0
+# when the file is missing/empty/unreadable. Only meaningful while the agent
+# container is running (a crashed container leaves a stale mirror — callers
+# should check the container first).
+agent_active_ticks() {
+  local f="workspace/state/current-ticks.json" n
+  [[ -f "$f" ]] || { echo 0; return; }
+  n="$(grep -c '^    "startedAt"' "$f" 2>/dev/null)" || true
+  echo "${n:-0}"
+}
+
+# True when the agent container is up (drain checks are meaningless otherwise).
+# `--status running` needs compose ≥ v2.5; if the filtered ps errors, fall back
+# to unfiltered ps, and if docker itself is erroring, assume RUNNING — a drain
+# gate must fail closed (waiting unnecessarily beats killing a live run).
+agent_container_running() {
+  local out
+  if out="$(docker compose ps --services --status running 2>/dev/null)"; then
+    grep -qx agent <<<"$out"; return
+  fi
+  if out="$(docker compose ps --services 2>/dev/null)"; then
+    grep -qx agent <<<"$out"; return
+  fi
+  return 0
+}
+
 # Operator-owned docs: when an update's changes collide with local edits to one of
 # these, the operator's version wins on the CLASHING lines while upstream's other
 # changes still land. These are the persona/instruction files people deliberately

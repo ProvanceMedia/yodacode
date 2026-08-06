@@ -153,9 +153,14 @@ async function processReply(event, surface) {
       const model = modelChain[i];
       modelUsed = model || '(default)';
       if (i > 0) {
-        // Tell the user we're falling back
+        // Tell the user we're falling back — as a STATUS, not via
+        // updateMessage: updateMessage claims the placeholder as delivered
+        // (handle.finished), which would black out all status/heartbeat for
+        // the fallback model's entire run.
         try {
-          await surface.updateMessage(placeholder, `_${modelChain[i - 1] || 'default'} is overloaded — switching to ${model}…_`);
+          const notice = `${modelChain[i - 1] || 'default'} is overloaded — switching to ${model}…`;
+          if (surface.setStatus) await surface.setStatus(placeholder, notice);
+          else await surface.updateMessage(placeholder, `_${notice}_`);
         } catch (_) {}
       }
       res = await runClaude({
@@ -163,6 +168,13 @@ async function processReply(event, surface) {
         conversationId: event.conversationId,
         userId: event.userId,
         replyTarget: event.replyTarget,
+        originText: event.text,
+        // A restart-recovery run inherits its attempt count so a crash loop
+        // can't resurrect the same work forever (lib/orphan-plan.js).
+        recoveryAttempt: event.wake?.kind === 'restart' ? (event.wake.attempt || 1) : 0,
+        // Surfaces without setStatus deliver status as raw message edits —
+        // re-sending unchanged text on a wall clock would be churn there.
+        heartbeatEnabled: !!surface.setStatus,
         placeholder,
         prompt: promptText,
         model: model || undefined,
@@ -461,6 +473,28 @@ function buildWakePrompt(event, ctx, surface, sel) {
   const w = event.wake || {};
   const transcript = formatTranscript(sel.messages, ctx.replyTargetTs || event.messageId);
   const surfaceHints = surface.formatPromptHints ? surface.formatPromptHints() : '';
+
+  // Restart recovery (lib/orphan-recovery.js): the supervisor died mid-run in
+  // this thread — an update, a crash, an OOM kill — and the user got silence.
+  if (w.kind === 'restart') {
+    const mins = Math.max(1, Math.round((w.elapsedMs || 0) / 60000));
+    const excerpt = w.textExcerpt
+      ? `What started the run (excerpt of the user's request):\n"""\n${w.textExcerpt}\n"""`
+      : 'No excerpt of the original request was captured — work it out from the recent thread below.';
+    return `You are responding on ${event.surface}. This is a RESTART RECOVERY wake, not a new user message: the supervisor was restarted (an update or a crash) while you were mid-task in this thread. Your previous run was killed after ~${mins} min of work, before it could reply — the user has been left hanging and may not know why.
+
+${excerpt}
+
+IMPORTANT — the killed run may have already finished part or ALL of the work on disk. Before redoing anything, check for its artefacts: output files where the task would put them (exports/, /tmp), your memory notes, and the recent thread for what was promised. Verify anything you find before trusting it (skills/verification-before-completion.md), then complete whatever genuinely remains and reply with the result.
+
+If the recent thread shows the task was ALREADY answered — the killed run's reply landed after all, or the user re-asked and got a fresh answer — do NOT answer again: emit <silent/>.
+
+In your reply, acknowledge the gap in one short line ("I got restarted mid-task — here's the result") — no long apology.
+${surfaceHints}
+
+Recent thread:
+${transcript}`;
+  }
   const resumedLine = sel.resumed
     ? 'You are resuming the session in which you set this watch — you already hold the earlier conversation and your own tool results; build on them.'
     : 'You do NOT have the original session (it expired or rotated). Reconstruct what you need from the watch details and the recent thread below.';

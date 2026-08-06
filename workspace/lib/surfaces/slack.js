@@ -441,10 +441,29 @@ const slackSurface = {
           threadTs: replyTarget.threadTs,
           conversationId: replyTarget.conversationId,
           shimmer: true,
+          startedAt: Date.now(),
         };
       } catch (e) {
         logger.debug('slack: shimmer unavailable, using placeholder', { err: e.message });
       }
+    }
+    // Non-thinking text (e.g. the stop-handler's "🛑 Nothing to stop") is a
+    // real message, not a working state — post it verbatim instead of
+    // dressing it up as a hardcoded "working…" card.
+    if (!isThinking) {
+      const r0 = await web.chat.postMessage({
+        channel: replyTarget.channel,
+        text,
+        thread_ts: replyTarget.threadTs,
+      });
+      return {
+        surface: 'slack',
+        channel: replyTarget.channel,
+        ts: r0.ts,
+        threadTs: replyTarget.threadTs,
+        conversationId: replyTarget.conversationId,
+        startedAt: Date.now(),
+      };
     }
     // Channels (and DMs without the shimmer scope): a status card — a
     // context block renders as small muted text, so the working state reads
@@ -472,6 +491,11 @@ const slackSurface = {
   // edits the muted status card in place, with elapsed time.
   async setStatus(handle, text) {
     if (!handle || !handle.channel) return;
+    // Once delivery/suppress/stop has claimed the handle, no status write may
+    // land after it — re-checked after every await, because callers (the
+    // runner's heartbeat) may already be inside this function when the claim
+    // happens.
+    if (handle.finished) return;
     if (handle.shimmer) {
       try {
         await web.assistant.threads.setStatus({
@@ -482,9 +506,33 @@ const slackSurface = {
       } catch (e) {
         logger.debug('slack: assistant.threads.setStatus failed', { err: e.message });
       }
-      return;
+      if (handle.finished) return;
+      // The shimmer is ephemeral — if the process dies mid-run it vanishes
+      // without a trace, leaving no sign the run ever existed. Once a run
+      // outlives the threshold, post a persistent status card alongside it;
+      // from then on both are kept fresh, and updateMessage/suppressPlaceholder
+      // deliver around / clean up the card. The creation promise is stored on
+      // the handle SYNCHRONOUSLY so concurrent callers (the heartbeat is
+      // fire-and-forget) can never post a second card.
+      const after = config.slack.dmCardAfterMs;
+      if (!handle.ts && !handle.cardPending && after > 0 && handle.startedAt
+          && Date.now() - handle.startedAt >= after) {
+        const cardText = statusCardText(text, handle.startedAt);
+        handle.cardPending = web.chat.postMessage({
+          channel: handle.channel,
+          text: cardText,
+          blocks: statusCardBlocks(cardText),
+          thread_ts: handle.threadTs,
+        }).then((r) => { handle.ts = r.ts; })
+          .catch((e) => { logger.debug('slack: DM status card post failed', { err: e.message }); })
+          .finally(() => { handle.cardPending = null; });
+        await handle.cardPending;
+        return;
+      }
+      if (!handle.ts) return; // no card yet (or creation in flight elsewhere)
+      // fall through: keep the card fresh too
     }
-    if (!handle.ts) return;
+    if (!handle.ts || handle.finished) return;
     const cardText = statusCardText(text, handle.startedAt);
     try {
       await web.chat.update({
@@ -500,9 +548,14 @@ const slackSurface = {
 
   async updateMessage(handle, text) {
     if (!handle || !handle.channel) return;
+    // Claim the handle: from here no setStatus write (heartbeat, late
+    // translator update) may land — delivery owns the message(s).
+    handle.finished = true;
 
-    // Shimmer-mode handle (DM): clear the status and post the final reply
-    // as a fresh threaded message.
+    // Shimmer-mode handle (DM): clear the status, then deliver. A long run
+    // will have grown a persistent status card (setStatus above) — DELETE it
+    // and post the reply fresh: an edit at the card's old timestamp would be
+    // silent (no notification) and appear above later messages.
     if (handle.shimmer) {
       try {
         await web.assistant.threads.setStatus({
@@ -511,6 +564,15 @@ const slackSurface = {
           status: '',
         });
       } catch (_) {}
+      if (handle.cardPending) { try { await handle.cardPending; } catch (_) {} }
+      if (handle.ts) {
+        try {
+          await web.chat.delete({ channel: handle.channel, ts: handle.ts });
+        } catch (e) {
+          logger.debug('slack: DM status card delete failed', { err: e.message });
+        }
+        handle.ts = null;
+      }
       try {
         await web.chat.postMessage({
           channel: handle.channel,
@@ -553,11 +615,16 @@ const slackSurface = {
   // Remove the placeholder without posting anything (a <silent/> final).
   async suppressPlaceholder(handle) {
     if (!handle || !handle.channel) return;
+    handle.finished = true;
     if (handle.shimmer) {
       try {
         await web.assistant.threads.setStatus({ channel_id: handle.channel, thread_ts: handle.threadTs, status: '' });
       } catch (_) {}
-      return;
+      // A long run may have grown a persistent status card — wait out an
+      // in-flight creation, then fall through so it gets deleted like any
+      // other placeholder.
+      if (handle.cardPending) { try { await handle.cardPending; } catch (_) {} }
+      if (!handle.ts) return;
     }
     if (!handle.ts) return;
     try {
