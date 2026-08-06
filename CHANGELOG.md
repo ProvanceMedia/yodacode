@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.22.0 — 2026-08-06
+
+- feat(skills): ship default planning, debugging and verification skills
+
 ## v2.21.1 — 2026-07-29
 
 - fix(hooks): make audit mode a real dry run
