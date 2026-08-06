@@ -58,7 +58,11 @@ If YES:
 1. Pick a slug (lowercase, hyphens, ≤ 5 words). Confirm it's not in skills/INDEX.md.
 2. Write workspace/skills/<slug>.md with frontmatter:
    name, description, tags, created: ${today}, last_used: ${today}, use_count: 1, source: cron-${task}
-3. Body: short procedure in numbered steps, ≤ 30 lines.
+   The description states TRIGGER CONDITIONS ONLY (when to reach for the
+   skill), never a summary of the method — agents shortcut off descriptions
+   and skip the body.
+3. Body: short procedure in numbered steps, ≤ 30 lines. Imperative and
+   concrete ("run X, expect Y"), not advisory.
 4. Append a one-line pointer to workspace/skills/INDEX.md under Active.
 5. Emit \`SKILL_OK <slug>\` on stdout.
 

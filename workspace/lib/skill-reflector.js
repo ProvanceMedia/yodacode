@@ -86,6 +86,14 @@ source: ${source}
 
    Keep the body ≤ 30 lines. Procedural, not chatty.
 
+   Authoring rules (they decide whether the skill ever gets used):
+   - The \`description\` states TRIGGER CONDITIONS ONLY — when to reach for
+     the skill — never a summary of the method. Agents shortcut off
+     descriptions and skip the body if the description gives the game away.
+   - Steps are imperative and concrete ("run X, expect Y"), not advisory.
+   - If the skill guards against a tempting shortcut, add a 2-4 row
+     "Red flags" list: the rationalization → what to do instead.
+
 4. \`Edit\` \`workspace/skills/INDEX.md\` to append a one-line pointer under the **Active** section:
    \`- [<title>](<slug>.md) — <one-line summary>\`
 

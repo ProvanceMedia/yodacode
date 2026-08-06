@@ -28,6 +28,7 @@ prompt: |
   ## Hard rules
 
   - Only touch `workspace/skills/` and `workspace/skills/archive/`.
+  - **NEVER archive, move, dedup away, or rewrite a skill whose frontmatter says `source: yodacode default`** — those files ship with the framework and moving them breaks `yodacode update`. Leave the `## Shipped defaults` section of `INDEX.md` (and the copywriting-doctrine pointer) exactly as-is; they are exempt from the stale rule regardless of `use_count` or `last_used`.
   - If `skills/` has fewer than 2 skills, there's nothing to dedup or promote — just refresh `INDEX.md` and exit.
 
   ## Output

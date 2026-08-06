@@ -46,6 +46,12 @@ workspace/TOOLS.local.md
 workspace/skills/*.md
 !workspace/skills/INDEX.md
 !workspace/skills/copywriting-doctrine.md
+!workspace/skills/brainstorming.md
+!workspace/skills/writing-plans.md
+!workspace/skills/verification-before-completion.md
+!workspace/skills/systematic-debugging.md
+!workspace/skills/test-driven-development.md
+!workspace/skills/subagent-driven-development.md
 
 # User-defined cron tasks. _template.yaml + examples/ stay tracked.
 cron-tasks/*.yaml

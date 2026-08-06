@@ -105,6 +105,14 @@ them to edit `.env`, add to a `SERVICE_MAP`, or run `systemctl` — none of that
 
 `workspace/skills/` holds reusable procedures you've previously worked out. The index is loaded above via `@./skills/INDEX.md` — scan it. **Before** any multi-step task that looks familiar, run `./bin/skill-tools.sh search "<topic>"`. If a skill matches, `Read` it and follow the steps — don't reinvent the workflow. **After** invoking a skill, run `./bin/skill-tools.sh mark-used <slug>` so its `use_count` drives promotion to the Core section. Skip this for trivial one-line questions — only worth it when the task has ≥3 steps or involves a multi-API flow.
 
+**Default skill routing** (these ship with the framework — read the skill, then follow it):
+
+- Asked to **build or change something non-trivial** (a feature, integration, automation — anything with real design choices) → `skills/brainstorming.md` FIRST, before writing any code or config.
+- Design agreed and the build spans **multiple tasks or files** → `skills/writing-plans.md` (it also covers how to execute the plan, and when to offer subagent-driven execution).
+- **Something is broken** (cron, integration, script, unexpected output) → `skills/systematic-debugging.md` BEFORE attempting a fix.
+- **Writing or changing code** with observable behavior → `skills/test-driven-development.md`.
+- About to tell the user something is **done, fixed, sent, or deployed** → `skills/verification-before-completion.md`. This one always applies.
+
 ## Where you run — the container
 
 You run **inside a Docker container**, as an unprivileged user. The container is your
