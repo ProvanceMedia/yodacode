@@ -54,10 +54,21 @@ export const config = {
   slack: {
     get botToken() { return required('SLACK_BOT_TOKEN'); },
     get appToken() { return required('SLACK_APP_TOKEN'); },
-    // DMs show the ephemeral native shimmer, which vanishes without a trace
-    // if the process dies. Once a run outlives this threshold (ms), a
-    // persistent status card is posted alongside it so long tasks leave a
-    // visible in-progress message. 0 = shimmer only.
+    // How a DM shows the working state:
+    //   'card'    — the same muted status line channels get: says what the
+    //               agent is actually doing, ticks its elapsed clock, and
+    //               survives a restart. The default, because it is the same
+    //               everywhere and always legible.
+    //   'shimmer' — Slack's native indicator. Prettier and unobtrusive, but
+    //               ephemeral (it dies with the process leaving no trace) and
+    //               it only works on a top-level DM message: Slack rejects it
+    //               inside a thread, which silently produced two different
+    //               displays depending on where the user typed.
+    dmStatus: (process.env.YODA_SLACK_DM_STATUS || 'card').toLowerCase() === 'shimmer'
+      ? 'shimmer' : 'card',
+    // In 'shimmer' mode only: once a run outlives this threshold (ms) the
+    // shimmer hands over to a status card, so a long task still leaves a
+    // visible, restart-proof trace. 0 = never hand over.
     dmCardAfterMs: msEnv('YODA_SLACK_DM_CARD_AFTER_MS', 60000),
   },
 

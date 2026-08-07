@@ -1,11 +1,13 @@
 // Which progress signal owns a Slack DM right now.
 //
-// INVARIANT: exactly one visible signal at a time. A DM starts on the native
-// shimmer (assistant.threads.setStatus — lightweight, but ephemeral: it dies
-// with the process leaving no trace). If the run outlives the threshold the
-// shimmer HANDS OVER to a posted status card, which survives a restart and is
-// what the user is left looking at. Showing both at once reads as the bot
-// talking over itself.
+// INVARIANT: exactly one visible signal at a time.
+//
+// By default a DM uses the same status card as a channel, so every
+// conversation shows the same thing. In the opt-in 'shimmer' mode a DM starts
+// on Slack's native indicator (lightweight, but ephemeral: it dies with the
+// process leaving no trace) and HANDS OVER to a posted card once the run
+// outlives the threshold. Showing both at once reads as the bot talking over
+// itself.
 //
 // Pure so the rule can be tested without a Slack client.
 

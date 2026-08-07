@@ -435,10 +435,12 @@ const slackSurface = {
     // The caller declares this; it is never inferred from the wording (that
     // heuristic silently broke the moment the status wording became human).
     const isThinking = !!(opts && opts.working);
-    // DMs: try the typing-indicator shimmer (assistant.threads.setStatus).
-    // If the app doesn't have the assistant:write scope, that call fails
-    // and we fall back to posting a normal placeholder.
-    if (replyTarget.isIm && isThinking) {
+    // DMs default to the same status card as channels, so a DM always shows
+    // what the agent is doing. The native shimmer is opt-in: it cannot carry
+    // the detail, dies with the process, and Slack only accepts it on a
+    // top-level DM message — inside a thread it throws, which used to leave
+    // the same bot showing two different displays in one conversation.
+    if (replyTarget.isIm && isThinking && config.slack.dmStatus === 'shimmer') {
       try {
         await web.assistant.threads.setStatus({
           channel_id: replyTarget.channel,
@@ -451,6 +453,7 @@ const slackSurface = {
           ts: null,
           threadTs: replyTarget.threadTs,
           conversationId: replyTarget.conversationId,
+          isIm: true,
           shimmer: true,
           startedAt: Date.now(),
         };
@@ -476,10 +479,11 @@ const slackSurface = {
         startedAt: Date.now(),
       };
     }
-    // Channels (and DMs without the shimmer scope): a status card — a
-    // context block renders as small muted text, so the working state reads
-    // as a system indicator rather than a chat message. The card is edited
-    // in place by setStatus and replaced by the final reply.
+    // Everything else — channels, and DMs in the default 'card' mode: a
+    // status card. A context block renders as small muted text, so the
+    // working state reads as a system indicator rather than a chat message.
+    // setStatus edits it in place; delivery replaces it (channels) or removes
+    // it and posts the reply fresh (DMs, so the answer notifies).
     const cardText = statusCardText(text, null);
     const r = await web.chat.postMessage({
       channel: replyTarget.channel,
@@ -493,6 +497,7 @@ const slackSurface = {
       ts: r.ts,
       threadTs: replyTarget.threadTs,
       conversationId: replyTarget.conversationId,
+      isIm: !!replyTarget.isIm,
       startedAt: Date.now(),
     };
   },
@@ -574,18 +579,20 @@ const slackSurface = {
     // translator update) may land — delivery owns the message(s).
     handle.finished = true;
 
-    // Shimmer-mode handle (DM): clear the status, then deliver. A long run
-    // will have grown a persistent status card (setStatus above) — DELETE it
-    // and post the reply fresh: an edit at the card's old timestamp would be
-    // silent (no notification) and appear above later messages.
-    if (handle.shimmer) {
-      try {
-        await web.assistant.threads.setStatus({
-          channel_id: handle.channel,
-          thread_ts: handle.threadTs,
-          status: '',
-        });
-      } catch (_) {}
+    // DMs (either status mode): clear any shimmer, remove the status card,
+    // and post the reply as a NEW message. Editing the card in place would be
+    // silent — no notification — and would leave the answer sitting above
+    // anything the user has said since.
+    if (handle.shimmer || handle.isIm) {
+      if (handle.shimmer) {
+        try {
+          await web.assistant.threads.setStatus({
+            channel_id: handle.channel,
+            thread_ts: handle.threadTs,
+            status: '',
+          });
+        } catch (_) {}
+      }
       if (handle.cardPending) { try { await handle.cardPending; } catch (_) {} }
       if (handle.ts) {
         try {
@@ -602,17 +609,19 @@ const slackSurface = {
           text,
         });
       } catch (e) {
-        logger.warn('slack: chat.postMessage (shimmer final) failed', { err: e.message });
+        logger.warn('slack: chat.postMessage (DM final) failed', { err: e.message });
       }
       // A status write already in flight when we took over can land AFTER
       // this and re-arm the shimmer — leaving an answered thread that claims
       // the assistant is still working, with nothing left to clear it. Clear
       // it once more now that the reply is posted.
-      try {
-        await web.assistant.threads.setStatus({
-          channel_id: handle.channel, thread_ts: handle.threadTs, status: '',
-        });
-      } catch (_) {}
+      if (handle.shimmer) {
+        try {
+          await web.assistant.threads.setStatus({
+            channel_id: handle.channel, thread_ts: handle.threadTs, status: '',
+          });
+        } catch (_) {}
+      }
       return;
     }
 
