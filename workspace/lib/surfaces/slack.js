@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { config } from '../config.js';
+import { statusTarget } from './status-signal.js';
 import { logger } from '../logger.js';
 
 let web;
@@ -486,9 +487,10 @@ const slackSurface = {
     };
   },
 
-  // Live status update during a tick. For DMs in shimmer mode, uses
-  // assistant.threads.setStatus (the typing-indicator shimmer). For channels,
-  // edits the muted status card in place, with elapsed time.
+  // Live status update during a tick. Channels edit a muted status card in
+  // place, with elapsed time. DMs start on the native shimmer
+  // (assistant.threads.setStatus) and hand over to a card once the run gets
+  // long — never both at once (lib/surfaces/status-signal.js).
   async setStatus(handle, text) {
     if (!handle || !handle.channel) return;
     // Once delivery/suppress/stop has claimed the handle, no status write may
@@ -496,7 +498,13 @@ const slackSurface = {
     // runner's heartbeat) may already be inside this function when the claim
     // happens.
     if (handle.finished) return;
-    if (handle.shimmer) {
+    // Exactly one visible signal at a time — see lib/surfaces/status-signal.js.
+    const target = statusTarget(handle, {
+      now: Date.now(), cardAfterMs: config.slack.dmCardAfterMs,
+    });
+    if (target === 'none') return;
+
+    if (target === 'shimmer') {
       try {
         await web.assistant.threads.setStatus({
           channel_id: handle.channel,
@@ -506,32 +514,36 @@ const slackSurface = {
       } catch (e) {
         logger.debug('slack: assistant.threads.setStatus failed', { err: e.message });
       }
-      if (handle.finished) return;
-      // The shimmer is ephemeral — if the process dies mid-run it vanishes
-      // without a trace, leaving no sign the run ever existed. Once a run
-      // outlives the threshold, post a persistent status card alongside it;
-      // from then on both are kept fresh, and updateMessage/suppressPlaceholder
-      // deliver around / clean up the card. The creation promise is stored on
-      // the handle SYNCHRONOUSLY so concurrent callers (the heartbeat is
-      // fire-and-forget) can never post a second card.
-      const after = config.slack.dmCardAfterMs;
-      if (!handle.ts && !handle.cardPending && after > 0 && handle.startedAt
-          && Date.now() - handle.startedAt >= after) {
-        const cardText = statusCardText(text, handle.startedAt);
-        handle.cardPending = web.chat.postMessage({
-          channel: handle.channel,
-          text: cardText,
-          blocks: statusCardBlocks(cardText),
-          thread_ts: handle.threadTs,
-        }).then((r) => { handle.ts = r.ts; })
-          .catch((e) => { logger.debug('slack: DM status card post failed', { err: e.message }); })
-          .finally(() => { handle.cardPending = null; });
-        await handle.cardPending;
-        return;
-      }
-      if (!handle.ts) return; // no card yet (or creation in flight elsewhere)
-      // fall through: keep the card fresh too
+      return;
     }
+
+    if (target === 'create-card') {
+      // The shimmer is ephemeral — if the process dies mid-run it vanishes
+      // without a trace, leaving no sign the run ever existed. Past the
+      // threshold, hand over to a card that survives, and retire the shimmer
+      // so the user isn't shown two working states. The creation promise is
+      // stored on the handle SYNCHRONOUSLY so concurrent callers (the
+      // runner's heartbeat is fire-and-forget) can never post a second card.
+      const cardText = statusCardText(text, handle.startedAt);
+      handle.cardPending = web.chat.postMessage({
+        channel: handle.channel,
+        text: cardText,
+        blocks: statusCardBlocks(cardText),
+        thread_ts: handle.threadTs,
+      }).then(async (r) => {
+        handle.ts = r.ts;
+        handle.handedOver = true;
+        try {
+          await web.assistant.threads.setStatus({
+            channel_id: handle.channel, thread_ts: handle.threadTs, status: '',
+          });
+        } catch (_) {}
+      }).catch((e) => { logger.debug('slack: DM status card post failed', { err: e.message }); })
+        .finally(() => { handle.cardPending = null; });
+      await handle.cardPending;
+      return;
+    }
+
     if (!handle.ts || handle.finished) return;
     const cardText = statusCardText(text, handle.startedAt);
     try {
