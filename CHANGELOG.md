@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.25.0 — 2026-08-07
+
+- feat(slack): give DMs the same status display as channels
+
 ## v2.24.0 — 2026-08-07
 
 - feat: single progress queue and plain-speech status wording
