@@ -16,6 +16,8 @@
 import { tryHandleStop } from './stop-handler.js';
 import { queue } from './queue.js';
 import { runClaude } from './claude-runner.js';
+import { createStatusChannel } from './status-channel.js';
+import { pickPhrase } from './status-phrases.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { parseFinalReply } from './reply-policy.js';
@@ -78,10 +80,14 @@ async function processReply(event, surface) {
   // 4. Build context
   const ctx = await surface.fetchContext(event);
 
-  // 5. Post placeholder
+  // 5. Post placeholder. The opening wording is chosen ONCE here and handed
+  // to both the placeholder and the status channel, so the first thing the
+  // user sees is plain speech ("on it") and the channel doesn't immediately
+  // restate it in different words.
+  const openingPhrase = pickPhrase('start');
   let placeholder;
   try {
-    placeholder = await surface.postPlaceholder(event.replyTarget, '_thinking…_');
+    placeholder = await surface.postPlaceholder(event.replyTarget, openingPhrase, { working: true });
   } catch (e) {
     logger.error('failed to post placeholder', {
       err: e.message,
@@ -147,186 +153,219 @@ async function processReply(event, surface) {
   let modelUsed = null;
   const tickStartMs = Date.now();
 
-  const runChain = async (promptText, resumeId) => {
-    let res = null;
-    for (let i = 0; i < modelChain.length; i++) {
-      const model = modelChain[i];
-      modelUsed = model || '(default)';
-      if (i > 0) {
-        // Tell the user we're falling back — as a STATUS, not via
-        // updateMessage: updateMessage claims the placeholder as delivered
-        // (handle.finished), which would black out all status/heartbeat for
-        // the fallback model's entire run.
-        try {
-          const notice = `${modelChain[i - 1] || 'default'} is overloaded — switching to ${model}…`;
-          if (surface.setStatus) await surface.setStatus(placeholder, notice);
-          else await surface.updateMessage(placeholder, `_${notice}_`);
-        } catch (_) {}
+  // Every progress write for this tick goes through one channel: serialized,
+  // heartbeat included, so nothing can land out of order or after delivery.
+  // Only surfaces that can re-render a status cheaply get a heartbeat — where
+  // status falls back to editing the reply message, re-sending unchanged text
+  // is churn, not progress.
+  const status = createStatusChannel({
+    // Surfaces without setStatus render status by editing the reply message —
+    // italicise so it still reads as a muted system line, not as the bot
+    // talking.
+    send: (text) => (surface.setStatus
+      ? surface.setStatus(placeholder, text)
+      : surface.updateMessage(placeholder, `_${text}_`, { status: true })),
+    heartbeatMs: surface.setStatus ? config.claude.statusHeartbeatMs : 0,
+    slowAfterMs: config.claude.statusSlowAfterMs,
+    startedAt: tickStartMs,
+    openingPhrase,
+  });
+
+  // The channel owns a live timer and a message the user is looking at — it
+  // must not outlive this tick under any exit path, including a throw from
+  // prompt-building or the session store.
+  try {
+
+    const runChain = async (promptText, resumeId) => {
+      let res = null;
+      for (let i = 0; i < modelChain.length; i++) {
+        const model = modelChain[i];
+        modelUsed = model || '(default)';
+        if (i > 0) {
+          // Tell the user we're falling back — as a STATUS, not via
+          // updateMessage: updateMessage claims the placeholder as delivered
+          // (handle.finished), which would black out all status/heartbeat for
+          // the fallback model's entire run.
+          // Through the channel like any other status, so it can't race the
+          // stream's own updates.
+          try {
+            await status.post(`${modelChain[i - 1] || 'default'} is overloaded — switching to ${model}…`,
+              { important: true });
+          } catch (_) {}
+        }
+        res = await runClaude({
+          surface: event.surface,
+          conversationId: event.conversationId,
+          userId: event.userId,
+          replyTarget: event.replyTarget,
+          originText: event.text,
+          // A restart-recovery run inherits its attempt count so a crash loop
+          // can't resurrect the same work forever (lib/orphan-plan.js).
+          recoveryAttempt: event.wake?.kind === 'restart' ? (event.wake.attempt || 1) : 0,
+          placeholder,
+          prompt: promptText,
+          model: model || undefined,
+          effort,
+          resume: resumeId,
+          externalAuthorized,
+          onStatus: (text, opts) => status.post(text, opts),
+          onFinal: async (text, meta) => {
+            // A failed resume must not flash its error at the user — the
+            // dispatcher retries on a fresh session and that run delivers.
+            // Gated on the translator's error flag so a GENUINE reply that
+            // happens to contain the phrase can never be swallowed.
+            // Returns BEFORE closing the channel: the retry is still to come
+            // and must keep its progress display.
+            if (resumeId && meta?.isError && isResumeFailure(text)) return;
+            // Take the message off the channel before writing the reply onto
+            // it: close() resolves only once any in-flight status write has
+            // landed, so the reply is always last.
+            await status.close();
+            // Post ONLY the <say>-tagged part of the model's final output; everything
+            // else is scratchpad (see parseFinalReply). <silent/> posts nothing —
+            // unless this turn armed a background watch, which the user must be
+            // able to see (an invisible "I'll get back to you" is a broken promise).
+            const parsed = parseFinalReply(text);
+            const footers = [watchFooter(event.conversationId, tickStartMs), meta?.truncatedNote]
+              .filter(Boolean);
+            const footer = footers.join('\n\n');
+            if (parsed.kind === 'text') {
+              return surface.updateMessage(placeholder, footer ? `${parsed.text}\n\n${footer}` : parsed.text);
+            }
+            if (footer) return surface.updateMessage(placeholder, footer);
+            if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
+            return surface.updateMessage(placeholder, '·');
+          },
+        });
+        if (res.ok) break;
+        // Only retry on transient throttle. Stops/timeouts/other errors → fail.
+        if (!res.throttled) break;
+        logger.warn('claude throttled, falling back', {
+          surface: event.surface,
+          from: model || '(default)',
+          next: modelChain[i + 1] || '(none)',
+        });
       }
-      res = await runClaude({
+      return res;
+    };
+
+    result = await runChain(prompt, sess?.sessionId);
+
+    // Resume failed (session file gone or pruned) → forget it, rebuild the
+    // prompt with the full transcript, and run once more on a fresh session.
+    if (!result.ok && sess && isResumeFailure(result.error)) {
+      logger.warn('session resume failed — starting a fresh session', {
         surface: event.surface,
         conversationId: event.conversationId,
-        userId: event.userId,
-        replyTarget: event.replyTarget,
-        originText: event.text,
-        // A restart-recovery run inherits its attempt count so a crash loop
-        // can't resurrect the same work forever (lib/orphan-plan.js).
-        recoveryAttempt: event.wake?.kind === 'restart' ? (event.wake.attempt || 1) : 0,
-        // Surfaces without setStatus deliver status as raw message edits —
-        // re-sending unchanged text on a wall clock would be churn there.
-        heartbeatEnabled: !!surface.setStatus,
-        placeholder,
-        prompt: promptText,
-        model: model || undefined,
-        effort,
-        resume: resumeId,
-        externalAuthorized,
-        onStatus: (text) => (surface.setStatus
-          ? surface.setStatus(placeholder, text)
-          : surface.updateMessage(placeholder, text)),
-        onFinal: async (text, meta) => {
-          // A failed resume must not flash its error at the user — the
-          // dispatcher retries on a fresh session and that run delivers.
-          // Gated on the translator's error flag so a GENUINE reply that
-          // happens to contain the phrase can never be swallowed.
-          if (resumeId && meta?.isError && isResumeFailure(text)) return;
-          // Post ONLY the <say>-tagged part of the model's final output; everything
-          // else is scratchpad (see parseFinalReply). <silent/> posts nothing —
-          // unless this turn armed a background watch, which the user must be
-          // able to see (an invisible "I'll get back to you" is a broken promise).
-          const parsed = parseFinalReply(text);
-          const footers = [watchFooter(event.conversationId, tickStartMs), meta?.truncatedNote]
-            .filter(Boolean);
-          const footer = footers.join('\n\n');
-          if (parsed.kind === 'text') {
-            return surface.updateMessage(placeholder, footer ? `${parsed.text}\n\n${footer}` : parsed.text);
-          }
-          if (footer) return surface.updateMessage(placeholder, footer);
-          if (surface.suppressPlaceholder) return surface.suppressPlaceholder(placeholder);
-          return surface.updateMessage(placeholder, '·');
-        },
-      });
-      if (res.ok) break;
-      // Only retry on transient throttle. Stops/timeouts/other errors → fail.
-      if (!res.throttled) break;
-      logger.warn('claude throttled, falling back', {
-        surface: event.surface,
-        from: model || '(default)',
-        next: modelChain[i + 1] || '(none)',
-      });
-    }
-    return res;
-  };
-
-  result = await runChain(prompt, sess?.sessionId);
-
-  // Resume failed (session file gone or pruned) → forget it, rebuild the
-  // prompt with the full transcript, and run once more on a fresh session.
-  if (!result.ok && sess && isResumeFailure(result.error)) {
-    logger.warn('session resume failed — starting a fresh session', {
-      surface: event.surface,
-      conversationId: event.conversationId,
-      sessionId: sess.sessionId,
-    });
-    sessionStore.clear(event.conversationId);
-    sel = selectContext(event, ctx, null);
-    prompt = event.wake
-      ? buildWakePrompt(event, ctx, surface, sel)
-      : buildPrompt(event, ctx, surface, sel);
-    result = await runChain(prompt, undefined);
-  }
-
-  // Remember the session that served this thread (also on <silent/> — the
-  // session still advanced) plus the delta cutoff for the next tick. When
-  // the session's context has grown past the rotation threshold, retire it
-  // instead: the next tick starts fresh with the full transcript (the store
-  // is an optimisation, never truth), capping per-tick input cost and
-  // pre-empting in-session auto-compaction quietly eating early context.
-  if (config.sessions.resumeEnabled && result.ok && result.sessionId) {
-    const u = result.usage || {};
-    const inputTotal = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
-      + (u.cache_creation_input_tokens || 0);
-    if (config.sessions.rotateInputTokens > 0 && inputTotal >= config.sessions.rotateInputTokens) {
-      logger.info('rotating thread session (context grew large)', {
-        surface: event.surface,
-        conversationId: event.conversationId,
-        inputTokens: inputTotal,
+        sessionId: sess.sessionId,
       });
       sessionStore.clear(event.conversationId);
-    } else {
-      sessionStore.set(event.conversationId, {
-        sessionId: result.sessionId,
-        lastTs: nextLastTs(sess, sel, ctx, event),
+      sel = selectContext(event, ctx, null);
+      prompt = event.wake
+        ? buildWakePrompt(event, ctx, surface, sel)
+        : buildPrompt(event, ctx, surface, sel);
+      result = await runChain(prompt, undefined);
+    }
+
+    // Remember the session that served this thread (also on <silent/> — the
+    // session still advanced) plus the delta cutoff for the next tick. When
+    // the session's context has grown past the rotation threshold, retire it
+    // instead: the next tick starts fresh with the full transcript (the store
+    // is an optimisation, never truth), capping per-tick input cost and
+    // pre-empting in-session auto-compaction quietly eating early context.
+    if (config.sessions.resumeEnabled && result.ok && result.sessionId) {
+      const u = result.usage || {};
+      const inputTotal = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
+        + (u.cache_creation_input_tokens || 0);
+      if (config.sessions.rotateInputTokens > 0 && inputTotal >= config.sessions.rotateInputTokens) {
+        logger.info('rotating thread session (context grew large)', {
+          surface: event.surface,
+          conversationId: event.conversationId,
+          inputTokens: inputTotal,
+        });
+        sessionStore.clear(event.conversationId);
+      } else {
+        sessionStore.set(event.conversationId, {
+          sessionId: result.sessionId,
+          lastTs: nextLastTs(sess, sel, ctx, event),
+        });
+      }
+    }
+
+    // Every branch below writes a terminal notice onto the placeholder, so the
+    // channel must be quiet first (idempotent — the success path already closed
+    // it in onFinal).
+    await status.close();
+
+    if (!result.ok && !result.killed) {
+      logger.error('claude run failed', {
+        surface: event.surface,
+        model: modelUsed,
+        error: result.error,
       });
+      try {
+        await surface.updateMessage(placeholder, `⚠️ Run failed: ${result.error || 'unknown'}`);
+      } catch (_) {}
+    } else if (result.throttled && !result.ok) {
+      // All models in the chain were throttled
+      try {
+        await surface.updateMessage(placeholder,
+          `⚠️ All models throttled. Anthropic is overloaded, try again in a minute.`);
+      } catch (_) {}
+    } else if (result.killed && result.error === 'timeout') {
+      // Idle timeout — claude went silent for the whole watchdog window, so it
+      // was almost certainly stuck (hung API call or tool), not just busy. The
+      // translator was mid-stream, so the placeholder is frozen on the last
+      // status. Replace it with a clear message.
+      try {
+        await surface.updateMessage(placeholder,
+          `⏱️ No activity for ${humanMs(config.claude.timeoutMs)}, looked stuck on a hung API call or tool, so I stopped. Try again, or break it into smaller steps.`);
+      } catch (_) {}
+    } else if (result.killed && result.error === 'hard_timeout') {
+      // Hard ceiling — claude was still ACTIVE but ran past the absolute cap, so
+      // it was stopped to bound usage (not because it looked stuck).
+      try {
+        await surface.updateMessage(placeholder,
+          `⏱️ Hit the ${humanMs(config.claude.hardTimeoutMs)} hard limit while still working, so I stopped to cap usage. Try breaking it into smaller steps.`);
+      } catch (_) {}
+    } else if (result.killed && result.error === 'iteration_cap') {
+      try {
+        await surface.updateMessage(placeholder,
+          result.guardrailMessage || '🛑 Iteration cap hit, claude was looping.');
+      } catch (_) {}
+    } else if (result.killed && result.error === 'killed') {
+      // User-initiated stop — the stop-handler already updated the placeholder
+      // to "🛑 Stopped by user", nothing more to do.
     }
-  }
 
-  if (!result.ok && !result.killed) {
-    logger.error('claude run failed', {
-      surface: event.surface,
-      model: modelUsed,
-      error: result.error,
-    });
-    try {
-      await surface.updateMessage(placeholder, `⚠️ Run failed: ${result.error || 'unknown'}`);
-    } catch (_) {}
-  } else if (result.throttled && !result.ok) {
-    // All models in the chain were throttled
-    try {
-      await surface.updateMessage(placeholder,
-        `⚠️ All models throttled. Anthropic is overloaded, try again in a minute.`);
-    } catch (_) {}
-  } else if (result.killed && result.error === 'timeout') {
-    // Idle timeout — claude went silent for the whole watchdog window, so it
-    // was almost certainly stuck (hung API call or tool), not just busy. The
-    // translator was mid-stream, so the placeholder is frozen on the last
-    // status. Replace it with a clear message.
-    try {
-      await surface.updateMessage(placeholder,
-        `⏱️ No activity for ${Math.round(config.claude.timeoutMs / 1000)}s, looked stuck on a hung API call or tool, so I stopped. Try again, or break it into smaller steps.`);
-    } catch (_) {}
-  } else if (result.killed && result.error === 'hard_timeout') {
-    // Hard ceiling — claude was still ACTIVE but ran past the absolute cap, so
-    // it was stopped to bound usage (not because it looked stuck).
-    try {
-      await surface.updateMessage(placeholder,
-        `⏱️ Hit the ${Math.round(config.claude.hardTimeoutMs / 1000)}s hard limit while still working, so I stopped to cap usage. Try breaking it into smaller steps.`);
-    } catch (_) {}
-  } else if (result.killed && result.error === 'iteration_cap') {
-    try {
-      await surface.updateMessage(placeholder,
-        result.guardrailMessage || '🛑 Iteration cap hit, claude was looping.');
-    } catch (_) {}
-  } else if (result.killed && result.error === 'killed') {
-    // User-initiated stop — the stop-handler already updated the placeholder
-    // to "🛑 Stopped by user", nothing more to do.
-  }
-
-  // Skill + memory self-generation. Fire-and-forget background reflections
-  // after a successful tick. Skills capture reusable PROCEDURES, memory
-  // captures durable FACTS — they look at the same transcript but produce
-  // different artefacts. Both opt-in via env vars. Never blocks the response.
-  const parsedFinal = result.ok && result.finalText ? parseFinalReply(result.finalText) : null;
-  if (parsedFinal && parsedFinal.kind === 'text') {
-    // Let a surface that can't fetch its own history (Google Chat) record the
-    // reply into its rolling transcript, so the next tick sees both sides even
-    // after the SDK session rotates. Optional hook, best-effort.
-    if (surface.recordReply) {
-      try { surface.recordReply(event, parsedFinal.text); }
-      catch (e) { logger.debug('recordReply failed', { err: e.message }); }
+    // Skill + memory self-generation. Fire-and-forget background reflections
+    // after a successful tick. Skills capture reusable PROCEDURES, memory
+    // captures durable FACTS — they look at the same transcript but produce
+    // different artefacts. Both opt-in via env vars. Never blocks the response.
+    const parsedFinal = result.ok && result.finalText ? parseFinalReply(result.finalText) : null;
+    if (parsedFinal && parsedFinal.kind === 'text') {
+      // Let a surface that can't fetch its own history (Google Chat) record the
+      // reply into its rolling transcript, so the next tick sees both sides even
+      // after the SDK session rotates. Optional hook, best-effort.
+      if (surface.recordReply) {
+        try { surface.recordReply(event, parsedFinal.text); }
+        catch (e) { logger.debug('recordReply failed', { err: e.message }); }
+      }
+      const reflectionArgs = {
+        surface: event.surface,
+        conversationId: event.conversationId,
+        userText: event.text || '',
+        replyText: parsedFinal.text,
+        tracker: result.tracker,
+        durationMs: Date.now() - tickStartMs,
+      };
+      try { maybeReflect(reflectionArgs); }
+      catch (e) { logger.warn('skill-reflector dispatch failed', { err: e.message }); }
+      try { maybeReflectMemory(reflectionArgs); }
+      catch (e) { logger.warn('memory-reflector dispatch failed', { err: e.message }); }
     }
-    const reflectionArgs = {
-      surface: event.surface,
-      conversationId: event.conversationId,
-      userText: event.text || '',
-      replyText: parsedFinal.text,
-      tracker: result.tracker,
-      durationMs: Date.now() - tickStartMs,
-    };
-    try { maybeReflect(reflectionArgs); }
-    catch (e) { logger.warn('skill-reflector dispatch failed', { err: e.message }); }
-    try { maybeReflectMemory(reflectionArgs); }
-    catch (e) { logger.warn('memory-reflector dispatch failed', { err: e.message }); }
+  } finally {
+    await status.close();
   }
 }
 

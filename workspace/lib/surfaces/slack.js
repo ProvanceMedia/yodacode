@@ -118,22 +118,27 @@ async function discoverBotUserId() {
  *   - Edited messages are NOT processed (avoid double-replying)
  */
 // ─── status card ────────────────────────────────────────────────────────────
-// The channel working-state: one line of small muted text (a context block),
-// e.g. "working · 24s · reading config.js". Kept deliberately plain — no
-// emoji — so it reads as a system indicator, not a chat message.
+// The working-state line: small muted text (a context block), e.g.
+// "reading config.js · 24s" or "still on it · 2m14s". The wording is decided
+// upstream in lib/status-channel.js; this only adds elapsed time. Kept
+// deliberately plain — no emoji — so it reads as a system indicator rather
+// than a chat message.
 
 function formatElapsed(startedAt) {
   const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? `${s % 60}s` : ''}`;
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${s % 60 ? `${s % 60}s` : ''}`;
+  return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
 }
 
 function statusCardText(status, startedAt) {
-  const clean = String(status || '').trim() || 'working…';
+  // The text arrives already phrased for a human (lib/status-channel.js) —
+  // "on it", "reading config.js", "still working through it". All this adds
+  // is the elapsed time, which is what makes a long wait legible.
+  const clean = String(status || '').trim() || 'on it';
   const elapsed = startedAt ? ` · ${formatElapsed(startedAt)}` : '';
-  // The generic phases carry no detail of their own — show a bare
-  // "working · 4s" rather than "working · 4s · thinking…".
-  if (/^(thinking|starting up|working)/i.test(clean)) return `working${elapsed}…`;
-  return `working${elapsed} · ${clean}`;
+  return `${clean}${elapsed}`;
 }
 
 function statusCardBlocks(cardText) {
@@ -423,8 +428,13 @@ const slackSurface = {
     };
   },
 
-  async postPlaceholder(replyTarget, text) {
-    const isThinking = typeof text === 'string' && /thinking/i.test(text);
+  async postPlaceholder(replyTarget, text, opts) {
+    // "Is this a working state?" is the caller's to declare. It used to be
+    // sniffed from the literal word "thinking", which silently stopped being
+    // true once the wording became human ("on it").
+    // The caller declares this; it is never inferred from the wording (that
+    // heuristic silently broke the moment the status wording became human).
+    const isThinking = !!(opts && opts.working);
     // DMs: try the typing-indicator shimmer (assistant.threads.setStatus).
     // If the app doesn't have the assistant:write scope, that call fails
     // and we fall back to posting a normal placeholder.
@@ -433,7 +443,7 @@ const slackSurface = {
         await web.assistant.threads.setStatus({
           channel_id: replyTarget.channel,
           thread_ts: replyTarget.threadTs,
-          status: 'thinking…',
+          status: String(text || 'on it').replace(/^_|_$/g, '').slice(0, 250),
         });
         return {
           surface: 'slack',
@@ -450,7 +460,7 @@ const slackSurface = {
     }
     // Non-thinking text (e.g. the stop-handler's "🛑 Nothing to stop") is a
     // real message, not a working state — post it verbatim instead of
-    // dressing it up as a hardcoded "working…" card.
+    // dressing it up as a working-state card.
     if (!isThinking) {
       const r0 = await web.chat.postMessage({
         channel: replyTarget.channel,
@@ -470,7 +480,7 @@ const slackSurface = {
     // context block renders as small muted text, so the working state reads
     // as a system indicator rather than a chat message. The card is edited
     // in place by setStatus and replaced by the final reply.
-    const cardText = statusCardText('working…', null);
+    const cardText = statusCardText(text, null);
     const r = await web.chat.postMessage({
       channel: replyTarget.channel,
       text: cardText, // notification/accessibility fallback
@@ -594,6 +604,15 @@ const slackSurface = {
       } catch (e) {
         logger.warn('slack: chat.postMessage (shimmer final) failed', { err: e.message });
       }
+      // A status write already in flight when we took over can land AFTER
+      // this and re-arm the shimmer — leaving an answered thread that claims
+      // the assistant is still working, with nothing left to clear it. Clear
+      // it once more now that the reply is posted.
+      try {
+        await web.assistant.threads.setStatus({
+          channel_id: handle.channel, thread_ts: handle.threadTs, status: '',
+        });
+      } catch (_) {}
       return;
     }
 

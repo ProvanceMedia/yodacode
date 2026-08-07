@@ -155,7 +155,7 @@ function appendToolRuns(conversationId, surface, summary) {
  * @param {boolean}  [args.externalAuthorized] This turn may act on the outside world
  *   (the human asked for an outbound action, or confirmed one). Drives the
  *   PreToolUse gate in lib/hooks.js.
- * @param {(text: string) => Promise<void>} args.onStatus  Live update callback
+ * @param {(text: string, opts?: { important?: boolean }) => Promise<void>} args.onStatus  Live update callback
  * @param {(text: string) => Promise<void>} args.onFinal   Final text callback
  * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean, tracker?: object, usage?: object, sessionId?: string|null, guardrailMessage?: string }>}
  */
@@ -171,7 +171,6 @@ export async function runClaude({
   replyTarget,
   originText,
   recoveryAttempt = 0,
-  heartbeatEnabled = true,
   externalAuthorized = false,
   onStatus,
   onFinal,
@@ -217,12 +216,10 @@ export async function runClaude({
   // by maxIterations.
   let idleTimer = null;
   let hardTimer = null;
-  let beatTimer = null;
 
   const disarm = () => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
-    if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
   };
 
   // Single-fire: whichever watchdog trips first wins, disarms its sibling, and
@@ -258,36 +255,11 @@ export async function runClaude({
     hardTimer.unref();
   }
 
-  // Status heartbeat. One long silent tool call (a slow build, a big curl)
-  // emits nothing between tool_use and tool_result, so the status card — and
-  // its elapsed counter, which only re-renders on updates — freezes for the
-  // whole call. Re-send the last status on a wall clock so the card keeps
-  // ticking. Disarmed with the watchdogs at onFinal, and the last in-flight
-  // beat is AWAITED before delivery (below) — clearInterval can't recall a
-  // beat already inside a surface call, and an unordered late beat would
-  // overwrite the delivered reply on card surfaces. Only armed when the
-  // caller says the surface can re-render cheaply (heartbeatEnabled): for
-  // surfaces that fall back to raw message edits, re-sending identical text
-  // is churn, not progress.
-  let lastStatusText = null;
-  let lastStatusAt = 0;
-  let beatInflight = Promise.resolve();
-  const beatMs = config.claude.statusHeartbeatMs;
-  if (heartbeatEnabled && beatMs > 0) {
-    beatTimer = setInterval(() => {
-      if (settled || stopped() || tick.delivering || !lastStatusText) return;
-      if (Date.now() - lastStatusAt < beatMs) return;
-      lastStatusAt = Date.now();
-      // CHAIN, don't replace: a replaced slot would let an older stalled
-      // beat (hung socket, rate-limit retry) escape the pre-delivery await
-      // and land AFTER the reply. Chaining serializes beats and makes the
-      // slot's promise cover every beat ever launched.
-      beatInflight = beatInflight
-        .then(() => (settled || stopped() || tick.delivering) ? null : onStatus(lastStatusText))
-        .catch(() => {});
-    }, Math.max(2000, Math.round(beatMs / 3)));
-    beatTimer.unref();
-  }
+  // NB: the progress display belongs to the caller's status channel
+  // (lib/status-channel.js): it serializes every status write, runs the
+  // wall-clock heartbeat that keeps the display moving through a long silent
+  // tool call, and closes itself before delivery. The runner never writes to
+  // a surface — it only decides when a run is over.
 
   // Buffer the SDK child's stderr — logged at debug for normal runs,
   // escalated to error when the run fails so the user can see WHY (auth
@@ -357,25 +329,20 @@ export async function runClaude({
       // the translator can swallow it — so the idle watchdog tracks true
       // stream liveness, not just distinct status changes.
       onActivity: () => bumpIdle(),
-      onStatus: async (text) => {
+      onStatus: async (text, opts) => {
         if (stopped()) return;
-        lastStatusText = text;
-        lastStatusAt = Date.now();
-        try { await onStatus(text); }
+        try { await onStatus(text, opts); }
         catch (e) { logger.debug('onStatus failed', { err: e.message }); }
       },
       onFinal: async (text, meta) => {
         if (stopped()) return;
         // Stream complete, reply composed — delivery has begun. Disarm the
         // watchdogs so a slow surface post (Slack 429s/retries) can't be
-        // misclassified as a timeout and overwrite the delivered reply, and
-        // wait out any in-flight heartbeat: its surface edit and the final
-        // delivery may target the same message, and the beat's (retried)
-        // write landing second would replace the reply with a stale
-        // "working…" card.
+        // misclassified as a timeout and overwrite the delivered reply.
+        // Callers must close their status channel before delivering (see
+        // dispatcher.js) so a late status write can't land over the answer.
         tick.delivering = true;
         disarm();
-        try { await beatInflight; } catch (_) {}
         try {
           await onFinal(text, meta);
           tick.delivered = true;
@@ -431,11 +398,6 @@ export async function runClaude({
   } finally {
     settled = true;
     disarm();
-    // Wait out the beat chain before returning: the dispatcher posts
-    // failure/timeout notices onto the same placeholder right after this
-    // returns, and an in-flight beat landing later would overwrite them
-    // with a stale "working…" card.
-    try { await beatInflight; } catch (_) {}
     activeTicks.delete(conversationId);
     persistTicks();
   }

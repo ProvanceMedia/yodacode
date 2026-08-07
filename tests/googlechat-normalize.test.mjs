@@ -232,16 +232,16 @@ test('history: synthetic wake events are not recorded (finding C)', async () => 
   assert.deepEqual(ctx.messages.map((m) => m.text), ['ping'], 'no phantom "(sent a file)" line from the wake');
 });
 
-test('statusText: collapses thinking/generic phases to a bare "working…", keeps real tool-use detail', () => {
-  // generic phases carry no detail → bare working, italicised, no "thinking" leaking
-  assert.equal(statusText('thinking…'), '_working…_');
-  assert.equal(statusText('working'), '_working…_');
-  assert.equal(statusText('starting up'), '_working…_');
-  assert.equal(statusText(''), '_working…_');
-  // a real tool-use verb is kept
-  assert.equal(statusText('reading config.js'), '_working · reading config.js_');
+test('statusText: renders the given wording verbatim, italicised, plus elapsed', () => {
+  // Wording is decided upstream (lib/status-channel.js) — the surface must
+  // not second-guess it, only italicise and add elapsed.
+  assert.equal(statusText('on it'), '_on it_');
+  assert.equal(statusText('still working through it'), '_still working through it_');
+  assert.equal(statusText('reading config.js'), '_reading config.js_');
+  // empty falls back to something sayable rather than an empty bubble
+  assert.equal(statusText(''), '_on it_');
   // elapsed time appears when startedAt is given (just assert the shape)
-  assert.match(statusText('reading config.js', Date.now() - 4000), /^_working · \ds · reading config\.js_$/);
+  assert.match(statusText('reading config.js', Date.now() - 4000), /^_reading config\.js · \ds_$/);
 });
 
 test('chunkText: leaves a short reply whole, splits a long one under the limit (A1)', () => {

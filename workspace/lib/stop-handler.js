@@ -35,7 +35,7 @@ export async function tryHandleStop(event) {
     });
     if (sourceSurface) {
       try {
-        const placeholder = await sourceSurface.postPlaceholder(event.replyTarget, '🛑 Nothing to stop — I\'m idle.');
+        const placeholder = await sourceSurface.postPlaceholder(event.replyTarget, '🛑 Nothing to stop — I\'m idle.', { working: false });
         // No further action needed; the user just gets the ack.
         // eslint-disable-next-line no-unused-vars
         const _ = placeholder;
@@ -65,7 +65,7 @@ export async function tryHandleStop(event) {
   // one, also acknowledge in the original location.
   if (sourceSurface && event.conversationId !== tick.placeholder?.conversationId) {
     try {
-      await sourceSurface.postPlaceholder(event.replyTarget, '🛑 Stopped the in-flight task.');
+      await sourceSurface.postPlaceholder(event.replyTarget, '🛑 Stopped the in-flight task.', { working: false });
     } catch (_) {}
   }
 

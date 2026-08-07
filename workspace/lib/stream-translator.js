@@ -66,12 +66,19 @@ export async function translateMessages(messages, {
   let refused = false;    // stop_reason 'refusal' — the model declined
   let compacted = false;  // the context window was summarised mid-run
 
+  // `force` marks a one-off the user must actually see (a guardrail warning,
+  // a compaction notice) rather than the current-state line: it bypasses the
+  // throttle here, and downstream it bypasses latest-wins coalescing so a
+  // following status can't supersede it before it is ever written.
   const send = async (text, force = false) => {
-    if (text === lastTextSent && !force) return;
+    // Identical text is never re-sent, force or not: a guardrail that trips
+    // on every failure (and rate-limit notices, whose text is byte-identical
+    // each time) would otherwise spend one guaranteed surface write per event.
+    if (text === lastTextSent) return;
     const now = Date.now();
     if (!force && now - lastUpdateAt < THROTTLE_MS) return;
     try {
-      await onStatus(text);
+      await onStatus(text, { important: force });
       lastUpdateAt = now;
       lastTextSent = text;
     } catch (_) {
@@ -338,7 +345,7 @@ function describeToolUse(name, input) {
       return host ? `calling ${host}` : 'calling an API';
     }
     if (cmd.startsWith('sudo ')) {
-      const rest = cmd.replace(/^sudos+-us+S+s+/, ''); return `running: ${shorten(rest, 60)}`;
+      const rest = cmd.replace(/^sudo\s+-u\s+\S+\s+/, ''); return `running: ${shorten(rest, 60)}`;
     }
     if (cmd.includes('./bin/browser-tools.sh')) {
       const m = cmd.match(/\.\/browser-tools\.sh\s+(\S+)/);

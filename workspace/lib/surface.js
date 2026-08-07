@@ -49,13 +49,40 @@
 //     chronological list; the last entry is the user message we're responding to.
 //     Each message should have: { user, ts, text } at minimum.
 //
-//   async postPlaceholder(replyTarget, text): Promise<placeholderHandle>
-//     Post a "thinking…" placeholder. Return an opaque handle that updateMessage
-//     and the stop handler can use to find/edit it later.
+//   async postPlaceholder(replyTarget, text, opts): Promise<placeholderHandle>
+//     Post the first thing the user sees for this turn, and return an opaque
+//     handle that setStatus/updateMessage and the stop handler can use to
+//     find/edit it later.
+//     `opts.working === true` means text is a working state ("on it") — render
+//     it as a muted status line (or a native typing indicator). Otherwise the
+//     text is a real message (e.g. the stop handler's "Nothing to stop") and
+//     must be posted verbatim. Never infer this from the wording: it used to be
+//     sniffed from the literal word "thinking" and silently broke when the
+//     status wording became human.
 //
-//   async updateMessage(placeholderHandle, text): Promise<void>
+//   async updateMessage(placeholderHandle, text, opts): Promise<void>
 //     Edit the placeholder in place with new text. Should be tolerant of rate
 //     limits / failures (return rather than throw).
+//     `opts.status === true` marks a progress update rather than the final
+//     reply — only relevant to surfaces that have no setStatus and therefore
+//     render both through this one call. Once the reply has been written, a
+//     later status write must not overwrite it.
+//
+// OPTIONAL (feature-detected by the dispatcher — implement if the platform
+// can do it well):
+//
+//   async setStatus(placeholderHandle, text): Promise<void>
+//     Cheap re-render of the working state (an edited status card, a native
+//     typing indicator). Implementing this is what earns a surface the
+//     wall-clock heartbeat: without it the dispatcher will not re-render on a
+//     timer, because status would mean editing the reply message itself.
+//
+//   async suppressPlaceholder(placeholderHandle): Promise<void>
+//     Remove the placeholder without posting anything (a <silent/> final).
+//
+//   recordInbound(event) / recordReply(...)
+//     For surfaces that cannot fetch their own history and must keep a local
+//     transcript (see lib/surfaces/googlechat.js).
 //
 //   formatPromptHints(): string
 //     A short hint string about surface-specific markdown / etiquette that gets

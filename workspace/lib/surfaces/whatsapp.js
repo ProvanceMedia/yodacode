@@ -285,10 +285,12 @@ const whatsappSurface = {
     };
   },
 
-  async postPlaceholder(replyTarget, text) {
+  async postPlaceholder(replyTarget, text, opts) {
     if (!sock) throw new Error('whatsapp: not connected');
-    // Strip Slack-style underscores so the placeholder looks right on WA
-    const waText = text.replace(/^_(.*)_$/, '_$1_');  // WA also supports _italic_
+    // WA supports _italic_ — italicise a working state so it reads as a
+    // status line, not as the bot speaking. Already-wrapped text is left be.
+    const working = opts && opts.working;
+    const waText = working && !/^_.*_$/.test(text) ? `_${text}_` : text;
     const sent = await sock.sendMessage(replyTarget.jid, { text: waText });
     return {
       surface: 'whatsapp',
@@ -298,8 +300,16 @@ const whatsappSurface = {
     };
   },
 
-  async updateMessage(handle, text) {
+  // This surface has no separate status channel — progress and the final
+  // reply are the SAME edit — so `opts.status` distinguishes them. Once the
+  // reply has landed the handle is claimed: a status edit still in flight
+  // (Baileys mid-reconnect re-sends on the new socket) must never overwrite
+  // the answer with "_still on it_" and leave no trace of it.
+  async updateMessage(handle, text, opts) {
     if (!sock || !handle) return;
+    const isStatus = !!(opts && opts.status);
+    if (handle.finished) return;
+    if (!isStatus) handle.finished = true;
     try {
       // Baileys protocolMessage edit — works within ~15 min of original send
       await sock.sendMessage(handle.jid, { text, edit: handle.key });

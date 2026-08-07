@@ -438,21 +438,24 @@ async function pullLoop() {
 }
 
 // ─── live status (mirrors Slack's status card) ───────────────────────────────
-// The dispatcher streams progress via setStatus; without it the raw stream (its
-// "thinking…" phases and tool chatter) gets dumped into the message. This
-// collapses the generic phases to a bare "working · 4s…" and keeps only real
-// tool-use detail, italicised so it reads as a system indicator, not a reply.
+// The dispatcher streams progress via setStatus. The wording is already human
+// by the time it arrives (lib/status-channel.js turns the raw stream's machine
+// phases into "on it" / "still working through it" and passes real tool detail
+// through); this adds elapsed time and italicises it so it reads as a system
+// indicator — "reading config.js · 24s" — rather than a reply.
 function formatElapsed(startedAt) {
   const s = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60 ? `${s % 60}s` : ''}`;
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${s % 60 ? `${s % 60}s` : ''}`;
+  return `${Math.floor(m / 60)}h${m % 60 ? `${m % 60}m` : ''}`;
 }
 export function statusText(status, startedAt) {
-  const clean = String(status || '').trim() || 'working…';
+  // Already phrased for a human by lib/status-channel.js; this adds the
+  // elapsed time and the italic wrapper Chat renders as muted text.
+  const clean = String(status || '').trim() || 'on it';
   const elapsed = startedAt ? ` · ${formatElapsed(startedAt)}` : '';
-  const body = /^(thinking|starting up|working)/i.test(clean)
-    ? `working${elapsed}…`
-    : `working${elapsed} · ${clean}`;
-  return `_${body}_`;
+  return `_${clean}${elapsed}_`;
 }
 
 // Split a reply into pieces that fit Chat's per-message limit, breaking on a
@@ -556,8 +559,11 @@ const googlechatSurface = {
     }
   },
 
-  async postPlaceholder(replyTarget, text) {
-    const msg = await chatSend(replyTarget.space, replyTarget.thread, text);
+  async postPlaceholder(replyTarget, text, opts) {
+    // A working state renders as muted italics; a real message (a stop ack)
+    // is posted verbatim.
+    const body = opts && opts.working ? statusText(text) : text;
+    const msg = await chatSend(replyTarget.space, replyTarget.thread, body);
     return {
       surface: 'googlechat',
       messageName: msg.name,
@@ -599,7 +605,7 @@ const googlechatSurface = {
     }
   },
 
-  // Live tool-use status during a run — a clean "working · 4s · reading …" line,
+  // Live status during a run — a clean "reading config.js · 24s" line,
   // NOT the raw stream (which would surface the model's thinking phases). The
   // dispatcher prefers this over updateMessage when present, matching Slack.
   async setStatus(handle, text) {

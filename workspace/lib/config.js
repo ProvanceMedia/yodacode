@@ -54,8 +54,8 @@ export const config = {
   slack: {
     get botToken() { return required('SLACK_BOT_TOKEN'); },
     get appToken() { return required('SLACK_APP_TOKEN'); },
-    // DMs show the ephemeral "thinking…" shimmer, which vanishes without a
-    // trace if the process dies. Once a run outlives this threshold (ms), a
+    // DMs show the ephemeral native shimmer, which vanishes without a trace
+    // if the process dies. Once a run outlives this threshold (ms), a
     // persistent status card is posted alongside it so long tasks leave a
     // visible in-progress message. 0 = shimmer only.
     dmCardAfterMs: msEnv('YODA_SLACK_DM_CARD_AFTER_MS', 60000),
@@ -177,10 +177,13 @@ export const config = {
     // progress.
     hardTimeoutMs: msEnv('YODA_CLAUDE_HARD_TIMEOUT_MS', 0),
     // Status heartbeat (ms). One long silent tool call freezes the status
-    // card (nothing re-renders between stream events, elapsed counter
-    // included); the runner re-sends the last status on this wall clock so
-    // the card keeps ticking. 0 disables.
+    // display (nothing re-renders between stream events, elapsed counter
+    // included); the status channel re-renders on this wall clock so the
+    // display keeps moving. 0 disables.
     statusHeartbeatMs: msEnv('YODA_STATUS_HEARTBEAT_MS', 15000),
+    // When a run counts as slow. Only affects wording — past this the
+    // heartbeat says so out loud instead of repeating "still on it".
+    statusSlowAfterMs: msEnv('YODA_STATUS_SLOW_AFTER_MS', 240000),
     // Bail out after N consecutive Anthropic api_retry events. Claude defaults
     // to 10 retries with exponential backoff, which can hang for 60+ seconds
     // on a sustained 529. Failing fast at ~3 retries (≈8s total) is a much
