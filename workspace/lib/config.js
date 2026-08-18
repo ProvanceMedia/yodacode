@@ -173,8 +173,12 @@ export const config = {
     // The chosen model, per engine — a name only means something to the engine
     // it belongs to, so each keeps its own setting and switching back restores
     // what you had. Empty means "let the engine pick".
+    // Codex ships an explicit default rather than deferring to the CLI's own
+    // pick: which model that is has changed between CLI versions, so leaving it
+    // implicit means the agent quietly runs on a different model after an image
+    // rebuild. Terra is the vendor's "balanced, everyday work" model.
     model: (process.env.YODA_ENGINE === 'codex'
-      ? process.env.YODA_CODEX_MODEL
+      ? (process.env.YODA_CODEX_MODEL || 'gpt-5.6-terra')
       : process.env.YODA_CLAUDE_MODEL) || '',
   },
 

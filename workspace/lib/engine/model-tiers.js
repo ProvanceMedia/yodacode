@@ -17,10 +17,11 @@ export const TIERS = ['fast', 'balanced', 'deep'];
 /**
  * What each tier means per engine.
  *
- * Codex entries deliberately do NOT name a model. Its model slugs churn and get
- * retired on a short cadence, so pinning one here would rot; effort is the axis
- * that keeps its meaning, and the engine's own default model is the one the
- * operator picked.
+ * Both engines name models. Codex slugs do churn — older ones get retired on a
+ * short cadence — so these need revisiting when a family is superseded, which is
+ * what the test pinning them is for. The alternative, moving only effort, is
+ * worse: it makes the deep tier think harder on whatever model happens to be
+ * configured, which may be an older one than the fast tier would have used.
  */
 const TIER_MAP = {
   claude: {
@@ -29,9 +30,15 @@ const TIER_MAP = {
     deep: { model: 'claude-opus-5' },
   },
   codex: {
-    fast: { effort: 'low' },
-    balanced: { effort: 'medium' },
-    deep: { effort: 'high' },
+    // OpenAI names the 5.6 family along the same axis these tiers use — Luna
+    // "fast and affordable", Terra "balanced ... for everyday work", Sol the
+    // "latest frontier" model. Effort is left at each model's own default,
+    // which OpenAI tunes per model (Sol defaults LOW on purpose: it is strong
+    // at lighter reasoning). Naming the model rather than only raising effort
+    // matters — otherwise the deep tier just thinks harder on a weaker model.
+    fast: { model: 'gpt-5.6-luna' },
+    balanced: { model: 'gpt-5.6-terra' },
+    deep: { model: 'gpt-5.6-sol' },
   },
 };
 

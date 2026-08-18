@@ -32,17 +32,28 @@ test('the Claude tiers name current models', () => {
   assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5');
 });
 
-test('a tier means a model on Claude and an effort on Codex', () => {
-  assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
-  // Codex model slugs churn and get retired, so a tier there moves effort and
-  // leaves the operator's chosen model alone.
-  assert.equal(resolveModel('codex', 'fast').model, undefined);
-  assert.equal(resolveModel('codex', 'fast').effort, 'low');
-  assert.equal(resolveModel('codex', 'deep').effort, 'high');
+test('the Codex tiers name current models, strongest at deep', () => {
+  // OpenAI names the 5.6 family along this same axis. Pinned deliberately: a
+  // tier that only raised EFFORT would make `deep` think harder on whatever
+  // model was configured — possibly an older one than `fast` would have used.
+  assert.equal(resolveModel('codex', 'fast').model, 'gpt-5.6-luna');
+  assert.equal(resolveModel('codex', 'balanced').model, 'gpt-5.6-terra');
+  assert.equal(resolveModel('codex', 'deep').model, 'gpt-5.6-sol');
+});
+
+test('effort is left to each model, which the vendor tunes per model', () => {
+  // Sol defaults to LOW on purpose — it is strong at lighter reasoning — so
+  // forcing an effort per tier would override a deliberate vendor choice.
+  for (const t of ['fast', 'balanced', 'deep']) {
+    assert.equal(resolveModel('codex', t).effort, undefined);
+  }
+  // Unless the task asks for one.
+  assert.equal(resolveModel('codex', 'deep', 'xhigh').effort, 'xhigh');
 });
 
 test('tiers are case- and whitespace-insensitive', () => {
-  assert.equal(resolveModel('codex', '  DEEP ').effort, 'high');
+  assert.equal(resolveModel('codex', '  DEEP ').model, 'gpt-5.6-sol');
+  assert.equal(resolveModel('claude', 'Balanced').model, 'claude-sonnet-5');
 });
 
 test("a task's own effort beats the tier's", () => {

@@ -87,7 +87,15 @@ model: balanced        # fast | balanced | deep
 ```
 
 Those three work on either AI — each one decides what "balanced" means for
-itself. Use them and your tasks survive a switch untouched.
+itself:
+
+| tier | on Claude | on ChatGPT/Codex |
+|---|---|---|
+| `fast` | Haiku | GPT-5.6-Luna — fast and affordable |
+| `balanced` | Sonnet 5 | GPT-5.6-Terra — everyday work |
+| `deep` | Opus 5 | GPT-5.6-Sol — the frontier model |
+
+Use them and your tasks survive a switch untouched.
 
 You can name an exact model instead (`claude-sonnet-5`, `gpt-5.5`), which
 pins that task to one AI. That's fine, and sometimes what you want. But if you
