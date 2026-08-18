@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.27.1 — 2026-08-18
+
+- fix(engine): create the Codex home before signing in
+
 ## v2.27.0 — 2026-08-18
 
 - feat(engine): support subagents on Codex
