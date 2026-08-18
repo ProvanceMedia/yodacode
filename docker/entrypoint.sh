@@ -45,6 +45,11 @@ if [[ "$(id -u)" == "0" ]]; then
     chmod g+rwxs /app/workspace 2>/dev/null || true
     chown -R yoda:yodacode /app/logs /app/workspace/state /app/workspace/memory \
           /app/workspace/.memory-backups /app/workspace/skills 2>/dev/null || true
+    # The agent's home holds the Codex credential and its session rollouts, and
+    # the file is mode 600 — so if PUID changes, or a sign-in ran as a different
+    # user, the agent cannot read its own credential and simply reads as "not
+    # signed in", with nothing to explain why. Re-assert ownership every start.
+    chown -R yoda:yodacode /home/yoda 2>/dev/null || true
     [[ -f /app/workspace/MEMORY.md ]] && chown yoda:yodacode /app/workspace/MEMORY.md 2>/dev/null || true
   fi
   # Logs must be writable by the agent in BOTH chown modes. Files inherited from a
