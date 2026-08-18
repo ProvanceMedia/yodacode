@@ -54,8 +54,16 @@ export function needsRefreshLock(codexHome, now = Date.now()) {
  *  --sandbox, no --cd, no --add-dir, no --color. Anything unavailable there is
  *  expressed as a -c override, and the working directory comes from the spawn's
  *  cwd. Reusing one argument list across both breaks every resumed turn at argv
- *  parsing while fresh turns keep working. */
-export function buildArgs({ prompt, model, effort, resume, cwd, lastMessageFile, sandbox = 'workspace-write' }) {
+ *  parsing while fresh turns keep working.
+ *
+ *  The sandbox default matches the generated config.toml, and for the same
+ *  reason: the CONTAINER is the boundary. Asking Codex for its own sandbox on
+ *  top does not add protection — it tries to create a user namespace with
+ *  bubblewrap, which is not permitted inside the container, so every shell
+ *  command fails with a namespace error while the turn itself reports success.
+ *  The agent then explains that it could not run the command, which reads as
+ *  the model being unable rather than as a misconfiguration. */
+export function buildArgs({ prompt, model, effort, resume, cwd, lastMessageFile, sandbox = 'danger-full-access' }) {
   const common = ['--json', '--skip-git-repo-check', '-o', lastMessageFile];
   if (model) common.push('--model', model);
   if (effort) common.push('-c', `model_reasoning_effort="${effort}"`);

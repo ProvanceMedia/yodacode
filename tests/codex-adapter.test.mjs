@@ -109,3 +109,21 @@ test('an unreadable or malformed credential locks rather than assuming health', 
     assert.equal(needsRefreshLock(dir, Date.now()), true, 'token that is not a JWT');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── sandbox posture ──────────────────────────────────────────────────────────
+// Found by running a real turn: asking Codex for its own sandbox inside the
+// container makes every shell command fail with a bubblewrap namespace error,
+// while the TURN still reports success — so it surfaces as the model saying it
+// couldn't run the command, not as a configuration error anyone would look for.
+
+test('the sandbox default matches the generated config, on both paths', () => {
+  const fresh = buildArgs(BASE);
+  assert.equal(fresh[fresh.indexOf('--sandbox') + 1], 'danger-full-access');
+  const resumed = buildArgs({ ...BASE, resume: 't' });
+  assert.ok(resumed.includes('sandbox_mode="danger-full-access"'));
+});
+
+test('a caller can still narrow the sandbox deliberately', () => {
+  const a = buildArgs({ ...BASE, sandbox: 'read-only' });
+  assert.equal(a[a.indexOf('--sandbox') + 1], 'read-only');
+});
