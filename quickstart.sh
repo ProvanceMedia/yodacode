@@ -156,7 +156,8 @@ if [[ "$ENGINE" == codex ]]; then
   echo "  Two things to know before you pick Codex:"
   echo "    • Turns are charged against the same ChatGPT quota as your own use,"
   echo "      and the assistant can't see how much you have left."
-  echo "    • You'll need to sign in again roughly every ten days."
+  echo "    • The sign-in renews itself, but don't share it with another install"
+  echo "      or run 'codex logout' — either breaks it and needs a new sign-in."
   echo ""
 fi
 

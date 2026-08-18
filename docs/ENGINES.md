@@ -17,7 +17,7 @@ who pay for ChatGPT rather than Claude can run the same assistant.
 |---|---|---|
 | Subscription | Claude Pro or Max | ChatGPT Plus or Pro |
 | Signing in | copy a token into the installer | enter a code at `auth.openai.com/codex/device` |
-| Signing in again | about once a year | **about every 10 days** |
+| Signing in again | about once a year | only if the sign-in chain breaks |
 
 ## What's different on Codex
 
@@ -29,18 +29,25 @@ cheap — a trivial one costs around 50,000 tokens before it does anything,
 because the instructions it carries are large. The assistant also **can't see
 how much you have left**, so it can't warn you before you run out.
 
-**You'll sign in again every ten days or so.** The credential expires and there
-is no way to extend it. `yodacode doctor` warns you when fewer than two days
-remain — check it occasionally, or you'll find out when the assistant stops
-answering. Renew with:
+**The sign-in renews itself, but it can break.** The access token lasts about ten
+days and Codex refreshes it automatically — the first turn after it expires does
+the renewal inline and carries on. You don't need to do anything.
+
+What *does* need you is the renewal chain breaking. That happens if the sign-in
+is revoked, or if two installs share one credential: each refresh invalidates the
+previous token, so two agents refreshing the same sign-in kill it for both. Give
+each install its own. And **never run `codex logout`** — it revokes the sign-in
+at OpenAI's end, turning a self-healing situation into one that needs a new
+sign-in.
+
+If it does break, `yodacode doctor` says so, and this fixes it:
 
 ```bash
 yodacode change llm codex
 ```
 
-It notices the expired sign-in and walks you through a new one. (It has to run as
-the same user the assistant runs as, which is why it is worth letting the command
-do it rather than calling `codex login` yourself.)
+(It has to run as the same user the assistant runs as, which is why it is worth
+letting the command do it rather than calling `codex login` yourself.)
 
 **Never run `codex logout`.** It revokes the credential on OpenAI's side, which
 turns "sign in again" into a harder problem than it needs to be.

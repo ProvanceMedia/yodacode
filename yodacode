@@ -310,16 +310,19 @@ cmd_doctor() {
             console.log("DAYS " + Math.floor(ms / 86400000));
           }).catch(() => { console.log("NOCRED"); process.exit(1); });
         ' > "$tmp" 2>/dev/null; then
-        ok "Codex sign-in valid ($(grep -oE 'DAYS [0-9]+' "$tmp" | awk '{print $2}')d left)"
-        # Ten days is the whole lifetime of the token, so a low number here is
-        # the only warning an operator gets before the agent stops working.
+        # The number is the ACCESS token's remaining life, and Codex renews that
+        # itself: the first turn after it expires refreshes inline and writes the
+        # new one back. So a small number here is routine, not a countdown to
+        # failure — reporting it as one would send the operator to re-authenticate
+        # a credential that was about to fix itself.
         d="$(grep -oE 'DAYS [0-9]+' "$tmp" | awk '{print $2}')"
-        if [[ -n "$d" && "$d" -le 2 ]]; then
-          warn "Codex credential expires in ${d}d"
-          note "   renew: yodacode change llm codex"
-        fi
+        ok "Codex sign-in works (renews itself; current token ${d}d)"
       else
-        fail "Codex sign-in invalid or missing"
+        # Renewal is automatic, so reaching here means the chain itself broke:
+        # the credential is absent, or its refresh token was consumed elsewhere
+        # (two installs sharing one CODEX_HOME) or revoked. Only that needs a
+        # human.
+        fail "Codex sign-in missing or no longer renewable"
         note "   fix: yodacode change llm codex"
         note "   never run 'codex logout' — it revokes the token server-side"
         problems=$((problems+1))
