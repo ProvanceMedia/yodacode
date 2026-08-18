@@ -3,6 +3,13 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.27.0 — 2026-08-18
+
+- feat(engine): support subagents on Codex
+- fix(container): re-assert ownership of the agent's home each start
+- fix(engine): sign in as the user the agent actually runs as
+- fix(slack): mention the engine switch in the in-chat help
+
 ## v2.26.0 — 2026-08-18
 
 - fix: point model shortcuts, defaults and examples at current models
