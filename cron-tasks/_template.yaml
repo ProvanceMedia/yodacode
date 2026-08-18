@@ -28,7 +28,7 @@ schedule: "0 9 * * *"          # 09:00 daily  (min hour dom mon dow)
 #   balanced  the everyday choice
 #   deep      slower, for real judgement
 #
-# You can name an exact model instead (claude-sonnet-4-6, gpt-5.5, …), but it
+# You can name an exact model instead (claude-sonnet-5, gpt-5.5, …), but it
 # pins this task to one engine: after a switch the task refuses to run and
 # says so, rather than quietly failing at 3am.
 model: balanced

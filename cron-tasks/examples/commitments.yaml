@@ -13,8 +13,8 @@ description: Daily sweep of Slack + Gmail + Meet transcripts for commitments; dr
 schedule: "30 7 * * 1-5"        # 07:30 weekdays — the wizard rewrites this to your choice
 on_calendar: "Mon..Fri *-*-* 07:30"   # same schedule for systemd installs (gen-units.sh)
 # Opus for judgement + voice: the drafts have to read like YOU wrote them, and
-# extraction noise kills trust. Swap to claude-sonnet-4-6 to run cheaper.
-model: claude-opus-4-8
+# extraction noise kills trust. Swap to the balanced tier to run cheaper.
+model: deep
 allowed_tools: [Bash, Read, Write, Glob, Grep]
 timeout: 1500
 reflect: false

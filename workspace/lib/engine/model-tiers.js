@@ -1,6 +1,6 @@
 // Naming a model in a way that survives changing engine.
 //
-// A cron that says `model: claude-sonnet-4-6` is pinned to one engine. Switch
+// A cron that says `model: claude-sonnet-5` is pinned to one engine. Switch
 // engines and it keeps that value, the new engine rejects it, and the task fails
 // on its next scheduled run — which is the worst time to find out, because
 // nobody is watching at 3am and the failure looks like the cron itself breaking.

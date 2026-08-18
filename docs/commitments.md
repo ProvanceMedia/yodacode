@@ -69,8 +69,8 @@ natural question instead of inventing an answer.
 The live task is your file — edit `cron-tasks/commitments.yaml`:
 
 - **Schedule** — the `schedule:` line (standard cron syntax).
-- **Model** — `claude-opus-4-8` by default for the best judgement and voice;
-  switch to `claude-sonnet-4-6` to run cheaper.
+- **Model** — the `deep` tier by default for the best judgement and voice;
+  switch to `balanced` to run cheaper.
 - **Off** — delete the file, or set `disabled: true` in it.
 
 Updates to yodacode never touch your live copy — the shipped template lives in

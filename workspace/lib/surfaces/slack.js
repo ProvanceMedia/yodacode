@@ -229,9 +229,12 @@ const slackSurface = {
     // user's question as its argument. Ack fast, post a public echo that
     // becomes the thread root, then dispatch through the normal pipeline with
     // modelOverride set.
+    // Kept in step with the model tiers (lib/engine/model-tiers.js): a shortcut
+    // that reaches for an older model than the one scheduled tasks already use
+    // is a downgrade nobody asked for.
     const SLASH_MODELS = {
-      '/opus': { model: 'claude-opus-4-8', label: 'opus' },
-      '/sonnet': { model: 'claude-sonnet-4-6', label: 'sonnet' },
+      '/opus': { model: 'claude-opus-5', label: 'opus' },
+      '/sonnet': { model: 'claude-sonnet-5', label: 'sonnet' },
       '/haiku': { model: 'claude-haiku-4-5', label: 'haiku' },
     };
     sm.on('slash_commands', async ({ body, ack }) => {

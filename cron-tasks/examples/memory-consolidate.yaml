@@ -1,7 +1,7 @@
 name: memory-consolidate
 description: Daily librarian pass over MEMORY.md (merge duplicates, promote large topics, prune stale entries)
 on_calendar: "*-*-* 03:00 Europe/London"
-model: claude-sonnet-4-6
+model: balanced
 allowed_tools: [Bash, Read, Write, Edit, Glob, Grep]
 timeout: 600
 # Librarian crons don't reflect on themselves (would recurse).

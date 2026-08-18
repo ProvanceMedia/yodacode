@@ -1,7 +1,7 @@
 name: skill-review
 description: Nightly librarian for workspace/skills/ — dedup, promote to Core, archive stale
 on_calendar: "*-*-* 03:30 Europe/London"
-model: claude-haiku-4-5
+model: fast
 allowed_tools: [Bash, Read, Write, Edit, Glob, Grep]
 timeout: 600
 # Librarian crons don't reflect on themselves.
