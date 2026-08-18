@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.27.2 — 2026-08-18
+
+- fix(engine): don't send one engine's model or effort to another
+
 ## v2.27.1 — 2026-08-18
 
 - fix(engine): create the Codex home before signing in
