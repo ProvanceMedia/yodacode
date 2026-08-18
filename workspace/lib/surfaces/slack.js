@@ -269,6 +269,10 @@ const slackSurface = {
             '`yodacode logs` — watch me · `yodacode restart` — apply changes · `yodacode doctor` — health check · `yodacode help` — everything else',
             '',
             '*Change my name or your details:* run `yodacode persona`.',
+            '',
+            '*Switch which AI runs me* (Claude ↔ ChatGPT/Codex): run `yodacode change llm`.',
+            'It checks the sign-in for the one you\'re moving to, tells you which scheduled tasks',
+            'would need editing, and changes nothing until you say go.',
           ].join('\n');
           // Ephemeral first (private to the caller); if that fails (some DM
           // surfaces reject it), fall back to a normal message rather than
