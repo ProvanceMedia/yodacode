@@ -30,6 +30,10 @@ export const claudeEngine = {
 
   run: ({ prompt, ...options }) => query({ prompt, options: buildAgentOptions(options) }),
 
+  // Model names configured for this engine pass through unchanged.
+  mapModel: (m) => m || undefined,
+  mapEffort: (e) => e || undefined,
+
   // The SDK's AbortError doesn't set .name; the name check additionally catches
   // Node/DOMException-style aborts. No message matching — a real failure whose
   // text mentions "abort" must not read as a clean stop.

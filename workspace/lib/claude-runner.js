@@ -277,8 +277,10 @@ export async function runClaude({
   try {
     const q = engine.run({
       prompt,
-      model: model || undefined,
-      effort,
+      // The engine decides what to do with a model name — a value left over
+      // from another engine must not be sent to this one.
+      model: engine.mapModel ? engine.mapModel(model) : (model || undefined),
+      effort: engine.mapEffort ? engine.mapEffort(effort) : effort,
       allowedTools: config.claude.allowedTools,
       permissionMode: config.claude.permissionMode,
       cwd: config.workspace,

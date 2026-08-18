@@ -70,3 +70,41 @@ test('both engines implement the whole interface', async () => {
     }
   }
 });
+
+// ── settings that outlive an engine change ───────────────────────────────────
+// YODA_CLAUDE_MODEL, the /opus and /sonnet shortcuts, a thread-sticky effort:
+// none of them change when the engine does. Sent to the wrong engine they come
+// back as a raw provider error mid-conversation, which is a poor way to find out
+// that a setting from the other engine is still in place.
+
+test('an engine refuses to send a model belonging to another engine', async () => {
+  const { selectEngine } = await import('../workspace/lib/engine/index.js');
+  const codex = selectEngine('codex');
+  assert.equal(codex.mapModel('claude-opus-5'), undefined, 'must fall back to the engine default');
+  assert.equal(codex.mapModel('claude-sonnet-5'), undefined);
+  assert.equal(codex.mapModel('gpt-5.5'), 'gpt-5.5', 'its own models still pass through');
+});
+
+test('the Claude engine still takes its own models unchanged', async () => {
+  const { selectEngine } = await import('../workspace/lib/engine/index.js');
+  const claude = selectEngine('claude');
+  assert.equal(claude.mapModel('claude-opus-5'), 'claude-opus-5');
+  assert.equal(claude.mapModel(''), undefined);
+});
+
+test('an effort level the engine does not have is dropped, not sent', async () => {
+  const { selectEngine } = await import('../workspace/lib/engine/index.js');
+  const codex = selectEngine('codex');
+  assert.equal(codex.mapEffort('max'), undefined, "'max' is a Claude level");
+  assert.equal(codex.mapEffort('xhigh'), 'xhigh');
+  assert.equal(selectEngine('claude').mapEffort('max'), 'max');
+});
+
+test('every engine implements the mapping methods', async () => {
+  const { selectEngine, ENGINE_IDS } = await import('../workspace/lib/engine/index.js');
+  for (const id of ENGINE_IDS) {
+    for (const m of ['mapModel', 'mapEffort']) {
+      assert.equal(typeof selectEngine(id)[m], 'function', `${id}.${m}`);
+    }
+  }
+});

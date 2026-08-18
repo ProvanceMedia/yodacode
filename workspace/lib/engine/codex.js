@@ -8,6 +8,7 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { runCodex, tokenExpiryMs } from './codex/adapter.js';
+import { modelEngine } from './model-tiers.js';
 
 /** @type {import('./index.js').Engine} */
 export const codexEngine = {
@@ -44,6 +45,19 @@ export const codexEngine = {
   },
 
   run: (args) => runCodex(args),
+
+  // YODA_CLAUDE_MODEL, the /opus and /sonnet shortcuts and any thread-sticky
+  // override all name Claude models, and they do not disappear when the engine
+  // changes. Sending one here is rejected outright by the API — the turn fails
+  // with a raw provider error, which is a poor way to learn that a setting from
+  // the other engine is still set. Fall back to this engine's own default
+  // instead; a model this engine does not recognise is not a reason to refuse
+  // to answer.
+  mapModel: (m) => (modelEngine(m) === 'codex' ? m : undefined),
+
+  // Same reasoning for effort: 'max' is a valid Claude level and is not one
+  // here, and YODA_CLAUDE_EFFORT does not change when the engine does.
+  mapEffort: (e) => (['low', 'medium', 'high', 'xhigh'].includes(String(e || '')) ? e : undefined),
 
   isAbortError: (e) => !!e && e.name === 'AbortError',
 
