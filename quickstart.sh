@@ -48,9 +48,7 @@ if [[ -f "$ENVF" ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' "$ENVF" 2>/dev
     # regenerates on boot, so this keeps a `git pull && start` fully up to date; the
     # agent's own service notes live in the gitignored TOOLS.local.md (ensured below).
     ensure_tools_local
-    bn="$(grep -m1 '^BOT_NAME=' "$ENVF" | cut -d= -f2-)"; un="$(grep -m1 '^USER_NAME=' "$ENVF" | cut -d= -f2-)"
-    tz="$(grep -m1 '^TZ=' "$ENVF" | cut -d= -f2-)"
-    [[ -f templates/CLAUDE.md.template ]] && sed -e "s/{{BOT_NAME}}/${bn:-Yoda}/g" -e "s/{{USER_NAME}}/${un:-friend}/g" -e "s|{{TIMEZONE}}|${tz:-UTC}|g" templates/CLAUDE.md.template > workspace/CLAUDE.md
+    [[ -f templates/CLAUDE.md.template ]] && render_persona_from_env CLAUDE.md
     docker compose up -d --build && ok "Starting — watch with: yodacode logs"; rc=$?
     # Make sure the `yodacode` command is on PATH (existing installs predate it).
     install_cli_wrapper
@@ -149,6 +147,12 @@ if spin "Checking your sign-in works…" "$LOGDIR/auth.log" docker compose run -
    && grep -qE '"is_error"[ ]*:[ ]*false' "$LOGDIR/auth.log"; then
   ok "Signed in to Claude."; else warn "Couldn't verify just now — continuing (may still work)."; fi
 
+# Save it NOW, not with the rest of the config at the end. The later steps can
+# bail out (Slack setup exits non-zero), and a token discarded there costs the
+# operator another `claude setup-token` round trip on the next attempt — for a
+# credential that was already collected and verified.
+set_env CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_TOKEN"
+
 # ── 4 · Personalise ───────────────────────────────────────────────────────────
 step 4 "Personalise your assistant"
 echo "  Let's give it a name and tell it who you are."
@@ -160,7 +164,7 @@ step 5 "Create the Slack app"
 configure_slack || { fail "Slack setup didn't complete. Re-run ./quickstart.sh."; exit 1; }   # member ID, manifest, tokens
 
 # ── write config ──────────────────────────────────────────────────────────────
-set_env CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_TOKEN"
+# The engine credential was persisted as soon as it verified, above.
 ok "Configuration saved."
 
 # ── 6 · Launch + smoke test ───────────────────────────────────────────────────

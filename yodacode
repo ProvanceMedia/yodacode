@@ -12,8 +12,18 @@ cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 source scripts/common.sh
 
 # ── small helpers ────────────────────────────────────────────────────────────
+# "Has this install been set up?" — a surface credential plus the credential for
+# whichever engine is configured. Asking the engine rather than hard-coding one
+# means a future engine doesn't read as an unconfigured install and silently
+# re-run the wizard.
+engine_credential_present() {
+  case "$(env_get YODA_ENGINE)" in
+    ''|claude) grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' .env 2>/dev/null ;;
+    *)         return 1 ;;
+  esac
+}
 is_configured() {
-  [[ -f .env ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' .env 2>/dev/null \
+  [[ -f .env ]] && engine_credential_present \
                 && grep -q '^SLACK_BOT_TOKEN=xoxb-' .env 2>/dev/null
 }
 version_string() {
@@ -106,6 +116,25 @@ cmd_doctor() {
     if [[ -n "$(env_get YODA_DM_AUTHORIZED_USERS)" ]]; then ok "Your Slack member ID set"
     else fail "YODA_DM_AUTHORIZED_USERS missing — the bot won't reply to anyone"; note "   fix: yodacode slack"; problems=$((problems+1)); fi
   else fail ".env missing"; note "   fix: ./quickstart.sh"; problems=$((problems+1)); fi
+
+  # Persona integrity. workspace/CLAUDE.md loads nine documents by reference —
+  # identity, voice, the operator's own context, tools, memory, the skills index.
+  # A referenced file that is missing or empty is skipped SILENTLY: nothing errors,
+  # the bot just quietly sounds generic and forgets who it is talking to. That is
+  # a hard symptom to trace back to a missing file, so name it here instead.
+  if [[ -f workspace/CLAUDE.md ]]; then
+    local missing=() ref
+    while read -r ref; do
+      [[ -s "workspace/${ref}" ]] || missing+=("$ref")
+    done < <(grep -oE '^@\./[A-Za-z0-9_./-]+' workspace/CLAUDE.md | sed 's|^@\./||')
+    if [[ ${#missing[@]} -eq 0 ]]; then ok "Persona documents all present"
+    else
+      warn "Persona incomplete — ${#missing[@]} referenced file(s) missing or empty: ${missing[*]}"
+      note "   the bot loses that part of its character with no error"
+      note "   fix: yodacode update (regenerates the framework docs)"
+      problems=$((problems+1))
+    fi
+  fi
 
   # Version — live check against the repo's release tags (short timeout).
   local cur latest
@@ -451,12 +480,7 @@ cmd_update() {
   # Refresh the framework persona doc from the (now-updated) template so new
   # @-imports (e.g. TOOLS.local.md) take effect. Keeps the operator's name/context;
   # their edits live in IDENTITY/USER/MEMORY, not this generated file.
-  local bn un tz
-  bn="$(env_get BOT_NAME)"; un="$(env_get USER_NAME)"; tz="$(env_get TZ)"
-  [[ -f templates/CLAUDE.md.template ]] && sed \
-    -e "s/{{BOT_NAME}}/${bn:-Yoda}/g" -e "s/{{USER_NAME}}/${un:-friend}/g" \
-    -e "s|{{TIMEZONE}}|${tz:-UTC}|g" -e "s|{{INSTALL_DIR}}|$PWD|g" -e "s|{{DATE}}|$(date +%F)|g" \
-    templates/CLAUDE.md.template > workspace/CLAUDE.md
+  [[ -f templates/CLAUDE.md.template ]] && render_persona_from_env CLAUDE.md
 
   update_restart_tail || return 1
   install_cli_wrapper   # self-heal the wrapper if this update added/moved it

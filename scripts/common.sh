@@ -273,6 +273,18 @@ render_persona() {
     "templates/$1.template" > "workspace/$1"
 }
 
+# Same, but for the paths that run without the wizard's globals set — the
+# installer's resume branch and `yodacode update`. Both used to carry their own
+# sed line with a DIFFERENT set of substitutions, so a placeholder added to a
+# template got replaced on one path and left literal on another. One code path
+# now, so that can't drift.
+render_persona_from_env() {
+  BOT_NAME="$(env_get BOT_NAME)";  BOT_NAME="${BOT_NAME:-Yoda}"
+  USER_NAME="$(env_get USER_NAME)"; USER_NAME="${USER_NAME:-friend}"
+  TZ_FINAL="$(env_get TZ)";         TZ_FINAL="${TZ_FINAL:-UTC}"
+  render_persona "$1"
+}
+
 # Append-notes framework docs: TOOLS.md is the ONE tracked file whose divergence
 # is purely appended service notes (the old "document services as you go"
 # pattern), which belong in TOOLS.local.md going forward — so it is safe to lift
