@@ -170,6 +170,12 @@ export const config = {
   // do behind the operator's back mid-conversation.
   engine: {
     id: process.env.YODA_ENGINE || 'claude',
+    // The chosen model, per engine — a name only means something to the engine
+    // it belongs to, so each keeps its own setting and switching back restores
+    // what you had. Empty means "let the engine pick".
+    model: (process.env.YODA_ENGINE === 'codex'
+      ? process.env.YODA_CODEX_MODEL
+      : process.env.YODA_CLAUDE_MODEL) || '',
   },
 
   // Claude runner (Agent SDK). The SDK spawns its own bundled Claude Code

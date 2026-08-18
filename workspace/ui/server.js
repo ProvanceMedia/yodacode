@@ -68,7 +68,7 @@ function apiStatus() {
   return {
     uptime: Math.floor((Date.now() - START_TIME) / 1000),
     surfaces: config.surfaces,
-    model: config.claude.model || 'claude-sonnet-5 (default)',
+    model: config.engine.model || `${config.engine.id} default`,
     fallbackModels: config.claude.fallbackModels,
     activeTicks: Object.keys(ticks).length,
     ticks,

@@ -139,7 +139,7 @@ async function processReply(event, surface) {
   // non-throttle errors do NOT trigger a fallback (they're not transient).
   const modelChain = event.modelOverride
     ? [event.modelOverride, ...config.claude.fallbackModels]
-    : [config.claude.model || null, ...config.claude.fallbackModels];
+    : [config.engine.model || null, ...config.claude.fallbackModels];
   let result = null;
   let modelUsed = null;
   const tickStartMs = Date.now();

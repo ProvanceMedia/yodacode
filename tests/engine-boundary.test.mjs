@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -107,4 +108,20 @@ test('every engine implements the mapping methods', async () => {
       assert.equal(typeof selectEngine(id)[m], 'function', `${id}.${m}`);
     }
   }
+});
+
+test('a configured Codex model is used instead of a leftover Claude one', () => {
+  // config.js reads the environment once at import, so this has to run in a
+  // fresh process to mean anything — an in-process env tweak would test nothing.
+  const script = `
+    import { selectEngine } from './workspace/lib/engine/index.js';
+    process.stdout.write(String(selectEngine('codex').mapModel('claude-opus-5')));
+  `;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: path.join(path.dirname(fileURLToPath(import.meta.url)), '..'),
+    env: { ...process.env, YODA_ENGINE: 'codex', YODA_CODEX_MODEL: 'gpt-5.4' },
+    encoding: 'utf8',
+  });
+  assert.equal(out.trim(), 'gpt-5.4',
+    "the operator's choice for THIS engine must win over the other engine's leftover");
 });

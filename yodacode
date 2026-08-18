@@ -44,6 +44,13 @@ version_string() {
 # user. Anything that writes the Codex credential has to run as that SAME uid —
 # auth.json is mode 600, so a mismatch means the agent silently reads as "not
 # signed in" after a sign-in that reported success.
+# Which env key holds the model, for the engine that is running. A model name
+# means nothing to the other engine, so each keeps its own — and switching back
+# restores the one you had rather than inheriting a name the engine will reject.
+model_env_key() {
+  case "$(env_get YODA_ENGINE)" in codex) echo YODA_CODEX_MODEL ;; *) echo YODA_CLAUDE_MODEL ;; esac
+}
+
 agent_uid() { local p; p="$(env_get PUID)"; echo "${p:-1000}"; }
 
 # Codex will not create its own home: point CODEX_HOME at a path that does not
@@ -762,7 +769,7 @@ cmd_model() {
   local arg="${1:-}"
   if [[ -z "$arg" ]]; then
     title "Model"
-    local cur; cur="$(env_get YODA_CLAUDE_MODEL)"
+    local key cur; key="$(model_env_key)"; cur="$(env_get "$key")"
     if [[ -n "$cur" ]]; then echo "  Primary: $cur"; else echo -e "  Primary: ${D}(default — Claude Code picks)${X}"; fi
     echo ""
     note "Set:   yodacode model <name>   e.g. claude-sonnet-4-6 / claude-opus-4-8 / claude-haiku-4-5"
@@ -770,7 +777,7 @@ cmd_model() {
     return 0
   fi
   local v="$arg"; [[ "$arg" == default ]] && v=""
-  set_env YODA_CLAUDE_MODEL "$v"
+  set_env "$(model_env_key)" "$v"
   [[ -n "$v" ]] && ok "Primary model set to $v" || ok "Primary model reset to default"
   restart_if_running
 }

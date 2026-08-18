@@ -9,6 +9,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { runCodex, tokenExpiryMs } from './codex/adapter.js';
 import { modelEngine } from './model-tiers.js';
+import { config } from '../config.js';
 
 /** @type {import('./index.js').Engine} */
 export const codexEngine = {
@@ -53,7 +54,14 @@ export const codexEngine = {
   // the other engine is still set. Fall back to this engine's own default
   // instead; a model this engine does not recognise is not a reason to refuse
   // to answer.
-  mapModel: (m) => (modelEngine(m) === 'codex' ? m : undefined),
+  mapModel: (m) => {
+    if (modelEngine(m) === 'codex') return m;
+    // A leftover Claude name: fall back to this engine's OWN configured model
+    // if there is one, and only then to the engine's default.
+    return config.engine.model && modelEngine(config.engine.model) === 'codex'
+      ? config.engine.model
+      : undefined;
+  },
 
   // Same reasoning for effort: 'max' is a valid Claude level and is not one
   // here, and YODA_CLAUDE_EFFORT does not change when the engine does.
