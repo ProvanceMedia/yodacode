@@ -19,6 +19,7 @@ export function derootEnabled() {
 const ENV_ALLOWLIST = [
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'NODE_OPTIONS', 'TERM',
   'CLAUDE_CODE_OAUTH_TOKEN', 'SLACK_TEST_CHANNEL_ID', 'YODA_CLAUDE_MODEL',
+  'YODA_ENGINE',
 ];
 
 export function buildAgentEnv() {

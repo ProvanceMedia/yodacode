@@ -164,6 +164,14 @@ export const config = {
     authorizedUsers: new Set(csv('YODA_STOP_AUTHORIZED_USERS', '')),
   },
 
+  // Which engine runs a turn (lib/engine/). Set at install time and changed
+  // deliberately, never automatically — switching engines resets sessions and
+  // changes what model names and effort levels mean, so it is not something to
+  // do behind the operator's back mid-conversation.
+  engine: {
+    id: process.env.YODA_ENGINE || 'claude',
+  },
+
   // Claude runner (Agent SDK). The SDK spawns its own bundled Claude Code
   // runtime, so there is no CLAUDE_BIN knob any more — pin the runtime
   // version via workspace/package.json instead.

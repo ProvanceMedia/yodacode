@@ -71,6 +71,9 @@ services:
       # Commitments sweep (cron-tasks/commitments.yaml): where the digest DM goes.
       YODA_COMMITMENTS_DM: ${YODA_COMMITMENTS_DM:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Which engine runs a turn. Changed deliberately (see the CLI), never
+      # automatically. An unknown value fails at boot rather than falling back.
+      YODA_ENGINE: ${YODA_ENGINE:-claude}
       YODA_SURFACES: ${YODA_SURFACES:-slack}
       YODA_CLAUDE_MODEL: ${YODA_CLAUDE_MODEL:-}
       YODA_DM_AUTHORIZED_USERS: ${YODA_DM_AUTHORIZED_USERS:-}

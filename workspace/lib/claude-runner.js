@@ -12,11 +12,11 @@
 import * as fs from 'node:fs';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { translateMessages } from './stream-translator.js';
-import { buildAgentOptions, isAbortError } from './agent-query.js';
+import { isAbortError } from './agent-query.js';
+import { selectEngine } from './engine/index.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
 const ORPHANS_FILE = path.join(config.stateDir, 'orphaned-ticks.json');
@@ -99,12 +99,16 @@ function persistTicks() {
   }
 }
 
-function appendUsage(surface, model, usage) {
+function appendUsage(surface, model, usage, engineId) {
   if (!usage) return;
   try {
     const entry = {
       ts: new Date().toISOString(),
       surface,
+      // Which engine produced these tokens. Model names alone don't identify it
+      // and they churn, so a usage log spanning an engine change would otherwise
+      // be impossible to read back.
+      engine: engineId || 'claude',
       model: model || usage.model || 'default',
       input_tokens: usage.input_tokens || 0,
       output_tokens: usage.output_tokens || 0,
@@ -170,6 +174,7 @@ export async function runClaude({
   onStatus,
   onFinal,
 }) {
+  const engine = selectEngine();
   const controller = new AbortController();
   const tick = {
     conversationId,
@@ -270,37 +275,35 @@ export async function runClaude({
   let finalResult = null;
   let queryError = null;
   try {
-    const q = query({
+    const q = engine.run({
       prompt,
-      options: buildAgentOptions({
-        model: model || undefined,
-        effort,
-        allowedTools: config.claude.allowedTools,
-        permissionMode: config.claude.permissionMode,
-        cwd: config.workspace,
-        abortController: controller,
-        stderr: onStderr,
-        resume,
-        // Hand the child its conversation identity so a background watch it sets
-        // (bin/watch.js) knows which thread + user to wake when its condition
-        // fires, plus the operator's live sizing knobs so the CLI enforces the
-        // real limits (the de-rooted child's curated env strips YODA_* otherwise,
-        // which is why these are forwarded explicitly). Non-secret values only.
-        // Gated on the feature flag so a disabled install can't accumulate orphan
-        // watch files.
-        extraEnv: config.watches.enabled ? {
-          YODA_CONVERSATION_ID: conversationId || '',
-          YODA_SURFACE: surface || '',
-          YODA_USER_ID: userId || '',
-          YODA_REPLY_TARGET: replyTarget ? JSON.stringify(replyTarget) : '',
-          YODA_WATCH_ENABLED: '1',
-          YODA_WATCH_DEFAULT_INTERVAL_MS: String(config.watches.defaultIntervalMs),
-          YODA_WATCH_MIN_INTERVAL_MS: String(config.watches.minIntervalMs),
-          YODA_WATCH_DEFAULT_TIMEOUT_MS: String(config.watches.defaultTimeoutMs),
-          YODA_WATCH_MAX_TIMEOUT_MS: String(config.watches.maxTimeoutMs),
-          YODA_WATCH_MAX_ACTIVE: String(config.watches.maxActive),
-        } : { YODA_WATCH_ENABLED: '0' },
-      }),
+      model: model || undefined,
+      effort,
+      allowedTools: config.claude.allowedTools,
+      permissionMode: config.claude.permissionMode,
+      cwd: config.workspace,
+      abortController: controller,
+      stderr: onStderr,
+      resume,
+      // Hand the child its conversation identity so a background watch it sets
+      // (bin/watch.js) knows which thread + user to wake when its condition
+      // fires, plus the operator's live sizing knobs so the CLI enforces the
+      // real limits (the de-rooted child's curated env strips YODA_* otherwise,
+      // which is why these are forwarded explicitly). Non-secret values only.
+      // Gated on the feature flag so a disabled install can't accumulate orphan
+      // watch files.
+      extraEnv: config.watches.enabled ? {
+        YODA_CONVERSATION_ID: conversationId || '',
+        YODA_SURFACE: surface || '',
+        YODA_USER_ID: userId || '',
+        YODA_REPLY_TARGET: replyTarget ? JSON.stringify(replyTarget) : '',
+        YODA_WATCH_ENABLED: '1',
+        YODA_WATCH_DEFAULT_INTERVAL_MS: String(config.watches.defaultIntervalMs),
+        YODA_WATCH_MIN_INTERVAL_MS: String(config.watches.minIntervalMs),
+        YODA_WATCH_DEFAULT_TIMEOUT_MS: String(config.watches.defaultTimeoutMs),
+        YODA_WATCH_MAX_TIMEOUT_MS: String(config.watches.maxTimeoutMs),
+        YODA_WATCH_MAX_ACTIVE: String(config.watches.maxActive),
+      } : { YODA_WATCH_ENABLED: '0' },
     });
 
     // Run the translator over the SDK message stream. Status updates and the
@@ -387,7 +390,7 @@ export async function runClaude({
   }
 
   if (finalResult?.tracker) appendToolRuns(conversationId, surface, finalResult.tracker);
-  if (finalResult?.usage) appendUsage(surface, model, finalResult.usage);
+  if (finalResult?.usage) appendUsage(surface, model, finalResult.usage, engine.id);
 
   // Classification mirrors the old process-exit handler: an explicit user
   // stop wins over a watchdog that fired in the same instant, then timeouts,
