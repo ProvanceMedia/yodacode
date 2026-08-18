@@ -46,6 +46,8 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { runAgentText } from '../lib/agent-query.js';
 import { reflectAfterCron } from '../lib/cron-reflect.js';
+import { config } from '../lib/config.js';
+import { resolveModel } from '../lib/engine/model-tiers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const BIN_DIR = path.dirname(__filename);
@@ -151,7 +153,17 @@ async function main() {
     process.exit(2);
   }
   if (!def.model) {
-    console.error(`${taskPath}: missing required field 'model:' — every cron must name its model explicitly`);
+    console.error(`${taskPath}: missing required field 'model:' — every cron must name its model or tier explicitly`);
+    process.exit(2);
+  }
+  // Resolve now, before any work: a task pinned to another engine's model must
+  // fail here with an explanation, not deep inside the run with a rejection from
+  // the engine that nobody will read until the task has missed several days.
+  let resolvedModel;
+  try {
+    resolvedModel = resolveModel(config.engine.id, def.model, def.effort);
+  } catch (e) {
+    console.error(`${taskPath}: ${e.message}`);
     process.exit(2);
   }
 
@@ -207,8 +219,8 @@ async function main() {
   const stderrBuf = [];
   const res = await runAgentText({
     prompt,
-    model: def.model,
-    effort: def.effort,
+    model: resolvedModel.model,
+    effort: resolvedModel.effort,
     allowedTools,
     permissionMode: def.permission_mode || 'acceptEdits',
     cwd: WORKSPACE,

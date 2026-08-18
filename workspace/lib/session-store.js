@@ -64,12 +64,26 @@ export const sessionStore = {
       persist();
       return null;
     }
+    // A session id belongs to the engine that issued it. After an engine change
+    // the stored ids are meaningless to the new engine — resuming one produces a
+    // confusing failure on the first message of every existing thread. Treated
+    // as "no session" instead, so the conversation simply starts fresh.
+    //
+    // Entries are LEFT IN PLACE rather than deleted: switching back restores
+    // every thread exactly where it was, which turns a change of engine into
+    // something an operator can undo.
+    if ((v.engine || 'claude') !== config.engine.id) return null;
     return v;
   },
 
   /** Record the session serving a conversation and the newest context ts seen. */
   set(conversationId, { sessionId, lastTs }) {
-    load()[conversationId] = { sessionId, lastTs: lastTs ?? null, updatedAt: Date.now() };
+    load()[conversationId] = {
+      sessionId,
+      lastTs: lastTs ?? null,
+      updatedAt: Date.now(),
+      engine: config.engine.id,
+    };
     persist();
   },
 

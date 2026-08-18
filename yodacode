@@ -78,7 +78,8 @@ $(echo -e "${B}Configure${X}")
   yodacode googlechat   connect Google Chat (guided; needs Google Workspace)
   yodacode commitments  set up the daily digest of promises made + follow-up drafts
   yodacode persona      change bot name, your name, timezone
-  yodacode model [name] show / set the Claude model
+  yodacode change llm   switch between Claude and OpenAI Codex
+  yodacode model [name] show / set the model
   yodacode tools        toggle reflectors & guardrails
   yodacode addkey       give the bot an API key (via the broker)
   yodacode connect      sign the bot into an OAuth service (Gmail etc.)
@@ -116,7 +117,15 @@ cmd_doctor() {
   # .env keys
   if [[ -f .env ]]; then
     ok ".env present"
-    check_key CLAUDE_CODE_OAUTH_TOKEN sk-ant- "re-run sign-in via ./quickstart.sh"
+    # Only the running engine's credential is a problem when missing. On Codex
+    # the Claude token is legitimately absent, and reporting it would train the
+    # operator to ignore doctor's output.
+    if [[ "$(env_get YODA_ENGINE)" == codex ]]; then
+      if [[ "$(env_get YODA_CODEX_SIGNED_IN)" == 1 ]]; then ok "Engine: codex (ChatGPT sign-in recorded)"
+      else fail "Engine is codex but sign-in never completed"; note "   fix: yodacode change llm codex"; problems=$((problems+1)); fi
+    else
+      check_key CLAUDE_CODE_OAUTH_TOKEN sk-ant- "re-run sign-in via ./quickstart.sh"
+    fi
     check_key SLACK_BOT_TOKEN xoxb- "yodacode slack"
     check_key SLACK_APP_TOKEN xapp- "yodacode slack"
     if [[ -n "$(env_get YODA_DM_AUTHORIZED_USERS)" ]]; then ok "Your Slack member ID set"
@@ -583,6 +592,121 @@ cmd_install_browsers() {
   fi
 }
 
+# ── engine ───────────────────────────────────────────────────────────────────
+# `yodacode change llm` / `yodacode engine [name]`.
+#
+# Designed for the moment it is actually needed: a subscription has run out, so
+# the CURRENT engine may already be dead. Nothing here asks the current engine
+# anything, and every check runs in a throwaway container so it works with the
+# agent stopped.
+engine_probe() {   # <target> → prints audit lines, exit 0 if safe to switch
+  docker compose run --rm --no-deps --user 1001 \
+    -e "YODA_ENGINE=$1" --entrypoint node agent /app/workspace/bin/engine-audit.mjs "$1" 2>/dev/null
+}
+
+cmd_engine() {
+  local target="${1:-}" cur
+  cur="$(env_get YODA_ENGINE)"; cur="${cur:-claude}"
+
+  if [[ -z "$target" ]]; then
+    title "Engine"
+    echo "  Currently: ${B}${cur}${X}"
+    echo ""
+    echo "  claude  — Claude, on a Claude Pro or Max subscription"
+    echo "  codex   — OpenAI Codex, on a ChatGPT Plus or Pro subscription"
+    echo ""
+    note "Switch: yodacode change llm <claude|codex>"
+    note "Check the current one is healthy: yodacode doctor"
+    return 0
+  fi
+
+  target="$(echo "$target" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  case "$target" in
+    claude|codex) ;;
+    *) fail "Unknown engine '$target'. Choose claude or codex."; return 1 ;;
+  esac
+  if [[ "$target" == "$cur" ]]; then ok "Already running $target — nothing to do."; return 0; fi
+
+  title "Change LLM: $cur → $target"
+
+  # 1 · Look before touching anything. Runs in its own container so a dead
+  #     current engine can't block the escape route.
+  local out rc
+  out="$(engine_probe "$target")"; rc=$?
+
+  local blocked; blocked="$(grep -c '^BLOCKED ' <<<"$out" 2>/dev/null || echo 0)"
+  local cred;    cred="$(grep -m1 '^CRED ' <<<"$out" | cut -d' ' -f2-)"
+
+  if [[ "$cred" == missing* || "$cred" == expired* ]]; then
+    if [[ "$target" == codex ]]; then
+      warn "No usable ChatGPT sign-in yet (${cred})."
+      echo ""
+      echo "  Sign in now — a code appears, you enter it at"
+      echo -e "  ${B}https://auth.openai.com/codex/device${X} on your laptop or phone."
+      echo ""
+      local a; a="$(ask 'Sign in now? [Y/n]' 'Y')"
+      [[ "${a,,}" =~ ^n ]] && { note "Nothing changed. Run this again when you're ready."; return 1; }
+      if docker compose run --rm --no-deps --user 1001 --entrypoint codex agent login --device-auth; then
+        set_env YODA_CODEX_SIGNED_IN 1
+        ok "Signed in."
+      else
+        fail "Sign-in didn't complete — nothing changed."; return 1
+      fi
+    else
+      fail "No Claude token in .env — nothing changed."
+      note "   get one: docker compose run --rm --no-deps --entrypoint claude agent setup-token"
+      note "   then:    yodacode change llm claude"
+      return 1
+    fi
+  fi
+
+  # 2 · Crons. A task naming the old engine's model would fail on its own
+  #     schedule, days later, with nobody watching. Say so now instead.
+  if [[ "${blocked:-0}" -gt 0 ]]; then
+    echo ""
+    warn "${blocked} cron task(s) name a model that ${target} can't run:"
+    grep '^BLOCKED ' <<<"$out" | while read -r _ name model; do
+      echo "    • ${name}  (model: ${model})"
+    done
+    echo ""
+    note "Fix each one's 'model:' in cron-tasks/<name>.yaml — use a tier"
+    note "(fast, balanced, deep) and it works on either engine."
+    echo ""
+    local c; c="$(ask 'Switch anyway and leave those crons broken? [y/N]' 'N')"
+    [[ "${c,,}" =~ ^y ]] || { note "Nothing changed."; return 1; }
+  fi
+
+  # 3 · Don't cut a cron off mid-run. The agent's own idle check doesn't see
+  #     cron runs, which are exactly the long ones.
+  if agent_running && docker compose exec -T agent pgrep -f cron-runner.js >/dev/null 2>&1; then
+    warn "A cron task is running right now."
+    local w; w="$(ask 'Wait for it to finish? [Y/n]' 'Y')"
+    if [[ ! "${w,,}" =~ ^n ]]; then
+      local waited=0
+      while docker compose exec -T agent pgrep -f cron-runner.js >/dev/null 2>&1; do
+        sleep 10; waited=$((waited+10))
+        (( waited >= 1800 )) && { warn "Still running after 30 min — switching anyway."; break; }
+      done
+    fi
+  fi
+
+  # 4 · The switch itself. Only this and the restart mutate anything, and the
+  #     marker records that a change was in flight if the restart is interrupted.
+  echo "$cur" > .engine-pending 2>/dev/null || true
+  set_env YODA_ENGINE "$target"
+  ok "Engine set to ${target}."
+
+  echo ""
+  note "Conversation threads start fresh — sessions don't carry across engines."
+  note "Switching back restores them exactly as they were."
+  [[ "$target" == codex ]] && note "Codex turns use your ChatGPT quota, and sign-in expires ~every 10 days."
+
+  restart_if_running
+  rm -f .engine-pending 2>/dev/null || true
+  echo ""
+  note "Check it: yodacode doctor"
+}
+
 cmd_model() {
   local arg="${1:-}"
   if [[ -z "$arg" ]]; then
@@ -813,6 +937,15 @@ case "$CMD" in
   googlechat)           cmd_googlechat ;;
   commitments)          cmd_commitments ;;
   persona)              cmd_persona ;;
+  engine)               cmd_engine "$@" ;;
+  # `change llm <name>` reads the way people ask for it; `engine` matches
+  # the grammar of the other settings commands. Same function either way.
+  change)
+    # if/else, not && / || — with the latter, cmd_engine returning non-zero (an
+    # unknown engine name, a declined confirmation) also triggers the "unknown
+    # command" branch, and the operator gets two contradictory errors.
+    if [[ "${1:-}" == llm || "${1:-}" == engine ]]; then shift; cmd_engine "$@"
+    else fail "Unknown command: change ${1:-}"; note "Did you mean: yodacode change llm"; exit 1; fi ;;
   model)                cmd_model "$@" ;;
   tools)                cmd_tools "$@" ;;
   release)              cmd_release "$@" ;;

@@ -20,10 +20,18 @@ schedule: "0 9 * * *"          # 09:00 daily  (min hour dom mon dow)
 # on_calendar: "*-*-* 09:00 Europe/London"   # alternative: systemd syntax
 # disabled: true
 
-# Model. REQUIRED — every cron yaml must state its model explicitly so you
-# can see at a glance what it runs on. No implicit defaults.
-# Common choices: claude-haiku-4-5 (cheap), claude-sonnet-4-6 (workhorse), claude-opus-4-8 (heavy judgement)
-model: claude-sonnet-4-6
+# Model. REQUIRED — every cron yaml states what it runs on. No implicit defaults.
+#
+# Prefer a TIER. Tiers work on whichever AI your assistant runs, so the task
+# keeps working if you ever run `yodacode change llm`:
+#   fast      quick and cheap
+#   balanced  the everyday choice
+#   deep      slower, for real judgement
+#
+# You can name an exact model instead (claude-sonnet-4-6, gpt-5.5, …), but it
+# pins this task to one engine: after a switch the task refuses to run and
+# says so, rather than quietly failing at 3am.
+model: balanced
 
 # Tools claude is allowed to use. Pick the smallest set the task actually needs.
 allowed_tools: [Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep]
