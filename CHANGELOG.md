@@ -3,6 +3,26 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.26.0 — 2026-08-18
+
+- fix: point model shortcuts, defaults and examples at current models
+- fix(cron): point the model tiers at current models
+- feat(persona): tell the agent which engine it is actually running on
+- fix(update): let a locally-edited cron template survive an update
+- fix(engine): run crons and reflectors on the configured engine
+- fix(cli): correct the blocked-cron count in the engine switch
+- fix(engine): don't ask Codex for its own sandbox inside the container
+- docs: explain what differs between the two engines
+- feat(cli): add `yodacode change llm` to switch engines
+- feat(cli): make the installer, doctor and status engine-aware
+- feat(engine): generate the Codex config and persona at boot
+- feat(engine): persona assembly, image and credential boundary for Codex
+- feat(engine): add a Codex adapter
+- fix: write .env keys atomically
+- fix: harden the install and persona paths
+- refactor: introduce an engine seam
+- refactor: remove outbound-action gate
+
 ## v2.25.0 — 2026-08-07
 
 - feat(slack): give DMs the same status display as channels
