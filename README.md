@@ -82,6 +82,14 @@ unprivileged user with no service keys in its environment and reaches every API 
 So a prompt injection or a confused agent has nothing to leak: the keys are on the other side of a
 container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
 
+## Claude or ChatGPT
+
+Your assistant runs on a **Claude** subscription (Pro or Max) or a **ChatGPT**
+one (Plus or Pro). The installer asks which; you can change it later with
+`yodacode change llm`. Either way it's a subscription you may already pay for,
+not API billing. The two are not identical — [docs/ENGINES.md](docs/ENGINES.md)
+sets out what actually differs.
+
 ## Day-to-day
 
 The installer drops a `yodacode` command on your PATH. Run `yodacode help` for the full list:
