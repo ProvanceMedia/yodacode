@@ -634,7 +634,10 @@ cmd_engine() {
   local out rc
   out="$(engine_probe "$target")"; rc=$?
 
-  local blocked; blocked="$(grep -c '^BLOCKED ' <<<"$out" 2>/dev/null || echo 0)"
+  # grep -c prints 0 AND exits non-zero when there are no matches, so a `|| echo 0`
+  # fallback appends a SECOND zero and the count stops being a number. That only
+  # happens when nothing is blocked — i.e. on the path everybody takes.
+  local blocked; blocked="$(grep -c '^BLOCKED ' <<<"$out")"; blocked="${blocked//[^0-9]/}"; blocked="${blocked:-0}"
   local cred;    cred="$(grep -m1 '^CRED ' <<<"$out" | cut -d' ' -f2-)"
 
   if [[ "$cred" == missing* || "$cred" == expired* ]]; then
