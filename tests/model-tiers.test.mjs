@@ -23,6 +23,15 @@ test('every tier resolves on both engines', () => {
   }
 });
 
+test('the Claude tiers name current models', () => {
+  // Pinned deliberately: a tier that resolves to an older model than the one the
+  // operator's existing crons already name is a silent downgrade for anything
+  // written the portable way.
+  assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
+  assert.equal(resolveModel('claude', 'balanced').model, 'claude-sonnet-5');
+  assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5');
+});
+
 test('a tier means a model on Claude and an effort on Codex', () => {
   assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
   // Codex model slugs churn and get retired, so a tier there moves effort and

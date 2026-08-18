@@ -25,8 +25,8 @@ export const TIERS = ['fast', 'balanced', 'deep'];
 const TIER_MAP = {
   claude: {
     fast: { model: 'claude-haiku-4-5' },
-    balanced: { model: 'claude-sonnet-4-6' },
-    deep: { model: 'claude-sonnet-4-6', effort: 'high' },
+    balanced: { model: 'claude-sonnet-5' },
+    deep: { model: 'claude-opus-5' },
   },
   codex: {
     fast: { effort: 'low' },
