@@ -2,7 +2,7 @@
 // uploads (real .xlsx / images / PDFs) that text bodies would corrupt. Run: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { encodeRequestBody } from '../workspace/broker/http-call.js';
+import { encodeRequestBody, httpCall } from '../workspace/broker/http-call.js';
 
 test('no body → nothing to send', () => {
   assert.deepEqual(encodeRequestBody({}), {});
@@ -81,4 +81,46 @@ test('contentType is honoured on the text body path too (form/xml/csv), not just
   assert.equal(encodeRequestBody({ body: '{}' }).contentType, 'application/json');
   // and an invalid contentType is rejected regardless of which body path
   assert.match(encodeRequestBody({ body: 'x', contentType: 'bad\r\ninject' }).error, /plain MIME/);
+});
+
+// ── engine credential boundary ───────────────────────────────────────────────
+// The agent carries its own model credential, so a broker call to an engine's
+// API would be a route to replay it. This is checked before the host lookup, so
+// it holds even if one of these ends up in auth-hosts.json.
+
+test('refuses the engine APIs, for every engine — not just the active one', async () => {
+  for (const host of [
+    'api.anthropic.com', 'statsig.anthropic.com', 'console.anthropic.com',
+    'api.openai.com', 'chatgpt.com', 'auth.openai.com',
+  ]) {
+    const r = await httpCall({ host, path: 'v1/me' });
+    assert.equal(r.ok, false, `${host} must be refused`);
+    assert.match(r.error, /not callable via http_call/);
+  }
+});
+
+test('the refusal does not depend on the host being configured', async () => {
+  // "host not configured" would mean the allowlist is what is stopping it. The
+  // point of this guard is that adding it to the allowlist must not help.
+  const r = await httpCall({ host: 'api.openai.com', path: 'v1/models' });
+  assert.doesNotMatch(r.error, /not configured/);
+});
+
+test('a port spelling of the same endpoint is refused too', async () => {
+  const r = await httpCall({ host: 'api.openai.com:443', path: 'v1/models' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /not callable via http_call/);
+});
+
+test('case and whitespace do not get past it', async () => {
+  const r = await httpCall({ host: '  API.OpenAI.com  ', path: 'v1/models' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /not callable via http_call/);
+});
+
+test('an ordinary host is not caught by the guard', async () => {
+  // It should fail for the normal reason (not allowlisted), not as an engine host.
+  const r = await httpCall({ host: 'api.example.com', path: 'v1/thing' });
+  assert.equal(r.ok, false);
+  assert.doesNotMatch(r.error, /not callable via http_call/);
 });

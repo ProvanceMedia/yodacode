@@ -15,6 +15,16 @@ const MAX_BODY_B64 = 8_000_000;
 // A bare MIME type is short; cap the length so a caller can't set a giant header.
 const MAX_CONTENT_TYPE = 128;
 
+// The engines' own API hosts. The agent carries its model credential, so a call
+// to one of these through the broker would be a route to replay or leak it.
+// Deliberately hard-coded and complete rather than derived from the active
+// engine: this is a boundary, and a boundary that moves with configuration is
+// one more thing to get wrong.
+const ENGINE_HOSTS = new Set([
+  'api.anthropic.com', 'statsig.anthropic.com', 'console.anthropic.com',
+  'api.openai.com', 'chatgpt.com', 'auth.openai.com',
+]);
+
 /**
  * Shape the outbound request body from the agent's args. Returns { body, contentType }
  * (contentType is a default, applied only if the host didn't already set one), {} for
@@ -57,6 +67,19 @@ export async function httpCall(args) {
     .toLowerCase();
   if (!host) return { ok: false, error: 'host required' };
 
+  // Never let the agent reach an engine's own API through here — its model
+  // credential travels with it, so this would be a route to replay or leak it.
+  // Checked BEFORE the host lookup on purpose: the refusal must not depend on
+  // how auth-hosts.json happens to be configured, or adding one of these to the
+  // allowlist (by an operator, or by an agent talking one into it) would quietly
+  // open that route. Every engine's hosts are refused, not just the active
+  // one — which engine is running must not decide whether the boundary exists.
+  // Port stripped so host:port spellings of the same endpoint are covered.
+  const bareHost = host.split(':')[0];
+  if (ENGINE_HOSTS.has(bareHost)) {
+    return { ok: false, error: `refused: ${bareHost} is not callable via http_call` };
+  }
+
   const desc = lookupHost(host);
   if (!desc) return { ok: false, error: `host not configured — add "${host}" to broker/auth-hosts.json` };
 
@@ -68,12 +91,6 @@ export async function httpCall(args) {
     url = new URL(`https://${host}/${p}`);
   } catch {
     return { ok: false, error: 'bad path' };
-  }
-  // Never let the agent reach Anthropic through here (the OAuth token must never
-  // be forwarded/logged). Compared against the PARSED hostname so host:port
-  // spellings of the same endpoint are covered too.
-  if (url.hostname === 'api.anthropic.com') {
-    return { ok: false, error: 'refused: api.anthropic.com is not callable via http_call' };
   }
 
   // SSRF defence: this fetch runs as root on the host. Check the real hostname

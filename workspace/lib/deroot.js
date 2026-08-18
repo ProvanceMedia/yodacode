@@ -20,6 +20,10 @@ const ENV_ALLOWLIST = [
   'PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'NODE_OPTIONS', 'TERM',
   'CLAUDE_CODE_OAUTH_TOKEN', 'SLACK_TEST_CHANNEL_ID', 'YODA_CLAUDE_MODEL',
   'YODA_ENGINE',
+  // Not a secret: the directory holding the Codex credential and its session
+  // rollouts. Without it the de-rooted child falls back to its own HOME and
+  // silently looks logged out.
+  'CODEX_HOME',
 ];
 
 export function buildAgentEnv() {

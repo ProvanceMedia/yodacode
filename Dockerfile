@@ -7,8 +7,11 @@ FROM node:22-bookworm-slim
 
 # Runtime deps: git/ssh for the agent's tools, python3 for the helper scripts,
 # gosu to drop privileges cleanly in the entrypoint, tini as PID 1, jq for prompts.
+# util-linux supplies flock(1), which serialises credential refresh for the
+# Codex engine — its refresh tokens are single-use, so two turns refreshing at
+# the same moment invalidate each other.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git openssh-client python3 bash curl jq gosu tini \
+      ca-certificates git openssh-client python3 bash curl jq gosu tini util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI, installed globally → /usr/local/bin/claude (world-executable).
@@ -16,6 +19,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # agent runs through the Claude Agent SDK, which bundles its own pinned engine
 # (see workspace/package.json).
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+
+# OpenAI Codex CLI → /usr/local/bin/codex. Both engines are baked in so that
+# switching engines is a config change and a restart, not a rebuild — the
+# operator switching is usually one whose current engine has just stopped
+# working, and a multi-minute rebuild is the wrong thing to hand them.
+# Installed globally rather than as a workspace dependency: the node_modules
+# volume shadows the image's copy, so a workspace dep would never reach an
+# existing install.
+# NOT pinned to an old version deliberately — an out-of-date CLI fails to parse
+# the live model catalogue (it rejects reasoning levels added since its release)
+# and floods stderr with the whole catalogue on every successful turn.
+RUN npm install -g @openai/codex && npm cache clean --force
 
 # Playwright: the MODULE and Chromium's SYSTEM LIBRARIES (~325MB layer) are baked
 # in — both need root. The browser itself (~300MB download / ~650MB on disk) is
