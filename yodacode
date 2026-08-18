@@ -19,6 +19,12 @@ source scripts/common.sh
 engine_credential_present() {
   case "$(env_get YODA_ENGINE)" in
     ''|claude) grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' .env 2>/dev/null ;;
+    # Codex keeps its credential in a file on the agent volume, not in .env, so
+    # there is nothing here to grep. The wizard records that sign-in completed;
+    # whether the credential is still VALID is doctor's question, not this one —
+    # this only answers "has setup been done", and a stale answer here would
+    # relaunch the wizard over a merely expired login.
+    codex)     [[ "$(env_get YODA_CODEX_SIGNED_IN)" == 1 ]] ;;
     *)         return 1 ;;
   esac
 }
@@ -88,7 +94,7 @@ EOF
 
 cmd_doctor() {
   title "yodacode doctor"
-  local problems=0 ps bt at tmp resp rc
+  local problems=0 ps bt at tmp resp rc d
   check_key() {  # name expected-prefix fix-hint
     local v; v="$(env_get "$1")"
     if [[ -n "$v" && "$v" == "$2"* ]]; then ok "$1 set"
@@ -260,15 +266,51 @@ cmd_doctor() {
     done < <(python3 scripts/connect-lib.py doctor-plan 2>/dev/null)
   fi
 
-  # Claude sign-in (needs the agent up)
+  # Engine sign-in (needs the agent up)
   if grep -qx agent <<<"$ps"; then
     tmp="$(mktemp)"
-    # Gate on the success envelope's is_error flag, not the reply text — a
-    # healthy agent may answer "OK." / "Okay" and vary run to run, and matching
-    # the word "ok" would false-positive on error bodies mentioning a "token".
-    if spin "Checking Claude sign-in (via the agent)…" "$tmp" docker compose exec -T agent claude -p "say OK" --output-format json \
-       && grep -qE '"is_error"[ ]*:[ ]*false' "$tmp"; then ok "Claude sign-in works"
-    else fail "Claude sign-in failed — the OAuth token may be expired"; note "   fix: re-run ./quickstart.sh to re-issue a token"; problems=$((problems+1)); fi
+    if [[ "$(env_get YODA_ENGINE)" == codex ]]; then
+      # Decoded from the token itself, inside the container. Deliberately NOT
+      # `codex login status`, which answers "logged in" for a credential that is
+      # already dead — and which can consume the single-use refresh token just
+      # by asking. This costs nothing and cannot damage the login.
+      if docker compose exec -T agent node -e '
+          import("/app/workspace/lib/engine/codex/adapter.js").then(m => {
+            const ms = m.tokenExpiryMs(process.env.CODEX_HOME || "/home/yoda/.codex");
+            if (ms <= 0) { console.log("EXPIRED"); process.exit(1); }
+            console.log("DAYS " + Math.floor(ms / 86400000));
+          }).catch(() => { console.log("NOCRED"); process.exit(1); });
+        ' > "$tmp" 2>/dev/null; then
+        ok "Codex sign-in valid ($(grep -oE 'DAYS [0-9]+' "$tmp" | awk '{print $2}')d left)"
+        # Ten days is the whole lifetime of the token, so a low number here is
+        # the only warning an operator gets before the agent stops working.
+        d="$(grep -oE 'DAYS [0-9]+' "$tmp" | awk '{print $2}')"
+        if [[ -n "$d" && "$d" -le 2 ]]; then
+          warn "Codex credential expires in ${d}d"
+          note "   renew: docker compose exec -u 1001 agent codex login --device-auth"
+        fi
+      else
+        fail "Codex sign-in invalid or missing"
+        note "   fix: docker compose exec -u 1001 agent codex login --device-auth"
+        note "   never run 'codex logout' — it revokes the token server-side"
+        problems=$((problems+1))
+      fi
+      # The persona is a generated file on this engine, not a vendor feature.
+      # If it is missing the agent still runs, and simply sounds like nobody.
+      if docker compose exec -T agent test -s /app/workspace/AGENTS.override.md 2>/dev/null; then
+        ok "Persona assembled for Codex"
+      else
+        warn "No assembled persona (AGENTS.override.md) — the agent will sound generic"
+        note "   fix: yodacode restart   (it is written at boot)"
+      fi
+    else
+      # Gate on the success envelope's is_error flag, not the reply text — a
+      # healthy agent may answer "OK." / "Okay" and vary run to run, and matching
+      # the word "ok" would false-positive on error bodies mentioning a "token".
+      if spin "Checking Claude sign-in (via the agent)…" "$tmp" docker compose exec -T agent claude -p "say OK" --output-format json \
+         && grep -qE '"is_error"[ ]*:[ ]*false' "$tmp"; then ok "Claude sign-in works"
+      else fail "Claude sign-in failed — the OAuth token may be expired"; note "   fix: re-run ./quickstart.sh to re-issue a token"; problems=$((problems+1)); fi
+    fi
     rm -f "$tmp"
     # Slack connectivity
     if docker compose logs --tail 200 agent 2>/dev/null | grep -q '"msg":"slack: ready"'; then ok "Slack connection established"
@@ -598,10 +640,15 @@ cmd_status() {
   field "Bot name"    "$(env_get BOT_NAME)"
   field "Your name"   "$(env_get USER_NAME)"
   field "Timezone"    "$(env_get TZ)"
-  local auth slack_b slack_a
-  [[ "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" == sk-ant-* ]] && auth="✓ set" || auth="✗ missing"
+  local auth slack_b slack_a eng
+  eng="$(env_get YODA_ENGINE)"; eng="${eng:-claude}"
+  case "$eng" in
+    codex)  [[ "$(env_get YODA_CODEX_SIGNED_IN)" == 1 ]] && auth="✓ signed in (see: yodacode doctor)" || auth="✗ not signed in" ;;
+    *)      [[ "$(env_get CLAUDE_CODE_OAUTH_TOKEN)" == sk-ant-* ]] && auth="✓ set" || auth="✗ missing" ;;
+  esac
   [[ "$(env_get SLACK_BOT_TOKEN)" == xoxb-* ]] && slack_b="✓ set" || slack_b="✗ missing"
   [[ "$(env_get SLACK_APP_TOKEN)" == xapp-* ]] && slack_a="✓ set" || slack_a="✗ missing"
+  field "Engine"      "$eng"
   field "Auth token"  "$auth"
   field "Slack bot"   "$slack_b"
   field "Slack app"   "$slack_a"

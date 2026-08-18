@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 # persona/Slack setup flows (also used by the `yodacode` CLI).
 source scripts/common.sh
 
-step() { echo ""; echo -e "${C}${B}━━━ Step $1/6 · $2 ━━━${X}"; echo ""; }
+step() { echo ""; echo -e "${C}${B}━━━ Step $1/7 · $2 ━━━${X}"; echo ""; }
 
 # ── subcommand: addkey ────────────────────────────────────────────────────────
 # Guided key setup lives in scripts/addkey.sh: it consumes requests the bot
@@ -32,13 +32,24 @@ LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/yodacode.XXXXXX")"
 
 banner
 echo "  This sets up your assistant from scratch — about 5 minutes. You'll need:"
-echo "    • a Claude subscription (Max recommended) + a browser on your laptop/phone"
+echo "    • a Claude subscription (Max recommended) OR a ChatGPT one (Plus or Pro)"
+echo "    • a browser on your laptop or phone, to sign in"
 echo "    • the ability to add an app to your Slack workspace"
 echo ""
 read -r -p "  Press Enter to begin (Ctrl-C to quit) " _
 
 # ── already configured? ───────────────────────────────────────────────────────
-if [[ -f "$ENVF" ]] && grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' "$ENVF" 2>/dev/null \
+# The engine credential is whichever one this install uses: Claude's lives in
+# .env, Codex's is a file on the agent volume with only a marker here. Grepping
+# for one of them would make an install on the other engine look unconfigured
+# and silently restart the whole wizard.
+engine_credential_configured() {
+  case "$(grep -m1 '^YODA_ENGINE=' "$ENVF" 2>/dev/null | cut -d= -f2-)" in
+    codex) grep -q '^YODA_CODEX_SIGNED_IN=1' "$ENVF" 2>/dev/null ;;
+    *)     grep -q '^CLAUDE_CODE_OAUTH_TOKEN=sk-ant-' "$ENVF" 2>/dev/null ;;
+  esac
+}
+if [[ -f "$ENVF" ]] && engine_credential_configured \
    && grep -q '^SLACK_BOT_TOKEN=xoxb-' "$ENVF" 2>/dev/null && ! grep -q 'xoxb-your-bot-token' "$ENVF" 2>/dev/null; then
   ok "Found an existing setup ($(grep -m1 '^BOT_NAME=' "$ENVF" | cut -d= -f2-) for $(grep -m1 '^USER_NAME=' "$ENVF" | cut -d= -f2-))."
   a=$(ask "(S)tart it, or (R)econfigure from scratch?" "S")
@@ -122,8 +133,55 @@ if spin "Building the image — may take a few minutes — grab a brew…" "$LOG
   note "Low memory? add swap: fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"; exit 1
 fi
 
-# ── 3 · Claude sign-in ────────────────────────────────────────────────────────
-step 3 "Sign in to Claude"
+# ── 3 · Engine ────────────────────────────────────────────────────────────────
+# After the build (the sign-in helpers run inside the image) and before sign-in
+# (this choice decides which sign-in runs).
+step 3 "Choose which AI runs your assistant"
+echo "  Both run on a subscription you may already pay for — no API billing."
+echo ""
+echo -e "    ${B}claude${X}  — Claude, on a Claude Pro or Max subscription"
+echo -e "    ${B}codex${X}   — OpenAI Codex, on a ChatGPT Plus or Pro subscription"
+echo ""
+echo "  You can change this later with: yodacode change llm"
+echo ""
+ENGINE=""
+while [[ "$ENGINE" != claude && "$ENGINE" != codex ]]; do
+  ENGINE="$(ask 'Which one?' claude)"; ENGINE="$(echo "$ENGINE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  [[ "$ENGINE" == claude || "$ENGINE" == codex ]] || fail "Type 'claude' or 'codex'."
+done
+set_env YODA_ENGINE "$ENGINE"
+
+if [[ "$ENGINE" == codex ]]; then
+  echo ""
+  echo "  Two things to know before you pick Codex:"
+  echo "    • Turns are charged against the same ChatGPT quota as your own use,"
+  echo "      and the assistant can't see how much you have left."
+  echo "    • You'll need to sign in again roughly every ten days."
+  echo ""
+fi
+
+# ── 4 · Sign in ───────────────────────────────────────────────────────────────
+if [[ "$ENGINE" == codex ]]; then
+  step 4 "Sign in to ChatGPT"
+  echo "  A code appears below:"
+  echo -e "    1. open ${B}https://auth.openai.com/codex/device${X} on your laptop or phone"
+  echo "    2. sign in to ChatGPT and enter the code"
+  echo ""
+  read -r -p "  Press Enter to start sign-in… " _
+  # Runs as the agent user against the persistent volume: the credential is a
+  # FILE, so it has to be written where the running agent will look for it and
+  # owned by the user that reads it. Run as root and it silently reads as
+  # "not signed in" afterwards.
+  if docker compose run --rm --no-deps --user 1001 --entrypoint codex agent login --device-auth; then
+    ok "Signed in to ChatGPT."
+    set_env YODA_CODEX_SIGNED_IN 1
+  else
+    fail "Sign-in didn't complete. Re-run ./quickstart.sh."
+    exit 1
+  fi
+  CLAUDE_TOKEN=""
+else
+step 4 "Sign in to Claude"
 echo "  Runs on your Claude subscription — no API key, no extra billing."
 echo -e "  A helper starts now and prints a ${B}URL${X}:"
 echo -e "    1. open it in the browser on your ${B}laptop or phone${X}"
@@ -152,23 +210,24 @@ if spin "Checking your sign-in works…" "$LOGDIR/auth.log" docker compose run -
 # operator another `claude setup-token` round trip on the next attempt — for a
 # credential that was already collected and verified.
 set_env CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_TOKEN"
+fi
 
-# ── 4 · Personalise ───────────────────────────────────────────────────────────
-step 4 "Personalise your assistant"
+# ── 5 · Personalise ───────────────────────────────────────────────────────────
+step 5 "Personalise your assistant"
 echo "  Let's give it a name and tell it who you are."
 echo ""
 configure_persona   # bot name, your name, context, timezone → renders persona docs
 
-# ── 5 · Slack app ─────────────────────────────────────────────────────────────
-step 5 "Create the Slack app"
+# ── 6 · Slack app ─────────────────────────────────────────────────────────────
+step 6 "Create the Slack app"
 configure_slack || { fail "Slack setup didn't complete. Re-run ./quickstart.sh."; exit 1; }   # member ID, manifest, tokens
 
 # ── write config ──────────────────────────────────────────────────────────────
 # The engine credential was persisted as soon as it verified, above.
 ok "Configuration saved."
 
-# ── 6 · Launch + smoke test ───────────────────────────────────────────────────
-step 6 "Launch"
+# ── 7 · Launch + smoke test ───────────────────────────────────────────────────
+step 7 "Launch"
 spin "Starting the containers…" "$LOGDIR/up.log" docker compose up -d || {
   fail "Start failed — last lines:"; tail -8 "$LOGDIR/up.log" 2>/dev/null | sed 's/^/    /'
   note "Full log: $LOGDIR/up.log — if containers started, also try: docker compose logs"; exit 1; }
