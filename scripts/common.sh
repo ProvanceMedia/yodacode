@@ -165,14 +165,18 @@ ask_timezone() {
 SUDO=""; [[ ${EUID:-$(id -u)} -ne 0 ]] && SUDO="sudo"
 ENVF=".env"
 ensure_env() { [[ -f "$ENVF" ]] || cp .env.example "$ENVF"; chmod 600 "$ENVF" 2>/dev/null || true; }
+# Write one key. Builds the whole file first and swaps it in with a single
+# rename, so the key is never momentarily absent: the old code deleted the line,
+# renamed, and only THEN appended the new value — an interruption in that window
+# lost the key outright, and for a credential that means re-running sign-in.
 set_env() {
   ensure_env
-  if grep -q "^$1=" "$ENVF" 2>/dev/null; then
-    grep -v "^$1=" "$ENVF" > "$ENVF.tmp" || true   # grep -v exits 1 on empty output
-    mv "$ENVF.tmp" "$ENVF"
-  fi
-  printf '%s=%s\n' "$1" "$2" >> "$ENVF"
-  chmod 600 "$ENVF" 2>/dev/null || true   # the tmp+mv replace path drops to 644 otherwise — .env holds tokens
+  {
+    grep -v "^$1=" "$ENVF" 2>/dev/null || true   # grep -v exits 1 on empty output
+    printf '%s=%s\n' "$1" "$2"
+  } > "$ENVF.tmp"
+  chmod 600 "$ENVF.tmp" 2>/dev/null || true      # set before the swap — .env holds tokens
+  mv "$ENVF.tmp" "$ENVF"
 }
 
 # Add a surface to YODA_SURFACES without dropping the ones already enabled.
