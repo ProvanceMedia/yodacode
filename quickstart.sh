@@ -172,6 +172,10 @@ if [[ "$ENGINE" == codex ]]; then
   # FILE, so it has to be written where the running agent will look for it and
   # owned by the user that reads it. Run as root and it silently reads as
   # "not signed in" afterwards.
+  # Codex refuses to start if CODEX_HOME does not exist, and this sign-in bypasses
+  # the entrypoint that would normally create it.
+  docker compose run --rm --no-deps --user 0 --entrypoint sh agent -c \
+    "mkdir -p /home/yoda/.codex && chown -R ${PUID:-1000}:${PGID:-1000} /home/yoda" >/dev/null 2>&1
   if docker compose run --rm --no-deps --user "${PUID:-1000}" --entrypoint codex agent login --device-auth; then
     ok "Signed in to ChatGPT."
     set_env YODA_CODEX_SIGNED_IN 1

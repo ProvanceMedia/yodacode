@@ -46,6 +46,19 @@ version_string() {
 # signed in" after a sign-in that reported success.
 agent_uid() { local p; p="$(env_get PUID)"; echo "${p:-1000}"; }
 
+# Codex will not create its own home: point CODEX_HOME at a path that does not
+# exist and it refuses to start, before any sign-in can happen. The sign-in runs
+# with --entrypoint, which bypasses docker/entrypoint.sh and therefore the
+# directory creation and chown it normally does — so on a fresh install nothing
+# has made this directory yet. Create it as root, hand it to the agent user, and
+# only then sign in.
+ensure_codex_home() {
+  local uid gid
+  uid="$(agent_uid)"; gid="$(env_get PGID)"; gid="${gid:-1000}"
+  docker compose run --rm --no-deps --user 0 --entrypoint sh agent -c \
+    "mkdir -p /home/yoda/.codex && chown -R ${uid}:${gid} /home/yoda" >/dev/null 2>&1
+}
+
 agent_running() { agent_container_running; }
 restart_if_running() {
   agent_running || { note "Not running — changes apply next start (yodacode start)."; return 0; }
@@ -607,8 +620,11 @@ cmd_install_browsers() {
 # anything, and every check runs in a throwaway container so it works with the
 # agent stopped.
 engine_probe() {   # <target> → prints audit lines, exit 0 if safe to switch
+  # stdin is closed deliberately: `docker compose run` ATTACHES stdin, and would
+  # otherwise swallow the operator's answer to the prompt that follows — the
+  # prompt then reads EOF, takes its default, and "no" silently becomes "yes".
   docker compose run --rm --no-deps --user "$(agent_uid)" \
-    -e "YODA_ENGINE=$1" --entrypoint node agent /app/workspace/bin/engine-audit.mjs "$1" 2>/dev/null
+    -e "YODA_ENGINE=$1" --entrypoint node agent /app/workspace/bin/engine-audit.mjs "$1" 2>/dev/null < /dev/null
 }
 
 cmd_engine() {
@@ -641,6 +657,7 @@ cmd_engine() {
       warn "Already on codex, but the sign-in has expired or is missing."
       local r; r="$(ask 'Sign in again now? [Y/n]' 'Y')"
       if [[ ! "${r,,}" =~ ^n ]]; then
+        ensure_codex_home
         if docker compose run --rm --no-deps --user "$(agent_uid)" --entrypoint codex agent login --device-auth; then
           set_env YODA_CODEX_SIGNED_IN 1
           ok "Signed in."
@@ -676,7 +693,8 @@ cmd_engine() {
       echo ""
       local a; a="$(ask 'Sign in now? [Y/n]' 'Y')"
       [[ "${a,,}" =~ ^n ]] && { note "Nothing changed. Run this again when you're ready."; return 1; }
-      if docker compose run --rm --no-deps --user "$(agent_uid)" --entrypoint codex agent login --device-auth; then
+      ensure_codex_home
+        if docker compose run --rm --no-deps --user "$(agent_uid)" --entrypoint codex agent login --device-auth; then
         set_env YODA_CODEX_SIGNED_IN 1
         ok "Signed in."
       else
