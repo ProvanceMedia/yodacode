@@ -199,3 +199,47 @@ test('unknown event types are ignored rather than throwing', () => {
     assert.deepEqual(translateEvent(ev, state), []);
   }
 });
+
+// ── delegation ───────────────────────────────────────────────────────────────
+// Recorded from a real delegated turn. The shape is the opposite of Claude's:
+// the subagent works in its own thread and NONE of its frames reach the parent
+// stream, so there is no child chatter to keep out of the reply — but there is
+// also no sign of life while it works.
+
+test('a delegation becomes a Task tool_use, so the status line says so', () => {
+  const { out } = translateAll(loadFixture('codex-turn-subagent.jsonl'));
+  const task = out.filter((m) => m.type === 'assistant')
+    .flatMap((m) => m.message.content)
+    .find((b) => b.type === 'tool_use' && b.name === 'Task');
+  assert.ok(task, 'expected a Task tool_use for the delegation');
+  assert.match(task.input.subagent_type, /subagent/);
+});
+
+test('the delegation is answered by a paired tool_result', () => {
+  const { out } = translateAll(loadFixture('codex-turn-subagent.jsonl'));
+  const use = out.filter((m) => m.type === 'assistant')
+    .flatMap((m) => m.message.content).find((b) => b.name === 'Task');
+  const res = out.filter((m) => m.type === 'user')
+    .flatMap((m) => m.message.content).find((b) => b.type === 'tool_result');
+  assert.equal(res.tool_use_id, use.id);
+  assert.equal(res.is_error, false);
+});
+
+test("the subagent's own output never reaches the reply", () => {
+  // Nothing to filter, because nothing arrives — asserted so that a future
+  // change in the engine which DOES inline child frames fails here loudly.
+  const { out } = translateAll(loadFixture('codex-turn-subagent.jsonl'), 'FINAL');
+  assert.equal(out.at(-1).result, 'FINAL');
+  const texts = out.filter((m) => m.type === 'assistant')
+    .flatMap((m) => m.message.content).filter((b) => b.type === 'text');
+  assert.ok(texts.length <= 2, 'parent narration only, no child transcript');
+});
+
+test('a failed delegation is flagged rather than passed off as done', () => {
+  const state = createTranslatorState();
+  const out = translateEvent({
+    type: 'item.completed',
+    item: { id: 'c1', type: 'collab_tool_call', tool: 'wait', status: 'failed' },
+  }, state);
+  assert.equal(out[0].message.content[0].is_error, true);
+});

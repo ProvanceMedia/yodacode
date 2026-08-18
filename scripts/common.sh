@@ -284,7 +284,7 @@ render_persona() {
     codex)
       runtime="the OpenAI Codex CLI"
       sub="ChatGPT"
-      subagents="Not available on this engine — do the work yourself, in this turn."
+      subagents="You can delegate to a subagent. It runs in a separate thread and reports back — you see its answer, not its working — so ask for exactly what you need returned."
       ;;
     *)
       runtime="the Claude Agent SDK"

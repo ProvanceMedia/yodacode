@@ -250,7 +250,7 @@ def main() -> int:
     # capability, so a wrong line here makes it confidently wrong about itself.
     engine = os.environ.get("YODA_ENGINE") or "claude"
     if engine == "codex":
-        out.append("- ❌ **No Task subagents** — this engine has no delegation tool. Do the work in this turn; do NOT claim you can spawn agents.")
+        out.append("- ✅ **Subagents** — you can delegate. The subagent works in its own thread, so you see only its final report, not its working. Ask for what you want back.")
     else:
         out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — parallel work, context-protected research")
     out.append("- ✅ **File-based memory** — `MEMORY.md` auto-loaded each tick; `memory/` searched on demand via `memory-search.sh`")

@@ -15,6 +15,15 @@ export function stripShellWrapper(command) {
   return m ? m[2] : s;
 }
 
+/** A readable name for a collaboration call, used as the status line's subject.
+ *  `wait` is the common one and the one that takes time — it is the parent
+ *  sitting idle while a subagent works. */
+function describeCollab(item) {
+  const n = (item.receiver_thread_ids || []).length;
+  if (item.tool === 'wait') return n > 1 ? `${n} subagents` : 'a subagent';
+  return `a subagent (${item.tool || 'collab'})`;
+}
+
 /** file_change kinds → the tool names describeToolUse() knows how to render. */
 function fileChangeTool(kind) {
   if (kind === 'add') return 'Write';
@@ -156,6 +165,19 @@ function userMessage(content, sessionId) {
 
 /** The tool_use block for an item that represents work being started. */
 function toolUseFor(item) {
+  // Delegation to a subagent. Unlike the Claude engine, the child's own frames
+  // never appear on this stream — the parent only reports the collaboration call
+  // itself, and the subagent works in its own thread. So there is no child
+  // chatter to keep out of the reply; the whole job here is making the wait
+  // visible, because otherwise a delegation looks like a frozen turn.
+  if (item.type === 'collab_tool_call') {
+    return {
+      type: 'tool_use',
+      id: item.id,
+      name: 'Task',
+      input: { subagent_type: describeCollab(item) },
+    };
+  }
   if (item.type === 'command_execution') {
     return {
       type: 'tool_use',
@@ -183,6 +205,14 @@ function toolUseFor(item) {
  *  Item ids are stable across item.started/item.completed, so results pair by
  *  id and the repeat-failure / no-progress guardrails keep working. */
 function toolResultFor(item) {
+  if (item.type === 'collab_tool_call') {
+    return {
+      type: 'tool_result',
+      tool_use_id: item.id,
+      is_error: item.status === 'failed',
+      content: `${item.tool || 'collab'} ${item.status || 'completed'}`,
+    };
+  }
   if (item.type === 'command_execution') {
     return {
       type: 'tool_result',

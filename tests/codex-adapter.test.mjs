@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildArgs, tokenExpiryMs, needsRefreshLock } from '../workspace/lib/engine/codex/adapter.js';
+import { buildArgs, tokenExpiryMs, needsRefreshLock, trackDelegation } from '../workspace/lib/engine/codex/adapter.js';
 
 // ── argument construction ────────────────────────────────────────────────────
 
@@ -126,4 +126,44 @@ test('the sandbox default matches the generated config, on both paths', () => {
 test('a caller can still narrow the sandbox deliberately', () => {
   const a = buildArgs({ ...BASE, sandbox: 'read-only' });
   assert.equal(a[a.indexOf('--sandbox') + 1], 'read-only');
+});
+
+// ── delegation liveness ──────────────────────────────────────────────────────
+// While a subagent works, the parent stream is completely silent — the child's
+// frames go to its own thread. Without something to say "still alive", the
+// runner's idle watchdog kills a legitimate delegation partway through.
+
+test('tracks a delegation from start to completion', () => {
+  const open = new Set();
+  const started = { type: 'item.started', item: { id: 'c1', type: 'collab_tool_call', tool: 'wait' } };
+  const done = { type: 'item.completed', item: { id: 'c1', type: 'collab_tool_call', tool: 'wait' } };
+  trackDelegation(started, open);
+  assert.equal(open.size, 1, 'a delegation in flight must be visible to the heartbeat');
+  trackDelegation(done, open);
+  assert.equal(open.size, 0, 'once it completes the run must look silent again');
+});
+
+test('a failed delegation also closes, so the heartbeat cannot run forever', () => {
+  const open = new Set();
+  trackDelegation({ type: 'item.started', item: { id: 'c2', type: 'collab_tool_call' } }, open);
+  trackDelegation({ type: 'item.failed', item: { id: 'c2', type: 'collab_tool_call' } }, open);
+  assert.equal(open.size, 0);
+});
+
+test('ordinary tool calls are not treated as delegations', () => {
+  const open = new Set();
+  // A stuck shell command must still look stuck — the watchdog has to keep
+  // protecting the case it exists for.
+  trackDelegation({ type: 'item.started', item: { id: 'x', type: 'command_execution' } }, open);
+  trackDelegation({ type: 'item.started', item: { id: 'y', type: 'file_change' } }, open);
+  assert.equal(open.size, 0);
+});
+
+test('concurrent delegations all have to finish before the run looks idle', () => {
+  const open = new Set();
+  for (const id of ['a', 'b', 'c']) {
+    trackDelegation({ type: 'item.started', item: { id, type: 'collab_tool_call' } }, open);
+  }
+  trackDelegation({ type: 'item.completed', item: { id: 'a', type: 'collab_tool_call' } }, open);
+  assert.equal(open.size, 2);
 });

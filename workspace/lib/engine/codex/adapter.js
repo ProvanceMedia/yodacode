@@ -109,6 +109,12 @@ export async function* runCodex({
   let stderrBuf = '';
   let terminalEvent = null;   // turn.completed / turn.failed, held until exit
   let sawTerminal = false;
+  // Open delegations, by item id. While one is in flight the parent emits
+  // NOTHING — the subagent works in its own thread and its frames never reach
+  // this stream — so a long delegation is indistinguishable from a hung turn,
+  // and the runner's idle watchdog would kill it. A heartbeat keeps the run
+  // visibly alive without inventing progress.
+  const openDelegations = new Set();
 
   child.stderr.on('data', (d) => {
     // Buffered for diagnostics only. Codex writes ERROR lines to stderr on
@@ -128,7 +134,16 @@ export async function* runCodex({
 
   try {
     let buf = '';
-    for await (const chunk of child.stdout) {
+    // Read stdout as an async iterator we can race a timer against, so a silent
+    // delegation still produces liveness frames.
+    for await (const chunk of heartbeat(child.stdout, openDelegations)) {
+      if (chunk === HEARTBEAT) {
+        // A liveness-only frame: an unrecognised system subtype changes no
+        // status and adds no text, but the translator signals activity on every
+        // message it receives — which is exactly what the idle watchdog needs.
+        yield { type: 'system', subtype: 'delegation_wait', session_id: state.threadId };
+        continue;
+      }
       buf += String(chunk);
       const lines = buf.split('\n');
       buf = lines.pop() ?? '';       // keep the partial line for the next chunk
@@ -143,6 +158,7 @@ export async function* runCodex({
           sawTerminal = true;
           continue;
         }
+        trackDelegation(ev, openDelegations);
         yield* translateEvent(ev, state);
       }
     }
@@ -182,6 +198,48 @@ export async function* runCodex({
     abortController?.signal.removeEventListener('abort', onAbort);
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+/** Sentinel yielded by heartbeat() in place of a stdout chunk. */
+const HEARTBEAT = Symbol('heartbeat');
+/** How often to prove a silent delegation is still alive. */
+const HEARTBEAT_MS = 30_000;
+
+/** Track which delegations are open, so the heartbeat only runs when one is. */
+export function trackDelegation(ev, open) {
+  const item = ev.item || {};
+  if (item.type !== 'collab_tool_call') return;
+  if (ev.type === 'item.started') open.add(item.id);
+  else if (ev.type === 'item.completed' || ev.type === 'item.failed') open.delete(item.id);
+}
+
+/**
+ * Yield stdout chunks, plus a HEARTBEAT sentinel every HEARTBEAT_MS while a
+ * delegation is open. Only while one is open: a genuinely stuck engine must
+ * still look stuck, or the watchdog stops protecting anything.
+ */
+async function* heartbeat(stdout, open) {
+  const it = stdout[Symbol.asyncIterator]();
+  for (;;) {
+    let timer;
+    const tick = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(HEARTBEAT), HEARTBEAT_MS);
+      timer.unref?.();
+    });
+    const next = it.next();
+    const winner = await Promise.race([next, tick]);
+    clearTimeout(timer);
+    if (winner === HEARTBEAT) {
+      if (open.size > 0) yield HEARTBEAT;
+      // The stdout read is still outstanding; await it rather than dropping it.
+      const r = await next;
+      if (r.done) return;
+      yield r.value;
+      continue;
+    }
+    if (winner.done) return;
+    yield winner.value;
   }
 }
 

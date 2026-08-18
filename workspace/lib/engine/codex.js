@@ -17,9 +17,11 @@ export const codexEngine = {
     // No spawn interceptor: the child is spawned by lib/engine/codex/adapter.js,
     // which sets its own uid via the container's user rather than a hook.
     spawnHook: false,
-    // Codex has a subagent tool, but the adapter does not translate its frames
-    // yet, so nothing would render. Declared false until it does.
-    subagents: false,
+    // Delegation works, but differently from the Claude engine: the subagent
+    // runs in its own thread and none of its frames reach this stream. So there
+    // is no child chatter to keep out of the reply — and no sign of life while
+    // it works either, which is why the adapter heartbeats an open delegation.
+    subagents: true,
     // No api_retry equivalent on the stream, so an overload cannot be detected
     // and model fallback is impossible — an overload is simply a failed turn.
     throttleSignal: false,
