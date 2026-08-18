@@ -106,7 +106,7 @@ export function toolList(tools) {
  *   identity (YODA_CONVERSATION_ID/SURFACE/USER_ID/REPLY_TARGET) so a tool it
  *   runs, e.g. bin/watch.js, knows which thread to wake later. Must never carry
  *   secrets: it deliberately bypasses the allowlist that strips them.
- * @param {object}  [args.hooks]    Lifecycle hooks (lib/hooks.js). Passed as a CODE
+ * @param {object}  [args.hooks]    Agent SDK lifecycle hooks. Passed as a CODE
  *   option, never via .claude/settings.json — yoda.js rewrites that file from
  *   YODA_SANDBOX on every boot and would clobber anything stored there.
  */

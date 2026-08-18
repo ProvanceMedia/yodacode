@@ -17,7 +17,6 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { translateMessages } from './stream-translator.js';
 import { buildAgentOptions, isAbortError } from './agent-query.js';
-import { buildHooks } from './hooks.js';
 
 const TICKS_FILE = path.join(config.stateDir, 'current-ticks.json');
 const ORPHANS_FILE = path.join(config.stateDir, 'orphaned-ticks.json');
@@ -152,9 +151,6 @@ function appendToolRuns(conversationId, surface, summary) {
  * @param {string}   [args.userId]        Triggering user id — injected so a background
  *   watch the agent sets can record who to wake later.
  * @param {any}      [args.replyTarget]   Surface reply target — injected (JSON) for the same reason.
- * @param {boolean}  [args.externalAuthorized] This turn may act on the outside world
- *   (the human asked for an outbound action, or confirmed one). Drives the
- *   PreToolUse gate in lib/hooks.js.
  * @param {(text: string, opts?: { important?: boolean }) => Promise<void>} args.onStatus  Live update callback
  * @param {(text: string) => Promise<void>} args.onFinal   Final text callback
  * @returns {Promise<{ ok: boolean, finalText?: string, error?: string, killed?: boolean, throttled?: boolean, tracker?: object, usage?: object, sessionId?: string|null, guardrailMessage?: string }>}
@@ -171,7 +167,6 @@ export async function runClaude({
   replyTarget,
   originText,
   recoveryAttempt = 0,
-  externalAuthorized = false,
   onStatus,
   onFinal,
 }) {
@@ -202,7 +197,6 @@ export async function runClaude({
 
   let settled = false;
   let iterationCap = null; // populated when the guardrail trips
-  let blockedExternal = null; // populated when the outbound-action gate denies a call
 
   // Idle watchdog. Reset on every SDK message (bumpIdle, wired to the
   // translator's onActivity below), so it only fires when the run has gone
@@ -287,16 +281,6 @@ export async function runClaude({
         abortController: controller,
         stderr: onStderr,
         resume,
-        // Outbound-action gate + audit + compaction checkpoint. Runs in this
-        // process, so it costs no context and survives compaction.
-        hooks: buildHooks({
-          authorized: externalAuthorized,
-          conversationId,
-          surface,
-          // Surface the block immediately — otherwise the only visible sign is
-          // the model changing its mind mid-turn, which reads as flakiness.
-          onBlocked: (hit) => { blockedExternal = hit; },
-        }),
         // Hand the child its conversation identity so a background watch it sets
         // (bin/watch.js) knows which thread + user to wake when its condition
         // fires, plus the operator's live sizing knobs so the CLI enforces the
@@ -450,10 +434,7 @@ export async function runClaude({
       : '';
     return { ok: false, error: `${queryError.message}${detail}${oomHint}` };
   }
-  // A blocked outbound action is NOT a run failure: the model got the denial as
-  // a tool result and should have gone on to ask the user. Ride it along on the
-  // result purely so the dispatcher/logs can show that the gate fired.
-  if (finalResult) return blockedExternal ? { ...finalResult, blockedExternal } : finalResult;
+  if (finalResult) return finalResult;
   return { ok: false, error: 'no result from claude' };
 }
 

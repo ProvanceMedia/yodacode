@@ -155,8 +155,7 @@ export async function translateMessages(messages, {
             // The window filled and older turns were summarised. The run
             // continues — this is a progress note, not an error — but it's
             // worth surfacing: the agent's recall of early context just got
-            // lossier, and the PreCompact hook (lib/hooks.js) has written a
-            // checkpoint to memory/ by the time this arrives.
+            // lossier.
             compacted = true;
             currentStatus = 'condensing context…';
             await send(currentStatus, true);
