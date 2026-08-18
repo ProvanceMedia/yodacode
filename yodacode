@@ -39,6 +39,13 @@ version_string() {
   # Only append the git description when it adds info beyond the package version.
   [[ -n "$t" && "$t" != "v${v}" ]] && echo "v${v:-?} ($t)" || echo "v${v:-?}"
 }
+# The agent process does NOT run as the image's build-time uid: docker/entrypoint.sh
+# remaps `yoda` to PUID (default 1000) so bind-mounted writes are owned by the host
+# user. Anything that writes the Codex credential has to run as that SAME uid —
+# auth.json is mode 600, so a mismatch means the agent silently reads as "not
+# signed in" after a sign-in that reported success.
+agent_uid() { local p; p="$(env_get PUID)"; echo "${p:-1000}"; }
+
 agent_running() { agent_container_running; }
 restart_if_running() {
   agent_running || { note "Not running — changes apply next start (yodacode start)."; return 0; }
@@ -296,11 +303,11 @@ cmd_doctor() {
         d="$(grep -oE 'DAYS [0-9]+' "$tmp" | awk '{print $2}')"
         if [[ -n "$d" && "$d" -le 2 ]]; then
           warn "Codex credential expires in ${d}d"
-          note "   renew: docker compose exec -u 1001 agent codex login --device-auth"
+          note "   renew: yodacode change llm codex"
         fi
       else
         fail "Codex sign-in invalid or missing"
-        note "   fix: docker compose exec -u 1001 agent codex login --device-auth"
+        note "   fix: yodacode change llm codex"
         note "   never run 'codex logout' — it revokes the token server-side"
         problems=$((problems+1))
       fi
@@ -600,7 +607,7 @@ cmd_install_browsers() {
 # anything, and every check runs in a throwaway container so it works with the
 # agent stopped.
 engine_probe() {   # <target> → prints audit lines, exit 0 if safe to switch
-  docker compose run --rm --no-deps --user 1001 \
+  docker compose run --rm --no-deps --user "$(agent_uid)" \
     -e "YODA_ENGINE=$1" --entrypoint node agent /app/workspace/bin/engine-audit.mjs "$1" 2>/dev/null
 }
 
@@ -625,7 +632,27 @@ cmd_engine() {
     claude|codex) ;;
     *) fail "Unknown engine '$target'. Choose claude or codex."; return 1 ;;
   esac
-  if [[ "$target" == "$cur" ]]; then ok "Already running $target — nothing to do."; return 0; fi
+  # Same engine: usually nothing to do — but this is also where someone lands
+  # when the credential has expired and they are trying to get signed back in.
+  # Codex sign-ins last about ten days, so "renew it" is a routine errand, and
+  # the operator should not have to know which uid to run the login as.
+  if [[ "$target" == "$cur" ]]; then
+    if [[ "$target" == codex ]] && ! engine_probe codex | grep -q '^CRED ok'; then
+      warn "Already on codex, but the sign-in has expired or is missing."
+      local r; r="$(ask 'Sign in again now? [Y/n]' 'Y')"
+      if [[ ! "${r,,}" =~ ^n ]]; then
+        if docker compose run --rm --no-deps --user "$(agent_uid)" --entrypoint codex agent login --device-auth; then
+          set_env YODA_CODEX_SIGNED_IN 1
+          ok "Signed in."
+          restart_if_running
+        else
+          fail "Sign-in didn't complete."; return 1
+        fi
+      fi
+      return 0
+    fi
+    ok "Already running $target — nothing to do."; return 0
+  fi
 
   title "Change LLM: $cur → $target"
 
@@ -649,7 +676,7 @@ cmd_engine() {
       echo ""
       local a; a="$(ask 'Sign in now? [Y/n]' 'Y')"
       [[ "${a,,}" =~ ^n ]] && { note "Nothing changed. Run this again when you're ready."; return 1; }
-      if docker compose run --rm --no-deps --user 1001 --entrypoint codex agent login --device-auth; then
+      if docker compose run --rm --no-deps --user "$(agent_uid)" --entrypoint codex agent login --device-auth; then
         set_env YODA_CODEX_SIGNED_IN 1
         ok "Signed in."
       else

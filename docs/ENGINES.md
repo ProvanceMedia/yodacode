@@ -35,8 +35,12 @@ remain — check it occasionally, or you'll find out when the assistant stops
 answering. Renew with:
 
 ```bash
-docker compose exec -u 1001 agent codex login --device-auth
+yodacode change llm codex
 ```
+
+It notices the expired sign-in and walks you through a new one. (It has to run as
+the same user the assistant runs as, which is why it is worth letting the command
+do it rather than calling `codex login` yourself.)
 
 **Never run `codex logout`.** It revokes the credential on OpenAI's side, which
 turns "sign in again" into a harder problem than it needs to be.
