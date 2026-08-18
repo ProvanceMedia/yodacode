@@ -369,7 +369,12 @@ agent_container_running() {
 # these, the operator's version wins on the CLASHING lines while upstream's other
 # changes still land. These are the persona/instruction files people deliberately
 # personalise (see the YODA_RESCUE_DOCS note above for why they MERGE, not revert).
-YODA_OPERATOR_DOCS="workspace/SOUL.md workspace/AGENTS.md workspace/skills/INDEX.md"
+# cron-tasks/_template.yaml is here for a different reason than the persona docs:
+# it is meant to be COPIED, but people do edit it in place, and it is tracked. An
+# update that changes it would then conflict — and a conflict outside this list
+# wedges the whole update over a file that is only ever a starting point. Their
+# version wins on clashing lines; upstream's other changes still land.
+YODA_OPERATOR_DOCS="workspace/SOUL.md workspace/AGENTS.md workspace/skills/INDEX.md cron-tasks/_template.yaml"
 
 _is_operator_doc() {
   local d
