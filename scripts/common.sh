@@ -272,8 +272,30 @@ env_get() { [[ -f "$ENVF" ]] && grep -m1 "^$1=" "$ENVF" 2>/dev/null | cut -d= -f
 # Render one template into the workspace, substituting persona vars. Relies on
 # the globals BOT_NAME / USER_NAME / TZ_FINAL.
 render_persona() {
+  # The agent's own description of itself has to match the engine it is actually
+  # running on. Getting this wrong is not cosmetic: AGENTS.md tells it never to
+  # claim a capability without checking, and these lines ARE what it checks. An
+  # agent that introduces itself as Claude Code while running on Codex, and
+  # believes it has subagents and a model fallback it does not have, is
+  # confidently wrong about itself in the exact way that rule exists to prevent.
+  local eng runtime sub subagents
+  eng="$(env_get YODA_ENGINE)"; eng="${eng:-claude}"
+  case "$eng" in
+    codex)
+      runtime="the OpenAI Codex CLI"
+      sub="ChatGPT"
+      subagents="Not available on this engine — do the work yourself, in this turn."
+      ;;
+    *)
+      runtime="the Claude Agent SDK"
+      sub="Claude"
+      subagents="Available types: \`general-purpose\`, \`Explore\`, \`Plan\`."
+      ;;
+  esac
   sed -e "s/{{BOT_NAME}}/$BOT_NAME/g" -e "s/{{USER_NAME}}/$USER_NAME/g" -e "s|{{TIMEZONE}}|$TZ_FINAL|g" \
       -e "s|{{INSTALL_DIR}}|$PWD|g" -e "s|{{DATE}}|$(date +%F)|g" \
+      -e "s|{{ENGINE_RUNTIME}}|$runtime|g" -e "s|{{ENGINE_SUB}}|$sub|g" \
+      -e "s|{{ENGINE_SUBAGENTS}}|$subagents|g" \
     "templates/$1.template" > "workspace/$1"
 }
 

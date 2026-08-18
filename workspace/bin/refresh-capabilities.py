@@ -246,7 +246,13 @@ def main() -> int:
     out.append("## Built-in (always available)")
     out.append("")
     out.append("- ✅ **Bash, Read, Write, Edit, WebFetch, WebSearch, Glob, Grep** — full local FS, HTTP, native web search")
-    out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — parallel work, context-protected research")
+    # Engine-dependent. This file is what the agent CHECKS before claiming a
+    # capability, so a wrong line here makes it confidently wrong about itself.
+    engine = os.environ.get("YODA_ENGINE") or "claude"
+    if engine == "codex":
+        out.append("- ❌ **No Task subagents** — this engine has no delegation tool. Do the work in this turn; do NOT claim you can spawn agents.")
+    else:
+        out.append("- ✅ **Task subagents** (`general-purpose`, `Explore`, `Plan`) — parallel work, context-protected research")
     out.append("- ✅ **File-based memory** — `MEMORY.md` auto-loaded each tick; `memory/` searched on demand via `memory-search.sh`")
     out.append("- ✅ **Slack** — the wrapper handles your interactive replies; for cron/other contexts use `./bin/slack-tools.sh` (routes through the broker)")
     if run_probe({"probe": "node bin/browser-tool.cjs probe"}):
@@ -256,14 +262,24 @@ def main() -> int:
     out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`")
     out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — call the relevant API through the broker when needed")
     out.append("")
-    primary = os.environ.get("YODA_CLAUDE_MODEL") or "claude-sonnet-4-6 (Claude Code default)"
-    fallbacks_csv = os.environ.get("YODA_CLAUDE_FALLBACK_MODELS") or "claude-haiku-4-5"
-    fallbacks = [m.strip() for m in fallbacks_csv.split(",") if m.strip()]
-    out.append("## Model fallback chain")
-    out.append("")
-    out.append(f"- **Primary:** `{primary}`")
-    out.append(f"- **Fallback:** `{' → '.join(fallbacks)}` (auto-tried on 529 / `overloaded_error`)" if fallbacks
-               else "- **Fallback:** none configured")
+    if engine == "codex":
+        # Fallback needs an overload signal on the stream to trigger on, and this
+        # engine does not emit one — so a busy provider is a failed turn, not a
+        # quiet retry on a smaller model. Say so rather than implying resilience.
+        out.append("## Model")
+        out.append("")
+        out.append(f"- **Engine:** OpenAI Codex (`{os.environ.get('YODA_CODEX_MODEL') or 'the engine default'}`)")
+        out.append("- **Fallback:** none — this engine gives no overload signal, so a busy provider ends the turn")
+        out.append("- **Quota:** shared with your human's own ChatGPT use, and NOT visible from here — never quote a remaining allowance")
+    else:
+        primary = os.environ.get("YODA_CLAUDE_MODEL") or "claude-sonnet-4-6 (Claude Code default)"
+        fallbacks_csv = os.environ.get("YODA_CLAUDE_FALLBACK_MODELS") or "claude-haiku-4-5"
+        fallbacks = [m.strip() for m in fallbacks_csv.split(",") if m.strip()]
+        out.append("## Model fallback chain")
+        out.append("")
+        out.append(f"- **Primary:** `{primary}`")
+        out.append(f"- **Fallback:** `{' → '.join(fallbacks)}` (auto-tried on 529 / `overloaded_error`)" if fallbacks
+                   else "- **Fallback:** none configured")
     out.append("")
 
     out.extend(render_tools_section(tools, set()))
