@@ -14,6 +14,7 @@
 
 import { config } from './../config.js';
 import { claudeEngine } from './claude.js';
+import { codexEngine } from './codex.js';
 
 /**
  * @typedef {object} EngineCaps
@@ -44,6 +45,7 @@ import { claudeEngine } from './claude.js';
 
 const ENGINES = {
   claude: claudeEngine,
+  codex: codexEngine,
 };
 
 /** Every engine id this build knows how to run. */
