@@ -9,7 +9,7 @@
 
 import { spawn } from 'node:child_process';
 import os from 'node:os';
-import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
+import { AbortError } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from './logger.js';
 import { buildAgentEnv, derootEnabled, resolveAgentIds } from './deroot.js';
 
@@ -167,12 +167,17 @@ export async function runAgentText({
   let usage = null;
 
   try {
-    const q = query({
+    // Imported at CALL time, not at module load. lib/engine/claude.js imports
+    // buildAgentOptions from this file, so a static import here would be a
+    // cycle. Without this the crons and reflectors would keep calling the
+    // Claude SDK whatever engine the install is configured for — which fails
+    // as an authentication error against the engine nobody selected, on a
+    // schedule, with nobody watching.
+    const { selectEngine } = await import('./engine/index.js');
+    const q = selectEngine().run({
       prompt,
-      options: buildAgentOptions({
-        model, effort, allowedTools, permissionMode, cwd,
-        abortController: controller, env, stderr, deroot, hooks,
-      }),
+      model, effort, allowedTools, permissionMode, cwd,
+      abortController: controller, env, stderr, deroot, hooks,
     });
     for await (const m of q) {
       if (m.type === 'assistant') {

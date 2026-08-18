@@ -13,7 +13,13 @@
 #
 # PUID/PGID map the agent's user to your host user so files it writes (memory,
 # state, logs, cron edits) are owned by you on the host. Defaults to 1000:1000.
-name: yodacode
+# The compose project name decides the volume names, so a fixed one makes two
+# installs on the same machine share yc_agent_home — and therefore share one
+# Codex credential between two agents that would both try to refresh it. Codex
+# rotates refresh tokens on use, so the second refresh invalidates the first:
+# two working installs quietly become zero. Overridable per install, defaulting
+# to the previous value so existing installs keep their volumes.
+name: ${COMPOSE_PROJECT_NAME:-yodacode}
 
 x-image: &image
   build:
