@@ -81,6 +81,39 @@ async function main() {
     surfaces: config.surfaces,
   });
 
+  // Engine-specific boot setup. Each engine needs its configuration and its
+  // persona written the way IT reads them, and both are generated on every boot
+  // so a stale file can never quietly change how the agent behaves.
+  if (config.engine.id === 'codex') {
+    try {
+      const { writeConfigToml } = await import('./lib/engine/codex/config-toml.js');
+      const { writePersona } = await import('./lib/engine/codex/persona.js');
+      const { path: cfgPath } = writeConfigToml({});
+      logger.info('wrote codex config.toml', { path: cfgPath });
+
+      // Codex has no @-imports, so the nine persona documents are flattened
+      // into one file it will actually read. A missing document is not fatal —
+      // a partial persona beats no agent — but it must be SAID, because the
+      // symptom is just an agent that sounds generic.
+      const p = writePersona({ workspace: config.workspace });
+      if (p.missing.length) {
+        logger.warn('persona incomplete — the agent will be missing part of its character', {
+          missing: p.missing, included: p.included.length,
+        });
+      }
+      if (p.truncated) {
+        logger.warn('persona exceeds the engine document limit and will be truncated', {
+          bytes: p.bytes,
+        });
+      }
+      logger.info('assembled persona for codex', {
+        target: p.target, bytes: p.bytes, documents: p.included.length,
+      });
+    } catch (e) {
+      logger.warn('codex boot setup failed (non-fatal)', { err: e.message });
+    }
+  }
+
   // Write .claude/settings.json based on YODA_SANDBOX so that the sandbox
   // configuration always reflects the current env var without manual edits.
   // yoda.js runs outside the sandbox so it can write this file freely.
