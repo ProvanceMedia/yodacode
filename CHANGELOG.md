@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.28.0 — 2026-08-18
+
+- feat(engine): give Codex its own model setting
+
 ## v2.27.3 — 2026-08-18
 
 - fix: stop presenting routine token renewal as an expiry countdown
