@@ -9,36 +9,38 @@
 
 Your own AI assistant for Slack, running on your server.
 
-Runs on a subscription you probably already pay for — **Claude** (Max recommended) or **ChatGPT**
-(Plus or Pro). No API key, no per-request billing. One guided command installs everything; DM your
-bot a few minutes later.
+It runs on a subscription you probably already pay for: **Claude** (Max recommended) or
+**ChatGPT** (Plus or Pro). No API key, no per-request billing. One command sets it all up, and
+you're DMing your bot a few minutes later.
 
 ## What is this?
 
-YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in
-Slack. Every reply runs through a real coding agent — **Claude Code** or **ChatGPT Codex**,
-your choice — so it has real tools: Read, Write, Edit, web search, browser automation, subagents,
-and a full Bash shell. It runs as two Docker containers — a **broker** that holds your API keys,
-and the **agent** itself, which never sees them (see [Security](#security-de-rooted-by-default)).
+A personal AI agent that lives on your own server and answers you in Slack. Every reply runs
+through a real coding agent, **Claude Code** or **ChatGPT Codex**, whichever you prefer. So it
+has real tools: it can read and write files, search the web, drive a browser, delegate to
+subagents, and use a full shell.
 
-It also remembers. A structured file-based memory system with daily consolidation and full-text
-search means the agent builds up context over time instead of starting cold every conversation.
-The full feature list is in the [table below](#features).
+It runs as two Docker containers. The **broker** holds your API keys. The **agent** is the bot
+itself, and it never sees them. More on that under [Security](#security-de-rooted-by-default).
+
+It also remembers. Memory lives in plain files, gets tidied up daily, and is fully searchable, so
+your assistant builds up context over time instead of starting cold every conversation.
 
 ## What you need
 
-- **A small always-on Linux server** — a cheap VPS, cloud droplet, or home server. (A laptop that
-  sleeps won't do; the bot needs to stay connected.) **1 GB RAM minimum, 2 GB comfortable** —
-  under that, the kernel kills replies mid-run (the installer offers to add swap on small boxes).
-- **Docker** — if it's missing, the installer offers to install it for you.
-- **A Claude or ChatGPT subscription** — Claude Max recommended (Pro works with tighter limits),
-  or ChatGPT Plus/Pro. The installer asks which and signs you in; no API key either way. See
-  [docs/ENGINES.md](docs/ENGINES.md) for what differs between them.
-- **A Slack workspace** where you can add an app — the installer walks you through creating it.
+- **A small always-on Linux server.** A cheap VPS, a cloud droplet, a box under the desk. A
+  laptop that sleeps won't work, since the bot needs to stay connected. Give it 1 GB of RAM at
+  the very least, 2 GB to be comfortable. Below that the kernel starts killing replies halfway
+  through, though the installer offers to add swap on small machines.
+- **Docker.** If you haven't got it, the installer offers to put it on for you.
+- **A Claude or ChatGPT subscription.** Claude Max is the smoothest ride, Pro works with tighter
+  limits, and ChatGPT Plus or Pro runs it too. The installer asks which and signs you in. No API
+  key either way. [docs/ENGINES.md](docs/ENGINES.md) covers what differs between them.
+- **A Slack workspace you can add an app to.** The installer walks you through creating it.
 
-You do **not** need Node, systemd, or any other tooling on the host — everything the bot needs is
-baked into the Docker image. Outbound HTTPS only; Slack runs over Socket Mode, so no inbound ports
-and nothing exposed to the internet.
+You don't need Node, systemd or anything else on the host. Everything the bot needs is baked into
+the Docker image. It only makes outbound connections, and Slack runs over Socket Mode, so nothing
+is exposed to the internet and no ports need opening.
 
 ## Quickstart
 
@@ -48,17 +50,17 @@ cd yodacode
 ./quickstart.sh
 ```
 
-`quickstart.sh` is a fully guided, 7-step installer — no config files to edit, no prior tooling.
-It installs Docker if missing, builds the image, asks **which AI runs your assistant** and signs
-you in (open a URL on your laptop), lets you **name your assistant and tell it about yourself**, walks you through creating
-the Slack app click-by-click (verifying each token live as you paste it), writes the config for
-you, launches the stack, and prints your assistant introducing itself so you can see it working.
-A few minutes later, DM your bot in Slack.
+That's a guided seven-step installer. No config files to edit, nothing to install first. It puts
+Docker on if it's missing, builds the image, asks which coding agent you want and signs you in
+(you open a URL on your laptop), lets you name your assistant and tell it about yourself, then
+walks you through creating the Slack app click by click, checking each token as you paste it.
+Then it writes the config, starts everything up, and prints your assistant introducing itself so
+you can see it working. Go and DM it.
 
 Adding API keys is optional and explained at the end. Re-running `./quickstart.sh` offers
 start-or-reconfigure.
 
-> On a 512 MB box the build stalls and replies get OOM-killed — use 1 GB+, or accept the
+> On a 512 MB box the build stalls and replies get killed off. Use 1 GB or more, or accept the
 > installer's swapfile offer.
 
 ## You don't need to be technical
@@ -71,29 +73,33 @@ own workspace. Just ask it in Slack:
 - *"Write a cron that checks my inbox every 30 minutes"* → drops a task file in `cron-tasks/`; the
   scheduler picks it up.
 - *"Connect my GitHub"* → it researches how the service authenticates, prepares everything, and
-  tells you to run `yodacode addkey` on the server — where you just paste the key at a hidden
-  prompt. Keys are added on the server, never pasted into chat.
+  tells you to run `yodacode addkey` on the server, where you paste the key at a hidden prompt.
+  Keys go in on the server, never into chat.
 - *"Connect my Gmail"* → it prepares a Google sign-in request; `yodacode connect` on the server
   walks you through a one-time browser consent (Calendar, Drive & co ride the same sign-in).
 
 ## Security: de-rooted by default
 
-Your API keys never enter the agent. They live in a separate **broker** container that holds the
-vault and makes the authenticated calls; the **agent** container — the bot itself — runs as an
-unprivileged user with no service keys in its environment and reaches every API through the broker.
-So a prompt injection or a confused agent has nothing to leak: the keys are on the other side of a
-container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
+Your API keys never reach the agent. They sit in a separate **broker** container, which holds the
+vault and makes the authenticated calls itself. The **agent** container, the bot you talk to, runs
+as an unprivileged user with no service keys anywhere in its environment, and reaches every API by
+asking the broker.
+
+So a prompt injection or a confused agent has nothing to give away. The keys are on the other side
+of a container boundary, enforced by the operating system rather than by a line in a prompt.
+[docs/BROKER.md](docs/BROKER.md) has the detail.
 
 ## Changing which AI runs it
 
-The installer asks; `yodacode change llm` changes your mind later. It checks the
-sign-in for the one you're moving to, tells you which scheduled tasks would need
-editing, and changes nothing until you say go. Your memory, skills and settings
-are untouched — those are files, and they don't care which AI reads them.
+The installer asks at setup. `yodacode change llm` changes your mind later. It checks the sign-in
+for the one you're moving to, tells you which scheduled tasks would need editing, and changes
+nothing until you say go.
 
-The two engines are not identical. [docs/ENGINES.md](docs/ENGINES.md) sets out
-what actually differs: quota, delegation, retry behaviour, and how each one
-handles your assistant's personality.
+Your memory, skills and settings stay exactly as they are. They're files, and they don't care
+which agent reads them.
+
+The two aren't identical, though. [docs/ENGINES.md](docs/ENGINES.md) covers what actually
+differs.
 
 ## Day-to-day
 
@@ -121,23 +127,24 @@ yodacode connect     # sign the bot into an OAuth service (Google, Microsoft 365
 yodacode install-browsers  # give the bot a headless browser (one-time ~300MB download)
 ```
 
-(Everything still works as plain `docker compose …` from the install folder if you prefer — the
-`yodacode` command is a thin wrapper. If it isn't found yet, run `source ~/.bashrc` once, or use
-`./yodacode` from the repo.)
+Plain `docker compose …` from the install folder still works if you prefer. The `yodacode`
+command is only a thin wrapper. If it isn't found yet, run `source ~/.bashrc` once, or use
+`./yodacode` from the repo.
 
-**Adding an API key** (GitHub, Stripe, Notion, …): the easy way is to ask the bot — *"set up
-Notion"* — it researches the service's API and prepares the request; then `yodacode addkey` on the
-server shows what it prepared, you paste the key at a hidden prompt, and — when the service has a
-known test endpoint — it verifies the connection with a live call. Well-known services also work
+**Adding an API key** (GitHub, Stripe, Notion and so on): easiest is to ask the bot. Say *"set up
+Notion"* and it researches how the service authenticates and prepares the request. Then run
+`yodacode addkey` on the server: it shows you what the bot prepared, you paste the key at a hidden
+prompt, and where the service has a test endpoint it makes a real call to check it works. Well-known services also work
 directly (`yodacode addkey github`), and
 `yodacode addkey --help` covers the manual options. Either way the key is stored in the broker
 (the agent never sees it) and the new host shows up in the agent's `CAPABILITIES.md`.
 
 **Connecting Google or Microsoft 365** (Gmail, Google Calendar/Drive/Docs…; Outlook Mail,
-Calendar, OneDrive, Excel…): these use a browser sign-in instead of a pasteable key — run
+Calendar, OneDrive, Excel): these use a browser sign-in rather than a key you can paste. Run
 `yodacode connect google` / `yodacode connect microsoft` (or just ask the bot: *"connect my
 gmail"*, then run `yodacode connect`). The wizard walks you through creating your own OAuth
-client (one-time — your data stays strictly between your server and the provider), then prints
+client, which is a one-time job and keeps your data strictly between your server and the
+provider. Then it prints
 a sign-in link to open on your laptop, and verifies each connected service that has a quick check with a live call before
 storing anything. Tokens live in the broker vault; the agent never sees them. Renewals
 (`--renew`) take ~2 minutes, and `yodacode doctor` diagnoses expired sign-ins. Details:
@@ -149,13 +156,13 @@ storing anything. Tokens live in the broker vault; the agent never sees them. Re
 yodacode update      # fetch the latest, show what changed, rebuild & restart
 ```
 
-It pulls the newest version, rebuilds the image, and restarts the stack — pausing to show you the
+It pulls the newest version, rebuilds the image and restarts the stack, pausing to show you the
 incoming commits first. (By hand it's `git pull && docker compose up -d --build` from the install
 folder.)
 
 **You'll know when there's something to update:** the bot checks for new releases once a day and
 DMs you (once per version) with the highlights, and every `yodacode` command shows a one-line
-banner when a newer version exists. The DM goes to the first `YODA_DM_AUTHORIZED_USERS` entry —
+banner when a newer version exists. The DM goes to the first `YODA_DM_AUTHORIZED_USERS` entry,
 put the operator first. Disable both with `YODA_UPDATE_CHECK=0` in `.env`.
 
 Your workspace (memory, skills, cron definitions) is **bind-mounted**, so you can read and edit it
@@ -165,7 +172,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 
 ```
                  ┌──────────────┐
-                 │   Slack API  │  (Socket Mode — no inbound ports)
+                 │   Slack API  │  (Socket Mode, no inbound ports)
                  └──────┬───────┘
                         │ real-time events
    ╔════════════════════▼═══════════════════════╗
@@ -196,11 +203,11 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 | **Memory system** | Proactive memory with 4 typed categories, a daily consolidation cron, and FTS5 search. See [Memory search](#memory-search). |
 | **Skill self-generation** | Opt-in reflector turns long conversations into reusable `SKILL.md` files. See [Self-improvement](#closed-loop-self-improvement-opt-in). |
 | **Loop guardrails** | Repeat-failure, no-progress, and iteration-cap detection. See [Loop guardrails](#loop-guardrails). |
-| **In-container crons** | Declarative YAML tasks run on their own timers — no host systemd. See [Cron tasks](#adding-a-cron-task). |
+| **In-container crons** | YAML tasks run on their own timers, with no host systemd. See [Cron tasks](#adding-a-cron-task). |
 | **Model fallback** | Sonnet to Haiku (configurable chain). Fail-fast on 529. |
 | **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread; `/yodacode` shows help & setup. |
 | **Effort levels** | Reasoning depth (`low` to `max`) set globally, per cron, or per thread. See [Effort levels](#effort-levels). |
-| **Browser automation** | Playwright headless Chromium for JS-rendered pages and screenshots — enable once with `yodacode install-browsers` (~300MB download into a persistent volume; the image ships the system libraries, so the bot honestly reports ❌/✅ in its capabilities until/once enabled). |
+| **Browser automation** | Playwright headless Chromium for JS-rendered pages and screenshots. Enable once with `yodacode install-browsers` (~300MB download into a persistent volume; the image ships the system libraries, so the bot honestly reports ❌/✅ in its capabilities until/once enabled). |
 | **Subagents** | `Task` tool for parallel work and context protection. |
 | **Stop command** | Type "stop" to kill an in-flight reply cleanly. |
 | **Web dashboard** | Status, crons, live logs, file editing. Basic auth. |
@@ -216,7 +223,7 @@ CLAUDE_CODE_OAUTH_TOKEN=       # set by the installer (claude sign-in)
 SLACK_BOT_TOKEN=               # set by the installer
 SLACK_APP_TOKEN=               # set by the installer
 YODA_DM_AUTHORIZED_USERS=      # comma-separated Slack user IDs allowed to DM the bot
-YODA_ENGINE=claude             # claude | codex — set by the installer
+YODA_ENGINE=claude             # claude | codex, set by the installer
 YODA_CLAUDE_MODEL=             # primary model on Claude (empty = engine default)
 YODA_CODEX_MODEL=              # primary model on Codex (empty = gpt-5.6-terra)
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
@@ -230,11 +237,11 @@ PGID=
 ## Effort levels
 
 Both engines expose a reasoning **effort** control, where higher means deeper reasoning at the cost
-of more tokens per turn — `low`…`max` on Claude, `low`…`xhigh` on Codex. YodaCode wires it in three
+of more tokens per turn. `low` to `max` on Claude, `low` to `xhigh` on Codex. It's wired in three
 ways:
 
 - **Global default:** set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default,
-  which is what most people want — the vendors tune it per model.
+  which is what most people want, since the vendors tune it per model.
 - **Per cron:** add `effort: xhigh` to a task's YAML.
 - **Per thread (sticky):** say `ultrathink` or `xhigh` in any message, and that reply plus every
   later reply in the same thread runs at `xhigh`. Say `xhigh off` to drop back. A new thread starts
@@ -242,7 +249,7 @@ ways:
 
 Notes: on Claude, `xhigh` is Opus-only (others clamp to `high`) and Haiku ignores effort; on Codex,
 a level the model doesn't have is dropped rather than sent. Effort stickiness is re-derived from
-recent thread history each reply — in a very long thread, just say the word again.
+recent thread history each reply, so in a very long thread just say the word again.
 
 ## Persistent thread sessions
 
@@ -250,9 +257,8 @@ Each conversation thread keeps its own engine session: every reply resumes the a
 session, so its earlier turns, tool results, and working memory carry over, and each tick only
 sends the messages that arrived since its last turn (cheaper, faster, and the agent doesn't
 re-derive what it already worked out). Session pointers live in `state/sessions.json`; the
-transcripts live in the agent's home — `~/.claude` or `~/.codex/sessions` depending on the engine
-(persisted across container recreation by the `yc_agent_home` volume). If a session goes missing — pruned, or a fresh volume — the next reply
-transparently starts a new session with the full thread history. A thread idle longer than
+transcripts live in the agent's home, either `~/.claude` or `~/.codex/sessions` depending on the engine
+(persisted across container recreation by the `yc_agent_home` volume). If a session goes missing, whether it was pruned or the volume is new, the next reply quietly starts a fresh session with the full thread history. A thread idle longer than
 `YODA_SESSION_MAX_AGE_MS` (default 14 days) also starts fresh, and a very long-lived thread
 rotates to a fresh session once a reply's total input reaches `YODA_SESSION_ROTATE_TOKENS`
 (default 120k), so per-reply cost stays bounded. Edited messages are re-shown to the agent on
@@ -261,7 +267,7 @@ its next reply; deleted messages stay in its session memory until the session ro
 
 ## Adding a cron task
 
-Scheduled tasks are YAML files run by the in-container scheduler — no host systemd, no shell
+Scheduled tasks are YAML files run by the in-container scheduler. No host systemd, no shell
 wrappers. Drop a file in `cron-tasks/` and `docker compose restart`:
 
 ```bash
@@ -349,7 +355,7 @@ The index is rebuilt on startup and after the nightly `memory-consolidate` cron.
 
 ## Important notes
 
-- **Quota usage.** Each reply is one turn against your subscription's limit — the same allowance
+- **Quota usage.** Each reply is one turn against your subscription's limit, the same allowance
   your own use draws on. Higher effort levels and cron tasks use more. Monitor at
   `claude.ai/settings/usage`, or ChatGPT's usage settings on Codex, where the agent cannot see
   what's left and so can't warn you.
