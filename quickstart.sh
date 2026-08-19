@@ -136,11 +136,11 @@ fi
 # ── 3 · Engine ────────────────────────────────────────────────────────────────
 # After the build (the sign-in helpers run inside the image) and before sign-in
 # (this choice decides which sign-in runs).
-step 3 "Choose which AI runs your assistant"
+step 3 "Choose which coding agent runs your assistant"
 echo "  Both run on a subscription you may already pay for — no API billing."
 echo ""
-echo -e "    ${B}claude${X}  — Claude, on a Claude Pro or Max subscription"
-echo -e "    ${B}codex${X}   — OpenAI Codex, on a ChatGPT Plus or Pro subscription"
+echo -e "    ${B}claude${X}  — Claude Code, on a Claude Pro or Max subscription"
+echo -e "    ${B}codex${X}   — ChatGPT Codex, on a ChatGPT Plus or Pro subscription"
 echo ""
 echo "  You can change this later with: yodacode change llm"
 echo ""

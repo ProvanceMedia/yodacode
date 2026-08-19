@@ -1,6 +1,6 @@
 # Choosing which AI runs your assistant
 
-YodaCode runs on **Claude** or on **OpenAI Codex**. Both use a subscription you
+YodaCode runs on **Claude Code** or on **ChatGPT Codex**. Both use a subscription you
 may already pay for, so neither adds API billing. You pick one during setup and
 can change your mind later:
 
@@ -86,7 +86,7 @@ model: balanced        # fast | balanced | deep
 Those three work on either AI — each one decides what "balanced" means for
 itself:
 
-| tier | on Claude | on ChatGPT/Codex |
+| tier | on Claude Code | on ChatGPT Codex |
 |---|---|---|
 | `fast` | Haiku | GPT-5.6-Luna — fast and affordable |
 | `balanced` | Sonnet 5 | GPT-5.6-Terra — everyday work |

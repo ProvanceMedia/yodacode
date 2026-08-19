@@ -39,11 +39,6 @@ version_string() {
   # Only append the git description when it adds info beyond the package version.
   [[ -n "$t" && "$t" != "v${v}" ]] && echo "v${v:-?} ($t)" || echo "v${v:-?}"
 }
-# The agent process does NOT run as the image's build-time uid: docker/entrypoint.sh
-# remaps `yoda` to PUID (default 1000) so bind-mounted writes are owned by the host
-# user. Anything that writes the Codex credential has to run as that SAME uid —
-# auth.json is mode 600, so a mismatch means the agent silently reads as "not
-# signed in" after a sign-in that reported success.
 # Which env key holds the model, for the engine that is running. A model name
 # means nothing to the other engine, so each keeps its own — and switching back
 # restores the one you had rather than inheriting a name the engine will reject.
@@ -51,6 +46,11 @@ model_env_key() {
   case "$(env_get YODA_ENGINE)" in codex) echo YODA_CODEX_MODEL ;; *) echo YODA_CLAUDE_MODEL ;; esac
 }
 
+# The agent process does NOT run as the image's build-time uid: docker/entrypoint.sh
+# remaps `yoda` to PUID (default 1000) so bind-mounted writes are owned by the host
+# user. Anything that writes the Codex credential has to run as that SAME uid —
+# auth.json is mode 600, so a mismatch means the agent silently reads as "not
+# signed in" after a sign-in that reported success.
 agent_uid() { local p; p="$(env_get PUID)"; echo "${p:-1000}"; }
 
 # Codex will not create its own home: point CODEX_HOME at a path that does not
@@ -86,7 +86,7 @@ restart_if_running() {
 cmd_help() {
   cat <<EOF
 
-$(echo -e "${C}${B}yodacode${X}") — your own Claude, on your server
+$(echo -e "${C}${B}yodacode${X}") — your own AI assistant, on your server
 
 $(echo -e "${B}Setup${X}")
   yodacode              run the guided installer (or show status if set up)
@@ -105,7 +105,7 @@ $(echo -e "${B}Configure${X}")
   yodacode googlechat   connect Google Chat (guided; needs Google Workspace)
   yodacode commitments  set up the daily digest of promises made + follow-up drafts
   yodacode persona      change bot name, your name, timezone
-  yodacode change llm   switch between Claude and OpenAI Codex
+  yodacode change llm   switch between Claude Code and ChatGPT Codex
   yodacode model [name] show / set the model
   yodacode tools        toggle reflectors & guardrails
   yodacode addkey       give the bot an API key (via the broker)
@@ -645,8 +645,8 @@ cmd_engine() {
     title "Engine"
     echo "  Currently: ${B}${cur}${X}"
     echo ""
-    echo "  claude  — Claude, on a Claude Pro or Max subscription"
-    echo "  codex   — OpenAI Codex, on a ChatGPT Plus or Pro subscription"
+    echo "  claude  — Claude Code, on a Claude Pro or Max subscription"
+    echo "  codex   — ChatGPT Codex, on a ChatGPT Plus or Pro subscription"
     echo ""
     note "Switch: yodacode change llm <claude|codex>"
     note "Check the current one is healthy: yodacode doctor"

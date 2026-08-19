@@ -268,7 +268,7 @@ def main() -> int:
         # quiet retry on a smaller model. Say so rather than implying resilience.
         out.append("## Model")
         out.append("")
-        out.append(f"- **Engine:** OpenAI Codex (`{os.environ.get('YODA_CODEX_MODEL') or 'the engine default'}`)")
+        out.append(f"- **Engine:** ChatGPT Codex (`{os.environ.get('YODA_CODEX_MODEL') or 'the engine default'}`)")
         out.append("- **Fallback:** none — this engine gives no overload signal, so a busy provider ends the turn")
         out.append("- **Quota:** shared with your human's own ChatGPT use, and NOT visible from here — never quote a remaining allowance")
     else:

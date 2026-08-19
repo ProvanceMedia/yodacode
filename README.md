@@ -16,7 +16,7 @@ bot a few minutes later.
 ## What is this?
 
 YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in
-Slack. Every reply runs through a real coding agent — the Claude Agent SDK or the OpenAI Codex CLI,
+Slack. Every reply runs through a real coding agent — **Claude Code** or **ChatGPT Codex**,
 your choice — so it has real tools: Read, Write, Edit, web search, browser automation, subagents,
 and a full Bash shell. It runs as two Docker containers — a **broker** that holds your API keys,
 and the **agent** itself, which never sees them (see [Security](#security-de-rooted-by-default)).
@@ -113,7 +113,7 @@ Configuration without editing files:
 ```bash
 yodacode slack       # (re)connect the Slack app + tokens
 yodacode persona     # change bot name, your name, timezone
-yodacode change llm  # switch between Claude and ChatGPT/Codex
+yodacode change llm  # switch between Claude Code and ChatGPT Codex
 yodacode model       # show / set the model for whichever one is running
 yodacode tools       # toggle reflectors & guardrails
 yodacode addkey      # give the bot an API key (via the broker)
@@ -172,7 +172,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
    ║  agent container  (unprivileged, no keys)  ║
    ║   yoda.js ─ surfaces                        ║
    ║     ├─ dispatcher (policy + context)        ║
-   ║     ├─ runner → engine (Claude SDK | Codex) ║
+   ║     ├─ runner → engine (Claude Code|Codex)  ║
    ║     │     ├─ live status streaming          ║
    ║     │     └─ model fallback (529 → Haiku)   ║
    ║     ├─ stop-handler (abort mid-tick)        ║

@@ -16,7 +16,7 @@ banner() {
   echo -e "${C}${B}  ╦ ╦╔═╗╔╦╗╔═╗╔═╗╔═╗╔╦╗╔═╗${X}"
   echo -e "${C}${B}  ╚╦╝║ ║ ║║╠═╣║  ║ ║ ║║║╣ ${X}"
   echo -e "${C}${B}   ╩ ╚═╝═╩╝╩ ╩╚═╝╚═╝═╩╝╚═╝${X}"
-  echo -e "  ${D}your own Claude, running on your server${X}"
+  echo -e "  ${D}your own AI assistant, running on your server${X}"
   echo ""
 }
 
@@ -282,13 +282,13 @@ render_persona() {
   eng="$(env_get YODA_ENGINE)"; eng="${eng:-claude}"
   case "$eng" in
     codex)
-      runtime="the OpenAI Codex CLI"
-      sub="ChatGPT"
+      runtime="ChatGPT Codex"
+      sub="ChatGPT Codex"
       subagents="You can delegate to a subagent. It runs in a separate thread and reports back — you see its answer, not its working — so ask for exactly what you need returned."
       ;;
     *)
-      runtime="the Claude Agent SDK"
-      sub="Claude"
+      runtime="Claude Code"
+      sub="Claude Code"
       subagents="Available types: \`general-purpose\`, \`Explore\`, \`Plan\`."
       ;;
   esac
