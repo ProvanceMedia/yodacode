@@ -7,18 +7,19 @@
    ╚═╝    ╚═════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
 ```
 
-Your own Claude-powered assistant for Slack, running on your server.
+Your own AI assistant for Slack, running on your server.
 
-Runs on your **Claude subscription** (Max recommended) — no API key, no per-request billing.
-One guided command installs everything; DM your bot a few minutes later.
+Runs on a subscription you probably already pay for — **Claude** (Max recommended) or **ChatGPT**
+(Plus or Pro). No API key, no per-request billing. One guided command installs everything; DM your
+bot a few minutes later.
 
 ## What is this?
 
 YodaCode is a self-hosted personal AI agent that lives on your own server and replies to you in
-Slack. Every reply runs through the Claude Agent SDK (Claude Code's engine), so the agent has real tools: Read,
-Write, Edit, web search, browser automation, subagents, and a full Bash shell. It runs as two
-Docker containers — a **broker** that holds your API keys, and the **agent** itself, which never
-sees them (see [Security](#security-de-rooted-by-default)).
+Slack. Every reply runs through a real coding agent — the Claude Agent SDK or the OpenAI Codex CLI,
+your choice — so it has real tools: Read, Write, Edit, web search, browser automation, subagents,
+and a full Bash shell. It runs as two Docker containers — a **broker** that holds your API keys,
+and the **agent** itself, which never sees them (see [Security](#security-de-rooted-by-default)).
 
 It also remembers. A structured file-based memory system with daily consolidation and full-text
 search means the agent builds up context over time instead of starting cold every conversation.
@@ -30,8 +31,9 @@ The full feature list is in the [table below](#features).
   sleeps won't do; the bot needs to stay connected.) **1 GB RAM minimum, 2 GB comfortable** —
   under that, the kernel kills replies mid-run (the installer offers to add swap on small boxes).
 - **Docker** — if it's missing, the installer offers to install it for you.
-- **A Claude subscription** — Max recommended, Pro works with tighter limits. The installer signs
-  you in; no API key.
+- **A Claude or ChatGPT subscription** — Claude Max recommended (Pro works with tighter limits),
+  or ChatGPT Plus/Pro. The installer asks which and signs you in; no API key either way. See
+  [docs/ENGINES.md](docs/ENGINES.md) for what differs between them.
 - **A Slack workspace** where you can add an app — the installer walks you through creating it.
 
 You do **not** need Node, systemd, or any other tooling on the host — everything the bot needs is
@@ -46,9 +48,9 @@ cd yodacode
 ./quickstart.sh
 ```
 
-`quickstart.sh` is a fully guided, 6-step installer — no config files to edit, no prior tooling.
-It installs Docker if missing, builds the image, signs you in to Claude (open a URL on your
-laptop), lets you **name your assistant and tell it about yourself**, walks you through creating
+`quickstart.sh` is a fully guided, 7-step installer — no config files to edit, no prior tooling.
+It installs Docker if missing, builds the image, asks **which AI runs your assistant** and signs
+you in (open a URL on your laptop), lets you **name your assistant and tell it about yourself**, walks you through creating
 the Slack app click-by-click (verifying each token live as you paste it), writes the config for
 you, launches the stack, and prints your assistant introducing itself so you can see it working.
 A few minutes later, DM your bot in Slack.
@@ -82,13 +84,16 @@ unprivileged user with no service keys in its environment and reaches every API 
 So a prompt injection or a confused agent has nothing to leak: the keys are on the other side of a
 container boundary, enforced by the OS, not by a prompt rule. See [docs/BROKER.md](docs/BROKER.md).
 
-## Claude or ChatGPT
+## Changing which AI runs it
 
-Your assistant runs on a **Claude** subscription (Pro or Max) or a **ChatGPT**
-one (Plus or Pro). The installer asks which; you can change it later with
-`yodacode change llm`. Either way it's a subscription you may already pay for,
-not API billing. The two are not identical — [docs/ENGINES.md](docs/ENGINES.md)
-sets out what actually differs.
+The installer asks; `yodacode change llm` changes your mind later. It checks the
+sign-in for the one you're moving to, tells you which scheduled tasks would need
+editing, and changes nothing until you say go. Your memory, skills and settings
+are untouched — those are files, and they don't care which AI reads them.
+
+The two engines are not identical. [docs/ENGINES.md](docs/ENGINES.md) sets out
+what actually differs: quota, delegation, retry behaviour, and how each one
+handles your assistant's personality.
 
 ## Day-to-day
 
@@ -108,7 +113,8 @@ Configuration without editing files:
 ```bash
 yodacode slack       # (re)connect the Slack app + tokens
 yodacode persona     # change bot name, your name, timezone
-yodacode model       # show / set the Claude model
+yodacode change llm  # switch between Claude and ChatGPT/Codex
+yodacode model       # show / set the model for whichever one is running
 yodacode tools       # toggle reflectors & guardrails
 yodacode addkey      # give the bot an API key (via the broker)
 yodacode connect     # sign the bot into an OAuth service (Google, Microsoft 365)
@@ -166,7 +172,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
    ║  agent container  (unprivileged, no keys)  ║
    ║   yoda.js ─ surfaces                        ║
    ║     ├─ dispatcher (policy + context)        ║
-   ║     ├─ claude-runner → Agent SDK query()    ║
+   ║     ├─ runner → engine (Claude SDK | Codex) ║
    ║     │     ├─ live status streaming          ║
    ║     │     └─ model fallback (529 → Haiku)   ║
    ║     ├─ stop-handler (abort mid-tick)        ║
@@ -185,7 +191,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 |---|---|
 | **De-rooted by default** | Keys live in a separate broker container; the agent never sees them. |
 | **Google / Microsoft 365 sign-ins** | Guided `yodacode connect` wizard: bring-your-own OAuth client, browser consent from your laptop, tokens broker-held, one-command renewal. See [docs/providers/](docs/providers/). |
-| **Live streaming** | Placeholder message updates in real time as Claude works. |
+| **Live streaming** | Placeholder message updates in real time as the agent works. |
 | **Threaded replies** | Every reply in a thread. Old threads work forever (no aging). |
 | **Memory system** | Proactive memory with 4 typed categories, a daily consolidation cron, and FTS5 search. See [Memory search](#memory-search). |
 | **Skill self-generation** | Opt-in reflector turns long conversations into reusable `SKILL.md` files. See [Self-improvement](#closed-loop-self-improvement-opt-in). |
@@ -210,7 +216,9 @@ CLAUDE_CODE_OAUTH_TOKEN=       # set by the installer (claude sign-in)
 SLACK_BOT_TOKEN=               # set by the installer
 SLACK_APP_TOKEN=               # set by the installer
 YODA_DM_AUTHORIZED_USERS=      # comma-separated Slack user IDs allowed to DM the bot
-YODA_CLAUDE_MODEL=             # primary model (empty = Claude Code default)
+YODA_ENGINE=claude             # claude | codex — set by the installer
+YODA_CLAUDE_MODEL=             # primary model on Claude (empty = engine default)
+YODA_CODEX_MODEL=              # primary model on Codex (empty = gpt-5.6-terra)
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
 YODA_CLAUDE_EFFORT=            # low|medium|high|xhigh|max (empty = model default)
 BOT_NAME=                      # your assistant's name
@@ -221,27 +229,29 @@ PGID=
 
 ## Effort levels
 
-Claude Code exposes a reasoning **effort** control (`low`, `medium`, `high`, `xhigh`, `max`), where
-higher means deeper reasoning at the cost of more tokens per turn. YodaCode wires it in three ways:
+Both engines expose a reasoning **effort** control, where higher means deeper reasoning at the cost
+of more tokens per turn — `low`…`max` on Claude, `low`…`xhigh` on Codex. YodaCode wires it in three
+ways:
 
-- **Global default:** set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default.
+- **Global default:** set `YODA_CLAUDE_EFFORT` in `.env`. Empty uses the model's own default,
+  which is what most people want — the vendors tune it per model.
 - **Per cron:** add `effort: xhigh` to a task's YAML.
 - **Per thread (sticky):** say `ultrathink` or `xhigh` in any message, and that reply plus every
   later reply in the same thread runs at `xhigh`. Say `xhigh off` to drop back. A new thread starts
   at the default.
 
-Notes: `xhigh` is supported on Opus only; other models clamp it to `high`, and Haiku ignores effort.
-Effort stickiness is re-derived from recent thread history each reply — in a very long thread,
-just say the word again.
+Notes: on Claude, `xhigh` is Opus-only (others clamp to `high`) and Haiku ignores effort; on Codex,
+a level the model doesn't have is dropped rather than sent. Effort stickiness is re-derived from
+recent thread history each reply — in a very long thread, just say the word again.
 
 ## Persistent thread sessions
 
-Each conversation thread keeps its own Agent SDK session: every reply resumes the agent's prior
+Each conversation thread keeps its own engine session: every reply resumes the agent's prior
 session, so its earlier turns, tool results, and working memory carry over, and each tick only
 sends the messages that arrived since its last turn (cheaper, faster, and the agent doesn't
 re-derive what it already worked out). Session pointers live in `state/sessions.json`; the
-transcripts live in the agent's `~/.claude` (persisted across container recreation by the
-`yc_agent_home` volume). If a session goes missing — pruned, or a fresh volume — the next reply
+transcripts live in the agent's home — `~/.claude` or `~/.codex/sessions` depending on the engine
+(persisted across container recreation by the `yc_agent_home` volume). If a session goes missing — pruned, or a fresh volume — the next reply
 transparently starts a new session with the full thread history. A thread idle longer than
 `YODA_SESSION_MAX_AGE_MS` (default 14 days) also starts fresh, and a very long-lived thread
 rotates to a fresh session once a reply's total input reaches `YODA_SESSION_ROTATE_TOKENS`
@@ -323,7 +333,7 @@ three failure modes:
 - **`repeat_failure`:** the same tool + same input errored ≥2× in a row → warning in the placeholder.
 - **`no_progress`:** the same tool + same input + same output ≥3× in a row → "may be looping" warning.
 - **`iteration_cap`:** total tool_use count exceeded the budget (`YODA_MAX_ITERATIONS_SLACK`,
-  default 60) → SIGTERMs claude and replaces the placeholder with "🛑 Iteration cap hit".
+  default 60) → stops the run and replaces the placeholder with "🛑 Iteration cap hit".
 
 Per-run summaries persist to `state/tool-runs.json` for post-mortem. Disable with
 `YODA_GUARDRAIL_ENABLED=0`.
@@ -339,8 +349,10 @@ The index is rebuilt on startup and after the nightly `memory-consolidate` cron.
 
 ## Important notes
 
-- **Quota usage.** Each reply is one turn against your Max limit. Higher effort levels
-  (`xhigh`/`max`) and cron tasks use more. Monitor at `claude.ai/settings/usage`.
+- **Quota usage.** Each reply is one turn against your subscription's limit — the same allowance
+  your own use draws on. Higher effort levels and cron tasks use more. Monitor at
+  `claude.ai/settings/usage`, or ChatGPT's usage settings on Codex, where the agent cannot see
+  what's left and so can't warn you.
 - **Personal use.** Designed for one person on one server. Not multi-tenant.
 
 ## Star History
