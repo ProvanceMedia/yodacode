@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.29.1 — 2026-08-19
+
+- docs: drop a duplicated warning from the engines guide
+
 ## v2.29.0 — 2026-08-18
 
 - fix(engine): point the Codex tiers at the current model family
