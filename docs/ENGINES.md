@@ -49,9 +49,6 @@ yodacode change llm codex
 (It has to run as the same user the assistant runs as, which is why it is worth
 letting the command do it rather than calling `codex login` yourself.)
 
-**Never run `codex logout`.** It revokes the credential on OpenAI's side, which
-turns "sign in again" into a harder problem than it needs to be.
-
 **No automatic retry when OpenAI is busy.** On Claude, a turn that hits an
 overloaded model quietly retries on a smaller one and you never notice. Codex
 doesn't tell us it's overloaded, so a busy period is a failed turn instead.
