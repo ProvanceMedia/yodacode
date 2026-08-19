@@ -3,7 +3,7 @@
 `yodacode connect microsoft` signs your bot into your Microsoft account through an
 **app registration that you create yourself**. That "bring your own app" model is the
 ecosystem standard for self-hosted tools and it keeps the deal clean: your mail flows
-only between your server and Microsoft — no third party, no shared app, nothing for
+only between your server and Microsoft. No third party, no shared app, nothing for
 anyone else to verify or audit.
 
 The wizard walks you through everything; this page is the same walkthrough with more
@@ -11,14 +11,14 @@ detail, plus troubleshooting.
 
 ## What you'll end up with
 
-- An **Entra ID app registration** (free) configured as a *public client* — there is
+- An **Entra ID app registration** (free) set up as a *public client*. There is
   **no client secret at all**, so nothing expires behind your back (Microsoft caps
   secrets at 24 months; a public client has no such clock). Its one piece of config is
   a `http://localhost` redirect URI, which is what makes it a public client.
 - The Application (client) ID and one **refresh token** stored in the broker vault.
   The bot itself never sees them; it calls Microsoft Graph through the broker.
 - One sign-in covering every Microsoft service you selected (Mail, Calendar,
-  OneDrive, Excel, Contacts, Teams Meetings) — they all live on one API host,
+  OneDrive, Excel, Contacts, Teams Meetings). They all live on one API host,
   `graph.microsoft.com`.
 
 ## The one-time Entra setup (~5 minutes)
@@ -27,7 +27,7 @@ Do these in a browser on your laptop, signed in as the Microsoft account you're
 connecting:
 
 0. **Personal account (outlook.com / hotmail / live) only:** you need a tenant before
-   you can register apps — signing straight into the Entra portal with a bare personal
+   you can register apps. Signing straight into the Entra portal with a bare personal
    account lands in a shared context where app registration is blocked. Create a
    **free Azure account** at <https://azure.microsoft.com/free> (identity verification,
    but app registration itself is free forever); that provisions your own "Default
@@ -35,47 +35,47 @@ connecting:
 1. **Register the app**: <https://entra.microsoft.com> → Entra ID → App registrations
    → **New registration**. Name it anything (e.g. `yodacode`).
 2. **Supported account types**: pick **"Accounts in any organizational directory and
-   personal Microsoft accounts"** — the safest default; it works for both personal and
+   personal Microsoft accounts"**, the safest default. It works for both personal and
    work sign-ins. (If you pick single-tenant instead, see Troubleshooting before your
    first sign-in.)
-3. **Copy the Application (client) ID** from the app's Overview page — a GUID; the
-   wizard asks for it. **Do not create a client secret** — this flow doesn't use one.
-4. **Add the redirect URI** — the step people miss: Manage → **Authentication** →
+3. **Copy the Application (client) ID** from the app's Overview page. It's a GUID, and the
+   wizard asks for it. **Don't create a client secret.** This flow doesn't use one.
+4. **Add the redirect URI.** This is the step people miss: Manage, then **Authentication**,
    **Add a platform** → **Mobile and desktop applications** → under *Custom redirect
    URIs* enter `http://localhost` → **Save**.
 
    > **Get the platform right.** Choosing **Web** registers the app as a *confidential*
-   > client, and the sign-in then fails at the very last step — after you've approved
-   > and pasted — with `AADSTS7000218: The request body must contain … 'client_secret'`.
+   > client, and the sign-in then fails at the very last step, after you've approved and
+   > pasted, with `AADSTS7000218: The request body must contain … 'client_secret'`.
    > **Single-page application** fails too (`AADSTS9002327`): a SPA redirect may only be
    > redeemed from a browser, and your server isn't one. It must be *Mobile and desktop
-   > applications*. (The port doesn't matter — Microsoft ignores it when matching
+   > applications*. (The port doesn't matter, since Microsoft ignores it when matching
    > `localhost`, so registering `http://localhost` covers the `http://localhost:8765`
    > the wizard actually asks for.)
 5. **Leave "Allow public client flows" alone** (Authentication → Advanced settings; it
    defaults to **No**). It's only needed for flows that send no redirect URI, and
    leaving it off is a *feature*: it stops this app ever being signed in with the
    device-code flow that Microsoft now blocks by default (see *Why a browser sign-in*).
-6. **Work/school tenants only — maybe:** many organizations block user self-consent
+6. **Work or school tenants only, and only sometimes:** many organizations block self-consent
    for mail-reading and calendar scopes. If the consent screen says approval is
    required: App registrations → your app → **API permissions** → add the delegated
    Microsoft Graph permissions you'll use → **Grant admin consent**. In your own
-   business tenant you *are* the admin — one click. In an employer's tenant, that
+   business tenant you *are* the admin, so it's one click. In an employer's tenant, that
    button belongs to IT. Personal accounts self-consent to everything and skip this.
 
 ## The sign-in itself
 
 The server has no browser, so the wizard prints a link:
 
-1. **Have the terminal ready first** — see the warning below. Open the link **on your
+1. **Have the terminal ready first.** See the warning below. Open the link **on your
    laptop**, pick the account, and approve.
 2. After approving, the browser tries to load `http://localhost:8765/...` and fails
-   with *"This site can't be reached"* — **that is expected** (nothing is listening;
+   with *"This site can't be reached"*, and **that is expected** (nothing is listening;
    that address only exists to carry the code back). Copy the **entire URL from the
    address bar** and paste it into the wizard.
 
    > **You have about 60 seconds.** Microsoft sign-in codes expire roughly a minute
-   > after you approve — Google's last ten. The clock starts when you click Accept, not
+   > after you approve, where Google's last ten. The clock starts when you click Accept, not
    > when the link is printed, so the copy-and-paste itself is comfortable (~10
    > seconds) *provided you're already sitting at the prompt*. Don't email the link to
    > yourself, don't open it on your phone, and don't wander off during MFA. If it does
@@ -95,14 +95,14 @@ out. Their reasoning: *"Device code flow is rarely used by customers, but is
 frequently used by attackers."*
 
 Worse, device-code sessions are *protocol-tracked*, and that state survives token
-refreshes — so when the policy flips, even a long-working connection dies permanently
+refreshes, so when the policy flips, even a long-working connection dies permanently
 (`AADSTS530036`) with no fix but a fresh sign-in. Authorization-code + PKCE is not
 affected, needs no client secret either, and is what every desktop app uses. Hence the
 switch.
 
 ## Choosing services and access levels
 
-- One Microsoft sign-in covers all selected services with **one** token — tick
+- One Microsoft sign-in covers every selected service with **one** token, so tick
   everything you might want; adding a service later means redoing the (2-minute)
   sign-in.
 - Each service has plain-English access tiers (e.g. Mail: *read-only* vs *read, send +
@@ -117,26 +117,26 @@ switch.
 | Service | Notes |
 |---|---|
 | **Outlook Mail** / **Calendar** | The obvious things. Both tiers of each normally need admin approval (see below). |
-| **Outlook Contacts** | **Read-only** — the bot can look people up, but can't add or edit contacts. |
-| **OneDrive & Excel** | One grant, because Excel has no permission of its own — it's the same `Files.*` scope. So the tier you pick is the access the bot has to *both* your files and your spreadsheets. `full` (recommended) reaches **your own** drive; files shared with you, or in a SharePoint library or Teams channel, are *not* "your files" and need the `all` tier. Excel gives you a live spreadsheet API over `.xlsx` (read/write cells, tables, formulas, render a chart to an image — no download) on **work/school accounts only**; on personal OneDrive the bot falls back to editing files by downloading them. The bot can also create a brand-new real `.xlsx` (that opens in Excel Online), not just edit existing ones. |
-| **Teams Meetings** | **Optional — most people don't need it.** The Calendar service *already* creates Teams meetings for free (see below). Tick this only for what the calendar can't do: meetings with **no** diary entry, or lobby/presenter/attendee settings. Work/school only, and normally needs admin approval. |
+| **Outlook Contacts** | **Read-only.** The bot can look people up, but can't add or edit contacts. |
+| **OneDrive & Excel** | One grant, because Excel has no permission of its own. It's the same `Files.*` scope. So the tier you pick is the access the bot has to *both* your files and your spreadsheets. `full` (recommended) reaches **your own** drive; files shared with you, or in a SharePoint library or Teams channel, are *not* "your files" and need the `all` tier. Excel gives you a live spreadsheet API over `.xlsx` (read/write cells, tables, formulas, render a chart to an image, no download) on **work/school accounts only**; on personal OneDrive the bot falls back to editing files by downloading them. The bot can also create a brand-new real `.xlsx` (that opens in Excel Online), not just edit existing ones. |
+| **Teams Meetings** | **Optional, and most people don't need it.** The Calendar service *already* creates Teams meetings for free (see below). Tick this only for what the calendar can't do: meetings with **no** diary entry, or lobby/presenter/attendee settings. Work/school only, and normally needs admin approval. |
 
 > **Teams chat isn't offered**, deliberately. Microsoft's Teams API terms cap polling a
-> resource at once a day, so a bot could never *watch* Teams — only read it when asked.
+> resource at once a day, so a bot could never *watch* Teams, only read it when asked.
 > And reaching people **in** Teams properly means the bot living there as a surface (a
 > different thing entirely), not holding a Graph scope. Teams *meetings* are unaffected
-> and work fine — see below.
+> and work fine. See below.
 
 **Creating a Teams meeting needs no extra permission.** With just the Calendar service
 the bot can create an event flagged as an online meeting, and Microsoft returns a real
-Teams join link — which is what "set up a call with Sam tomorrow" actually wants, since
+Teams join link, which is what "set up a call with Sam tomorrow" actually wants, since
 it also lands in everyone's diary. The separate **Teams Meetings** service exists for
 the two things that route can't do: a standalone meeting with no calendar entry, and
 meeting options (lobby bypass, who can present, who's admitted). It has no "list my
-meetings" endpoint — you fetch one back by id or by its join URL — so the calendar
+meetings" endpoint. You fetch one back by id or by its join URL, so the calendar
 remains the way to enumerate what's coming up.
 
-**Word isn't a service** because Microsoft has no API for editing document *content* —
+**Word isn't a service** because Microsoft has no API for editing document *content*.
 only for moving the file and converting it (e.g. to PDF). The bot can do both with the
 OneDrive service, and can edit a `.docx` by downloading it, changing it locally, and
 uploading it back.
@@ -144,26 +144,26 @@ uploading it back.
 ### About admin approval
 
 On a work/school tenant Microsoft's default settings stop ordinary users consenting to
-several of these permissions themselves — mail, calendar, meetings and `all`-tier file
+several of these permissions themselves, covering mail, calendar, meetings and `all`-tier file
 access among them. **If you own the tenant this is one click**: Entra portal → your app
 → **API permissions** → **Grant admin consent**. If you don't, your IT admin has to do
 it, and there is no way around that.
 
 Two things worth knowing:
 
-- It's a **tenant setting, not a property of the permission** — a tenant configured with
+- It's a **tenant setting, not a property of the permission.** A tenant configured with
   the older consent policy may let you self-consent to everything. The only way to know
   is to try.
 - Consent is **all or nothing**: if one requested permission needs an admin, the whole
-  sign-in stops — you don't get a partial grant. So if you're not an admin, tick fewer
+  sign-in stops, and you don't get a partial grant. So if you're not an admin, tick fewer
   services: OneDrive & Excel (`read` or `full`) and Contacts need no approval, while
   mail, calendar, the OneDrive `all` tier and Meetings normally do.
 
 ## When the sign-in dies
 
 Microsoft refresh tokens die on: **90+ days without use** (any bot activity resets the
-clock — a scheduled `yodacode doctor` run is enough), a **password change or admin
-reset**, **revocation**, and — on work/school tenants — **Conditional Access policies**
+clock, and a scheduled `yodacode doctor` run is enough), a **password change or admin
+reset**, **revocation**, and on work or school tenants, **Conditional Access policies**
 (e.g. sign-in frequency limits). When that happens:
 
 - The bot's Microsoft calls fail with *"authorization has expired or been revoked"*
@@ -173,14 +173,14 @@ reset**, **revocation**, and — on work/school tenants — **Conditional Access
 - `yodacode doctor` live-checks every connected provider.
 
 **Upgrading from a device-code sign-in?** If your connection predates the switch to the
-browser flow it still works — until your tenant enables the device-code block, at which
+browser flow it still works, right up until your tenant enables the device-code block, at which
 point it dies with `AADSTS530036` and no amount of retrying helps. Two Entra changes fix
 it permanently, because the old registration was built for a flow that needs no redirect:
 
-1. **Add the redirect URI** (setup step 4) — without it the browser shows
+1. **Add the redirect URI** (setup step 4). Without it the browser shows
    `AADSTS500113` ("no reply address is registered", because a device-code registration
    has none) and never hands back a code.
-2. **Set "Allow public client flows" back to No** (step 5) — the old setup required it
+2. **Set "Allow public client flows" back to No** (step 5). The old setup required it
    to be *Yes*. Turning it off is what stops this registration ever being used with the
    blocked flow again.
 
@@ -189,24 +189,24 @@ so it survives the policy.
 
 A quirk worth knowing (handled automatically): Microsoft **replaces the refresh token
 on every refresh**. The broker persists each replacement in its private `broker-state/`
-volume — nothing for you to manage, but it's why that volume exists.
+volume. Nothing for you to manage, but it's why that volume exists.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| `AADSTS7000218` (mentions `client_secret`/`client_assertion`) — fails *after* you approve and paste | Your redirect URI is registered under the **Web** platform, so Entra treats the app as confidential. Delete it and re-add `http://localhost` under **Mobile and desktop applications** (step 4). |
-| `AADSTS500113` (*no reply address is registered*) — fails **in the browser**, nothing to paste | The registration has **no** redirect URI (typical after a device-code sign-in). Add `http://localhost` per step 4, then re-run. |
-| `AADSTS50011` (*redirect URI does not match*) — fails **in the browser** | A redirect URI exists but not `http://localhost` under **Mobile and desktop applications** — add it per step 4. |
+| `AADSTS7000218` (mentions `client_secret`/`client_assertion`). Fails *after* you approve and paste | Your redirect URI is registered under the **Web** platform, so Entra treats the app as confidential. Delete it and re-add `http://localhost` under **Mobile and desktop applications** (step 4). |
+| `AADSTS500113` (*no reply address is registered*). Fails **in the browser**, nothing to paste | The registration has **no** redirect URI (typical after a device-code sign-in). Add `http://localhost` per step 4, then re-run. |
+| `AADSTS50011` (*redirect URI does not match*). Fails **in the browser** | A redirect URI exists but not `http://localhost` under **Mobile and desktop applications**, add it per step 4. |
 | `AADSTS9002327` (SPA redirect / cross-origin) | The redirect URI is registered under **Single-page application**; a SPA code can only be redeemed from a browser. Re-add it under **Mobile and desktop applications** (step 4). |
-| *"the sign-in code expired"* | Microsoft codes last ~**60 seconds** from when you approve. The wizard prints a fresh link — this time have the terminal open beside the browser and paste straight away. |
+| *"the sign-in code expired"* | Microsoft codes last ~**60 seconds** from when you approve. The wizard prints a fresh link, this time have the terminal open beside the browser and paste straight away. |
 | `AADSTS530036` (refresh token invalid, auth-flow checks) | An old **device-code** sign-in that your tenant now blocks. Add the redirect URI (step 4), then `yodacode connect microsoft --renew`. |
 | `AADSTS53003` (blocked by Conditional Access) | An org policy blocks this sign-in. If it's the device-code block, the browser flow avoids it; otherwise talk to IT. |
 | `AADSTS50194` (single-tenant app, `/common` not supported) | The app was registered single-tenant. Easiest: re-register with "any org + personal accounts" (step 2). |
-| `AADSTS9002331` (configured for Microsoft Account users only) | The app was registered personal-only; same fix — re-register with the recommended account types. |
-| Consent screen says "Need admin approval" | Your org blocks self-consent for these scopes — see step 6 (admin consent), or ask IT. |
-| Sign-in works but dies every few days (work account) | A Conditional Access sign-in-frequency policy is forcing re-auth. Renewing works, but the policy wins — talk to IT. |
-| Signed in as the wrong account | The wizard asks Microsoft for an account picker, but a browser already signed into another Microsoft account can still catch you out. The wizard shows which account it got and asks before storing — say no and re-run. |
+| `AADSTS9002331` (configured for Microsoft Account users only) | The app was registered personal-only; same fix, re-register with the recommended account types. |
+| Consent screen says "Need admin approval" | Your org blocks self-consent for these scopes. See step 6 (admin consent), or ask IT. |
+| Sign-in works but dies every few days (work account) | A Conditional Access sign-in-frequency policy is forcing re-auth. Renewing works, but the policy wins, talk to IT. |
+| Signed in as the wrong account | The wizard asks Microsoft for an account picker, but a browser already signed into another Microsoft account can still catch you out. The wizard shows which account it got and asks before storing, say no and re-run. |
 | Bot says it has read-only access but you need more | Re-run `yodacode connect microsoft` and pick the higher tier for that service. |
 
 ## Security notes
@@ -218,7 +218,7 @@ volume — nothing for you to manage, but it's why that volume exists.
   the broker vault (plus its rotated successors in the broker-only `broker-state/`
   volume; the agent container never sees either).
 - The sign-in link carries a one-time `state` nonce and a **PKCE** challenge bound to
-  that terminal session, both held only in the wizard's process memory — a pasted
+  that terminal session, both held only in the wizard's process memory, so a pasted
   redirect from anywhere else is rejected, and the code is useless without the verifier.
 - The bot can *request* a Microsoft connection (it writes a small pending file naming
   the provider + services), but the catalog in this repo decides every endpoint and
