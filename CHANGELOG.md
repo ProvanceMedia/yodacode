@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.29.9 — 2026-08-19
+
+- docs: only list things that are actually different
+
 ## v2.29.8 — 2026-08-19
 
 - docs: rewrite the rest of the docs in the same voice
