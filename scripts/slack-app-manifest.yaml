@@ -1,6 +1,6 @@
 display_information:
   name: YodaCode
-  description: Personal Claude-Code-powered agent
+  description: Your own personal AI agent
   background_color: "#1a1a1a"
 
 features:
@@ -13,15 +13,15 @@ features:
     messages_tab_read_only_enabled: false
   slash_commands:
     - command: /opus
-      description: Ask YodaCode using Claude Opus (thread-sticky)
+      description: Ask YodaCode with the deepest model (thread-sticky)
       usage_hint: your question
       should_escape: false
     - command: /sonnet
-      description: Ask YodaCode using Claude Sonnet (thread-sticky)
+      description: Ask YodaCode with the balanced model (thread-sticky)
       usage_hint: your question
       should_escape: false
     - command: /haiku
-      description: Ask YodaCode using Claude Haiku (thread-sticky)
+      description: Ask YodaCode with the fastest model (thread-sticky)
       usage_hint: your question
       should_escape: false
     - command: /yodacode

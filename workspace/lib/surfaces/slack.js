@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { config } from '../config.js';
+import { resolveModel } from '../engine/model-tiers.js';
 import { statusTarget } from './status-signal.js';
 import { logger } from '../logger.js';
 
@@ -229,13 +230,15 @@ const slackSurface = {
     // user's question as its argument. Ack fast, post a public echo that
     // becomes the thread root, then dispatch through the normal pipeline with
     // modelOverride set.
-    // Kept in step with the model tiers (lib/engine/model-tiers.js): a shortcut
-    // that reaches for an older model than the one scheduled tasks already use
-    // is a downgrade nobody asked for.
-    const SLASH_MODELS = {
-      '/opus': { model: 'claude-opus-5', label: 'opus' },
-      '/sonnet': { model: 'claude-sonnet-5', label: 'sonnet' },
-      '/haiku': { model: 'claude-haiku-4-5', label: 'haiku' },
+    // Resolved through the model tiers, so each shortcut means the same THING on
+    // either engine — the deepest, the everyday, the quickest — rather than
+    // naming one engine's models. Hard-coding Claude names here made all three
+    // inert on Codex: the engine correctly discards a model that isn't its own,
+    // so the shortcut silently did nothing.
+    const SLASH_TIERS = {
+      '/opus': { tier: 'deep', label: 'deep' },
+      '/sonnet': { tier: 'balanced', label: 'balanced' },
+      '/haiku': { tier: 'fast', label: 'fast' },
     };
     sm.on('slash_commands', async ({ body, ack }) => {
       try { await ack(); } catch (_) {}
@@ -288,8 +291,12 @@ const slackSurface = {
           return;
         }
 
-        const spec = SLASH_MODELS[body.command];
-        if (!spec) return;
+        const slash = SLASH_TIERS[body.command];
+        if (!slash) return;
+        const spec = {
+          model: resolveModel(config.engine.id, slash.tier).model,
+          label: slash.label,
+        };
         const text = (body.text || '').trim();
         if (!text) {
           const usage = `Usage: \`${body.command} <your question>\``;
