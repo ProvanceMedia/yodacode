@@ -47,13 +47,19 @@ test('survives junk without throwing', () => {
 
 // ── usage ────────────────────────────────────────────────────────────────────
 
-test('maps cached_input_tokens onto the Anthropic cache-read field', () => {
+test('the cached portion is not counted twice', () => {
+  // The vendors disagree on what input_tokens means: Anthropic's excludes cache
+  // reads, OpenAI's includes them. Copying one to the other double-counts the
+  // cached tokens, which on a real turn overstates the cost by more than half.
   const u = mapUsage({
     input_tokens: 53519, cached_input_tokens: 40448,
     output_tokens: 311, reasoning_output_tokens: 45,
   });
-  assert.equal(u.input_tokens, 53519);
+  assert.equal(u.input_tokens, 53519 - 40448, 'input_tokens is the FRESH portion');
   assert.equal(u.cache_read_input_tokens, 40448);
+  assert.equal(
+    u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
+    53519, 'the parts must add back up to what the engine reported');
   assert.equal(u.output_tokens, 311);
   assert.equal(u.reasoning_output_tokens, 45);
   // Codex reports no cache-creation figure; it must not be invented.
@@ -134,7 +140,7 @@ test('without a last-message file it falls back to the final agent_message', () 
 test('usage rides on the result message', () => {
   const { out } = translateAll(loadFixture('codex-turn-tools.jsonl'));
   const result = out.at(-1);
-  assert.equal(result.usage.input_tokens, 53519);
+  assert.equal(result.usage.input_tokens, 53519 - 40448);
   assert.equal(result.usage.cache_read_input_tokens, 40448);
 });
 

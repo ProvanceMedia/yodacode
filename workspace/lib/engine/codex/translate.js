@@ -31,17 +31,31 @@ function fileChangeTool(kind) {
   return 'Edit';
 }
 
-/** Codex usage → Anthropic usage. `cached_input_tokens` is Anthropic's
- *  `cache_read_input_tokens`; `reasoning_output_tokens` has no counterpart and
- *  is carried through unchanged for the usage log. Codex reports no cache
- *  CREATION figure, so that stays 0 rather than being invented. */
+/**
+ * Codex usage → Anthropic usage.
+ *
+ * The two vendors count input differently, and getting this wrong inflates every
+ * figure we report. Anthropic's `input_tokens` EXCLUDES cache reads — the cached
+ * portion is a separate field, and the true total is the sum. OpenAI's
+ * `input_tokens` INCLUDES the cached portion, with `cached_input_tokens` naming
+ * the subset. Copying one field to the other therefore counts the cached tokens
+ * twice, which on a typical turn overstates the cost by more than half.
+ *
+ * So the cached part is subtracted here to leave the fresh part, matching what
+ * the rest of the supervisor means by `input_tokens`.
+ *
+ * `reasoning_output_tokens` has no Anthropic counterpart and is carried through
+ * for the usage log. Codex reports no cache-CREATION figure, so that stays 0
+ * rather than being invented.
+ */
 export function mapUsage(u) {
   if (!u) return undefined;
+  const cached = u.cached_input_tokens || 0;
   return {
-    input_tokens: u.input_tokens || 0,
+    input_tokens: Math.max(0, (u.input_tokens || 0) - cached),
     output_tokens: u.output_tokens || 0,
     cache_creation_input_tokens: 0,
-    cache_read_input_tokens: u.cached_input_tokens || 0,
+    cache_read_input_tokens: cached,
     reasoning_output_tokens: u.reasoning_output_tokens || 0,
   };
 }
