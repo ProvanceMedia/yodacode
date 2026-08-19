@@ -4,29 +4,45 @@ Your assistant runs on one or the other. Claude Code, on a Claude subscription.
 Or ChatGPT Codex, on a ChatGPT one. Pick whichever you already pay for. Neither
 adds API billing.
 
-The installer asks which. You can change your mind later:
+The installer asks. You can change your mind later:
 
 ```bash
 yodacode change llm codex     # or: yodacode change llm claude
 ```
 
-## What you need
+## Side by side
 
 | | Claude Code | ChatGPT Codex |
 |---|---|---|
-| Subscription | Claude Pro or Max | ChatGPT Plus or Pro |
-| Signing in | paste a token into the installer | enter a code at `auth.openai.com/codex/device` |
-| Signing in again | about once a year | only if the sign-in breaks |
+| **Subscription** | Claude Pro or Max | ChatGPT Plus or Pro |
+| **Signing in** | paste a token into the installer | enter a code at `auth.openai.com/codex/device` |
+| **Sign-in lasts** | about a year | about ten days, then renews itself |
+| **Can the sign-in break?** | only if you revoke it | yes, if two installs share it or you run `codex logout` |
+| **Says when it's rate limited** | yes, in the thread | no, the turn just fails |
+| **Provider busy** | retries on a smaller model | the turn fails |
+| **Delegating to subagents** | yes | yes |
+| **Resuming a thread** | usually, but sessions can vanish | yes, thread ids are stable |
+| **Reasoning effort** | `low` to `max` | `low` to `xhigh` |
+| **fast / balanced / deep** | Haiku, Sonnet 5, Opus 5 | Luna, Terra, Sol |
+| **Your assistant's personality** | loaded from separate files | assembled into one file at startup |
+| **Sessions stored in** | `~/.claude` | `~/.codex/sessions` |
 
-## What's different on Codex
+Most of that you'll never notice. Four things are worth reading properly.
 
-**It can't tell you when you're running low.** Claude Code warns you when it hits
-a limit, so the bot says so in the thread. Codex sends nothing of the sort, so
-the first sign of trouble is a turn that fails.
+## Rate limits and retries
 
-**The sign-in can be broken, and there are two ways to do it.** Normally it looks
-after itself: the token lasts about ten days and Codex renews it on the first
-turn after it expires, so you never notice.
+Claude Code tells us when it's being limited, so the bot says so in the thread.
+It also retries on a smaller model when the provider is overloaded, which is why
+you rarely notice a busy period.
+
+Codex reports neither. No warning as you approach a limit, and a busy spell
+means a failed turn rather than a slower one. So on Codex the first sign of
+trouble is usually a turn that didn't work.
+
+## The Codex sign-in
+
+Normally it looks after itself. The token lasts about ten days and Codex renews
+it on the first turn after it expires, so you never notice.
 
 It only survives while one install is using it, though. Each refresh kills the
 previous token, so two installs sharing one sign-in lock each other out. Give
@@ -42,14 +58,33 @@ yodacode change llm codex
 Let the command do it rather than running `codex login` yourself. It has to run
 as the same user your assistant runs as, and that's easy to get wrong by hand.
 
-**No automatic retry when OpenAI is busy.** On Claude Code, a turn that hits an
-overloaded model quietly retries on a smaller one and you never notice. Codex
-doesn't tell us when it's overloaded, so a busy spell means a failed turn.
+## Your assistant's personality
 
-**Threads pick up better.** One in Codex's favour. Its conversation threads have
-stable ids, so resuming one is more reliable than on Claude Code.
+On Claude Code the personality files load individually. On Codex they get
+assembled into one file when the container starts, because Codex reads a single
+instructions file.
 
-## Switching later
+Worth knowing because if part of that assembly fails, nothing errors. Your
+assistant just sounds oddly generic. `yodacode doctor` checks it every run.
+
+## Scheduled tasks and models
+
+Every task in `cron-tasks/` says what it runs on:
+
+```yaml
+model: balanced        # fast | balanced | deep
+```
+
+Those three work on either agent, and each picks its own model for them, as in
+the table above. Use tiers and your tasks survive a switch untouched.
+
+You can name an exact model instead, like `claude-sonnet-5` or `gpt-5.6-sol`.
+That's fine, and sometimes exactly what you want. It does pin the task to one
+agent. If you switch, `yodacode change llm` lists every task that would break
+and asks before going ahead. Any task you leave pinned refuses to run and says
+why, rather than failing quietly at 3am.
+
+## Switching
 
 ```bash
 yodacode change llm codex
@@ -66,32 +101,7 @@ they carry on where they left off.
 **Memory, skills and settings stay put.** They're files in your workspace. They
 don't care which agent reads them.
 
-**Scheduled tasks might need one edit.** See below.
-
-## Scheduled tasks and models
-
-Every task in `cron-tasks/` says what it runs on:
-
-```yaml
-model: balanced        # fast | balanced | deep
-```
-
-Those three work on either agent. Each one decides what "balanced" means for
-itself:
-
-| tier | Claude Code | ChatGPT Codex |
-|---|---|---|
-| `fast` | Haiku | GPT-5.6-Luna, fast and cheap |
-| `balanced` | Sonnet 5 | GPT-5.6-Terra, everyday work |
-| `deep` | Opus 5 | GPT-5.6-Sol, the frontier model |
-
-Use tiers and your tasks survive a switch untouched.
-
-You can name an exact model instead, like `claude-sonnet-5` or `gpt-5.6-sol`.
-That's fine, and sometimes exactly what you want. It does pin the task to one
-agent. If you switch, `yodacode change llm` lists every task that would break
-and asks before going ahead. Any task you leave pinned refuses to run and says
-why, rather than failing quietly at 3am.
+**Scheduled tasks might need one edit**, as above.
 
 ## If something looks wrong
 
@@ -99,10 +109,5 @@ why, rather than failing quietly at 3am.
 yodacode doctor
 ```
 
-It checks the agent you're actually running: whether the sign-in still works,
-how long the current token has, and whether your assistant's personality files
-all loaded.
-
-That last one matters more than it sounds. On Codex the personality gets
-assembled into a single file, and if part of it goes missing the only symptom is
-an assistant that sounds oddly generic.
+It checks the agent you're actually running: whether the sign-in works, how long
+the current token has, and whether the personality files all loaded.
