@@ -23,17 +23,18 @@ who pay for ChatGPT can run the same assistant.
 
 ## What's different on Codex
 
-**Your assistant eats into your own ChatGPT allowance.** Same pot as your own
-use. And it can't see what's left, so it can't warn you before you run out.
+**It can't tell you when you're running low.** Claude Code warns you when it hits
+a limit, so the bot says so in the thread. Codex sends nothing of the sort, so
+the first sign of trouble is a turn that fails.
 
-**The sign-in renews itself.** The token lasts about ten days. Codex refreshes
-it on the first turn after it expires and carries on. Nothing for you to do.
+**The sign-in can be broken, and there are two ways to do it.** Normally it looks
+after itself: the token lasts about ten days and Codex renews it on the first
+turn after it expires, so you never notice.
 
-It only breaks if something revokes it. Two installs sharing one sign-in will do
-that, because each refresh kills the previous token, so both agents end up
-locked out. Give each install its own. And never run `codex logout`. That
-revokes the sign-in at OpenAI's end and turns a self-healing problem into a real
-one.
+It only survives while one install is using it, though. Each refresh kills the
+previous token, so two installs sharing one sign-in lock each other out. Give
+each install its own. And never run `codex logout`, which revokes the sign-in at
+OpenAI's end and turns a problem that fixes itself into one that doesn't.
 
 If it does break, `yodacode doctor` tells you, and this fixes it:
 
