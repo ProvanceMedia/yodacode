@@ -9,9 +9,8 @@
 
 Your own AI assistant for Slack, running on your server.
 
-It runs on a subscription you probably already pay for: **Claude** (Max recommended) or
-**ChatGPT** (Plus or Pro). No API key, no per-request billing. One command sets it all up, and
-you're DMing your bot a few minutes later.
+It runs on a subscription you already pay for, **Claude** or **ChatGPT**. No API key, no
+per-request billing. One command sets it all up, and you're DMing your bot a few minutes later.
 
 ## What is this?
 
@@ -33,9 +32,9 @@ your assistant builds up context over time instead of starting cold every conver
   the very least, 2 GB to be comfortable. Below that the kernel starts killing replies halfway
   through, though the installer offers to add swap on small machines.
 - **Docker.** If you haven't got it, the installer offers to put it on for you.
-- **A Claude or ChatGPT subscription.** Claude Max is the smoothest ride, Pro works with tighter
-  limits, and ChatGPT Plus or Pro runs it too. The installer asks which and signs you in. No API
-  key either way. [docs/ENGINES.md](docs/ENGINES.md) covers what differs between them.
+- **A Claude subscription or a ChatGPT one.** Either works. The installer asks which and signs
+  you in, and there's no API key involved. [docs/ENGINES.md](docs/ENGINES.md) covers what differs
+  between them.
 - **A Slack workspace you can add an app to.** The installer walks you through creating it.
 
 You don't need Node, systemd or anything else on the host. Everything the bot needs is baked into

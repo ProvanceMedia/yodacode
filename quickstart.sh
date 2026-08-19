@@ -32,7 +32,7 @@ LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/yodacode.XXXXXX")"
 
 banner
 echo "  This sets up your assistant from scratch — about 5 minutes. You'll need:"
-echo "    • a Claude subscription (Max recommended) OR a ChatGPT one (Plus or Pro)"
+echo "    • a Claude subscription or a ChatGPT one"
 echo "    • a browser on your laptop or phone, to sign in"
 echo "    • the ability to add an app to your Slack workspace"
 echo ""

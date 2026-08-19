@@ -1,17 +1,14 @@
 # Claude Code or ChatGPT Codex
 
-Your assistant runs on one of two coding agents. Claude Code, on a Claude Pro or
-Max subscription. Or ChatGPT Codex, on a ChatGPT Plus or Pro one. Both use a
-subscription you probably already pay for, so neither adds API billing.
+Your assistant runs on one or the other. Claude Code, on a Claude subscription.
+Or ChatGPT Codex, on a ChatGPT one. Pick whichever you already pay for. Neither
+adds API billing.
 
 The installer asks which. You can change your mind later:
 
 ```bash
 yodacode change llm codex     # or: yodacode change llm claude
 ```
-
-Claude Code is the default and has more miles on it. Codex is there so people
-who pay for ChatGPT can run the same assistant.
 
 ## What you need
 
