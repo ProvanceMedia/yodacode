@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.29.4 — 2026-08-19
+
+- fix(slack): describe the app plainly, and make the shortcuts work on both engines
+
 ## v2.29.3 — 2026-08-19
 
 - docs: name the engines as the products they are
