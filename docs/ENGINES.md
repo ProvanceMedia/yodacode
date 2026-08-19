@@ -24,10 +24,16 @@ who pay for ChatGPT rather than Claude can run the same assistant.
 Everything below is a real difference, not a caveat we're obliged to print.
 
 **You share your own ChatGPT quota with the assistant.** Every turn it takes
-counts against the same allowance as your own ChatGPT use, and turns are not
-cheap — a trivial one costs around 50,000 tokens before it does anything,
-because the instructions it carries are large. The assistant also **can't see
-how much you have left**, so it can't warn you before you run out.
+counts against the same allowance as your own ChatGPT use, and the assistant
+**can't see how much you have left**, so it can't warn you before you run out.
+
+Turns are not small: a trivial one reads roughly 25,000 input tokens and a
+working one 50,000–80,000, most of it the standing instructions and your
+assistant's personality, and most of it cached. That is the nature of an agent
+that carries its own context rather than anything specific to this engine —
+Claude Code turns are the same shape. If you want a like-for-like number for
+your own setup, `state/usage.jsonl` records every turn with the engine that ran
+it.
 
 **The sign-in renews itself, but it can break.** The access token lasts about ten
 days and Codex refreshes it automatically — the first turn after it expires does
