@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.29.6 — 2026-08-19
+
+- docs: describe Codex turn cost honestly
+
 ## v2.29.5 — 2026-08-19
 
 - fix(engine): stop double-counting cached tokens in Codex usage
