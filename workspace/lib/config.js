@@ -141,6 +141,46 @@ export const config = {
     },
   },
 
+  // Hands-free voice surface (lib/surfaces/voice.js). The microphone lives in a
+  // browser (or any client that can hold a WebSocket), never on the server; the
+  // client listens for the wake word, transcribes locally and sends TEXT. So
+  // there is no audio config here — only who may connect and what they're called.
+  voice: {
+    // Shared secret for the /ws/voice handshake. WebSockets can't send Basic
+    // Auth headers, so it travels as a query param — deliberately its OWN token
+    // rather than YODA_UI_PASS, because query strings end up in proxy logs and
+    // browser history, and leaking the dashboard password there would be worse
+    // than leaking a token that only reaches this one socket.
+    token: process.env.YODA_VOICE_TOKEN || '',
+    // The identity a spoken turn runs as. Voice has no Slack-style user id of
+    // its own, so one is asserted here and used for memory, authorisation and
+    // the stop allowlist — put this same value in YODA_STOP_AUTHORIZED_USERS if
+    // you want "stop" to work by voice.
+    userId: process.env.YODA_VOICE_USER_ID || 'voice-owner',
+    // Phrases the CLIENT listens for before it starts capturing. Sent to the
+    // browser at handshake so the wake word is configured in one place. Kept
+    // lowercase and punctuation-free — the client matches against a normalised
+    // transcript.
+    wakeWords: csv('YODA_VOICE_WAKE_WORDS', 'hey yoda,hello yoda,ok yoda'),
+    // Whether the microphone runs continuously or only when asked:
+    //   'wake'   — always transcribing, watching for a wake word. Properly
+    //              hands-free, and the only mode that works from across a room.
+    //   'hotkey' — the microphone is OFF until you press the key. Nothing is
+    //              transcribed at all in between, so nothing can false-trigger.
+    // The client can override this per-browser; this is the default it starts
+    // from. Anything unrecognised falls back to 'wake' rather than failing boot.
+    micMode: ['wake', 'hotkey'].includes(process.env.YODA_VOICE_MIC_MODE)
+      ? process.env.YODA_VOICE_MIC_MODE : 'wake',
+    // Hard cap on how much text gets read aloud. A 3,000-character answer is
+    // fine on screen and unbearable in a room; past this the reply is trimmed
+    // at a sentence boundary and the client is told there was more.
+    maxSpeakChars: intEnv('YODA_VOICE_MAX_SPEAK_CHARS', 700),
+    // Rolling transcript kept per voice lane. Voice can't re-fetch its own
+    // history (nothing stores it), so — exactly like Google Chat — the surface
+    // keeps its own and hands it back in fetchContext.
+    historyPerLane: intEnv('YODA_VOICE_HISTORY', 24),
+  },
+
   // Bot identity (the user id of the bot itself, used to ignore self-messages
   // and detect mentions). Discoverable at startup via auth.test if not set.
   botUserId: process.env.BOT_USER_ID || null,

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YodaCode — Voice</title>
+  <!-- Deliberately no CDN: this page is meant to sit open all day, and a
+       blocked or slow CDN must never be the reason the microphone stops. -->
+  <style>
+    :root{
+      --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#c9d1d9;
+      --muted:#6e7681; --accent:#58a6ff; --live:#3fb950; --warn:#d29922; --err:#f85149;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      min-height:100vh;display:flex;flex-direction:column;align-items:center;
+      justify-content:center;padding:24px;gap:24px;}
+    h1{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0;color:var(--muted)}
+    .orb{width:132px;height:132px;border-radius:50%;display:flex;align-items:center;
+      justify-content:center;font-size:38px;border:2px solid var(--border);
+      background:var(--panel);transition:.25s;user-select:none;cursor:pointer}
+    .orb small{font-size:11px}
+    @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:.75}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .s-listening .orb{border-color:var(--live);box-shadow:0 0 26px rgba(63,185,80,.22)}
+    .s-idle      .orb{border-color:var(--border);opacity:.72}
+    .s-awake     .orb{border-color:var(--accent);box-shadow:0 0 34px rgba(88,166,255,.35);animation:pulse 1.3s infinite}
+    .s-working   .orb{border-color:var(--warn);box-shadow:0 0 26px rgba(210,153,34,.25)}
+    .s-speaking  .orb{border-color:var(--accent);box-shadow:0 0 30px rgba(88,166,255,.3)}
+    .s-muted     .orb,.s-error .orb,.s-offline .orb{border-color:var(--border);opacity:.5}
+    .state{font-size:13px;color:var(--muted);height:18px;text-align:center}
+    .state b{color:var(--text);font-weight:600}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+      padding:16px 18px;width:min(620px,100%);}
+    .row{display:flex;gap:10px;font-size:14px;line-height:1.55;padding:7px 0}
+    .row+.row{border-top:1px solid var(--border)}
+    .row .who{color:var(--muted);flex:0 0 62px;font-size:12px;padding-top:2px}
+    .row .what{flex:1;white-space:pre-wrap;word-wrap:break-word}
+    .row.you .what{color:var(--text)}
+    .row.yoda .what{color:var(--accent)}
+    .row.sys .what{color:var(--muted);font-size:13px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+    button,select{background:var(--panel);color:var(--text);border:1px solid var(--border);
+      border-radius:7px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+    button:hover,select:hover{border-color:var(--accent)}
+    button.on{border-color:var(--err);color:var(--err)}
+    .conn{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
+    .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+    .dot.ok{background:var(--live)} .dot.bad{background:var(--err)}
+    .hint{font-size:12px;color:var(--muted);text-align:center;max-width:620px;line-height:1.6}
+    kbd{background:#010409;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
+    .hidden{display:none}
+  </style>
+</head>
+<body class="s-offline">
+
+  <h1>YodaCode · Voice</h1>
+
+  <div class="orb" id="orb" title="Click to mute or unmute">🎙️</div>
+  <div class="state" id="state">starting…</div>
+
+  <div class="panel" id="log">
+    <div class="row sys"><span class="who">·</span><span class="what" id="empty">Say your wake word to start.</span></div>
+  </div>
+
+  <div class="controls">
+    <button id="mode" title="Whether the microphone runs continuously">Wake word</button>
+    <button id="mute">Mute</button>
+    <button id="hush" class="hidden">Stop speaking</button>
+    <select id="voices" title="Which system voice reads replies"></select>
+    <button id="forget" title="Clear the saved token from this browser">Sign out</button>
+  </div>
+
+  <div class="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></div>
+
+  <div class="hint" id="hint">
+    Connecting…
+  </div>
+
+  <script src="voice-client.js"></script>
+</body>
+</html>

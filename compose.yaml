@@ -95,6 +95,26 @@ services:
       YODA_MEMORY_REFLECTOR_ENABLED: ${YODA_MEMORY_REFLECTOR_ENABLED:-0}
       YODA_UPDATE_CHECK: ${YODA_UPDATE_CHECK:-1}
       YODA_UPDATE_REPO: ${YODA_UPDATE_REPO:-}
+      # Web dashboard. Publishing the port below makes this reachable, so set a
+      # password: with YODA_UI_PASS empty the dashboard requires no auth at all.
+      YODA_UI_PORT: ${YODA_UI_PORT:-7890}
+      YODA_UI_USER: ${YODA_UI_USER:-yoda}
+      YODA_UI_PASS: ${YODA_UI_PASS:-}
+      # Voice surface (only used when 'voice' is in YODA_SURFACES). The token is
+      # a transport credential for the /ws/voice socket — the same category as
+      # the Slack tokens above, held by the supervisor and withheld from every
+      # agent turn by the deroot allowlist. There is no speech vendor key here:
+      # the browser does the listening and the speaking.
+      YODA_VOICE_TOKEN: ${YODA_VOICE_TOKEN:-}
+      YODA_VOICE_USER_ID: ${YODA_VOICE_USER_ID:-}
+      YODA_VOICE_WAKE_WORDS: ${YODA_VOICE_WAKE_WORDS:-}
+      YODA_VOICE_MAX_SPEAK_CHARS: ${YODA_VOICE_MAX_SPEAK_CHARS:-}
+    # Loopback only. The browser needs HTTPS or localhost to grant microphone
+    # access, and both supported routes keep this off the public interface: an
+    # SSH tunnel lands on localhost, and `tailscale serve` proxies from the host.
+    # Binding 0.0.0.0 here would put the dashboard on the internet.
+    ports:
+      - "127.0.0.1:${YODA_UI_PORT:-7890}:${YODA_UI_PORT:-7890}"
     volumes:
       - ./workspace:/app/workspace          # persona, memory, state, skills — host-editable
       # Broker code + credential map are a TRUST ANCHOR: the agent reaches services

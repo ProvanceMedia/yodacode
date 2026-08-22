@@ -301,6 +301,24 @@ edits.
 echo "hello $1"
 ```
 
+## Talking to it out loud
+
+There's a hands-free voice surface. Say a wake word, give it an instruction the way you'd type
+one, and it speaks the answer when it's done:
+
+> *"hey yoda, check whether the hubspot sync finished"*
+> — *"Got it: check whether the hubspot sync finished"*
+> …
+> — *"Sync finished about forty minutes ago, no errors"*
+
+The microphone stays in your browser: it listens, transcribes and speaks locally, and only text
+reaches the server. No speech vendor, no API key, nothing metered. It won't narrate every tool it
+uses, and a promise like *"tell me when the deploy's done"* comes back spoken, minutes later.
+
+Turn it on with `YODA_SURFACES=slack,voice` and a token. It needs HTTPS or localhost to reach the
+microphone at all — [docs/VOICE.md](docs/VOICE.md) covers the setup and the two sane ways to get
+there.
+
 ## Adding a surface
 
 Create `workspace/lib/surfaces/<name>.js` implementing the surface contract (see `lib/surface.js`
