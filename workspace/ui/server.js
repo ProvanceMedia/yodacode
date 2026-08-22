@@ -24,6 +24,12 @@ import { voiceBus } from '../lib/voice-bus.js';
 const PORT = parseInt(process.env.YODA_UI_PORT || '7890', 10);
 const UI_USER = process.env.YODA_UI_USER || 'yoda';
 const UI_PASS = process.env.YODA_UI_PASS || '';
+// Extra origins allowed to open a WebSocket, beyond "same host as the request".
+// Only needed when the page is served from a different origin than it connects
+// to (a reverse proxy that rewrites Host); comma-separated, e.g.
+// "https://yoda.tailnet.ts.net".
+const UI_ALLOWED_ORIGINS = (process.env.YODA_UI_ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 const PUBLIC_DIR = path.join(path.dirname(new URL(import.meta.url).pathname), 'public');
 const LOGS_DIR = path.resolve(config.workspace, '..', 'logs');
 const WORKSPACE = config.workspace;
@@ -299,6 +305,32 @@ function handleRequest(req, res) {
     res.setHeader('Content-Type', 'application/json');
     let body = '';
 
+    // Cross-site write protection. The dashboard is published on the host now,
+    // so a page the operator merely VISITS can reach it — and the browser sends
+    // such a request without asking us first, because a POST with a plain
+    // content type is a CORS "simple request" needing no preflight. The
+    // attacker can't read the reply, but /api/memory/write can rewrite
+    // CLAUDE.md and SOUL.md, which poisons every future turn.
+    //
+    // Two cheap gates close it: demand JSON (which forces a preflight this
+    // server never answers) and reject a foreign Origin outright. The
+    // dashboard's own client already sends this content type, so nothing that
+    // legitimately worked stops working.
+    if (req.method === 'POST') {
+      const ctype = String(req.headers['content-type'] || '').split(';')[0].trim();
+      if (ctype !== 'application/json') {
+        res.writeHead(415);
+        res.end(JSON.stringify({ error: 'Content-Type must be application/json' }));
+        return;
+      }
+      if (!originAllowed(req)) {
+        logger.warn('ui: refused a cross-origin write', { origin: req.headers.origin, path: pathname });
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: 'cross-origin request refused' }));
+        return;
+      }
+    }
+
     if (req.method === 'POST') {
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
@@ -364,6 +396,23 @@ function handleRequest(req, res) {
 // doesn't own, so the second endpoint added would kill the first one's
 // connections depending on listener order.
 
+/** Ping/pong liveness. A socket that stops answering is dropped, and whatever
+ *  it owns (a tail child, a bus registration) gets torn down with it. */
+function keepAlive(ws, onDead) {
+  let alive = true;
+  ws.on('pong', () => { alive = true; });
+  const timer = setInterval(() => {
+    if (!alive) { ws.terminate(); return; }
+    alive = false;
+    try { ws.ping(); } catch (_) { ws.terminate(); }
+  }, WS_PING_MS);
+  timer.unref?.();
+  const stop = () => { clearInterval(timer); if (onDead) onDead(); };
+  ws.on('close', stop);
+  ws.on('error', stop);
+  return () => clearInterval(timer);
+}
+
 function handleLogsConnection(ws, req) {
   // Auth check for WS — token in query param since WS can't send Basic Auth headers
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -401,9 +450,9 @@ function handleLogsConnection(ws, req) {
 // is not a sentence someone said.
 const VOICE_MAX_PAYLOAD = 64 * 1024;
 // A laptop lid closing doesn't send a FIN, so a dead client looks connected
-// forever and replies get broadcast into nothing. Ping on a timer, drop what
-// doesn't pong back.
-const VOICE_PING_MS = 30_000;
+// forever — voice replies get broadcast into nothing, and a logs client leaves
+// its tail child running. Ping on a timer, drop what doesn't pong back.
+const WS_PING_MS = 30_000;
 
 function handleVoiceConnection(ws, req) {
   const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -428,14 +477,7 @@ function handleVoiceConnection(ws, req) {
   };
   const clientId = voiceBus.addClient(client);
 
-  let alive = true;
-  ws.on('pong', () => { alive = true; });
-  const pinger = setInterval(() => {
-    if (!alive) { ws.terminate(); return; }
-    alive = false;
-    try { ws.ping(); } catch (_) { ws.terminate(); }
-  }, VOICE_PING_MS);
-  pinger.unref?.();
+  keepAlive(ws);
 
   client.send({
     type: 'ready',
@@ -469,12 +511,34 @@ function handleVoiceConnection(ws, req) {
     }
   });
 
-  const teardown = () => {
-    clearInterval(pinger);
-    voiceBus.removeClient(client);
-  };
+  const teardown = () => voiceBus.removeClient(client);
   ws.on('close', teardown);
   ws.on('error', teardown);
+}
+
+/**
+ * Is this upgrade coming from our own page?
+ *
+ * WebSockets are deliberately NOT subject to CORS: any website the operator
+ * happens to visit can open a socket to a port on their own machine, and the
+ * browser will attach no protection at all. Now that compose publishes the
+ * dashboard, that matters — the logs socket has no token of its own, and the
+ * default install has no password either. So the Origin is checked here, which
+ * is the one thing a hostile page cannot forge.
+ *
+ * A non-browser client (curl, a native voice client, a test) sends no Origin at
+ * all and is allowed through: it was never the drive-by risk, and it still has
+ * to satisfy the endpoint's own auth.
+ */
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // not a browser — no drive-by vector to close
+  let host;
+  try { host = new URL(origin).host; } catch { return false; }
+  // Same host as the request itself: covers localhost:7890, an SSH tunnel, and
+  // a tailscale-serve hostname, without needing any of them configured.
+  if (req.headers.host && host === req.headers.host) return true;
+  return UI_ALLOWED_ORIGINS.includes(origin);
 }
 
 function setupWebSocket(server) {
@@ -492,26 +556,51 @@ function setupWebSocket(server) {
       socket.destroy();
       return;
     }
+    if (!originAllowed(req)) {
+      logger.warn('ui: refused websocket upgrade from a foreign origin', {
+        origin: req.headers.origin, path: pathname,
+      });
+      socket.destroy();
+      return;
+    }
     const wss = pathname === '/ws/logs' ? logsWss : pathname === '/ws/voice' ? voiceWss : null;
     if (!wss) { socket.destroy(); return; }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
+
+  // Handed to stopUI so a shutdown takes the live connections with it.
+  return () => {
+    for (const wss of [logsWss, voiceWss]) {
+      for (const ws of wss.clients) { try { ws.terminate(); } catch (_) { /* gone */ } }
+      wss.close();
+    }
+  };
 }
 
 // ─── Exports ───────────────────────────────────────────────────────────────
 
 let server = null;
+let closeSockets = null;
 
 export function startUI() {
   if (!PORT) return;
   server = http.createServer(handleRequest);
-  setupWebSocket(server);
+  closeSockets = setupWebSocket(server);
   server.listen(PORT, '0.0.0.0', () => {
     logger.info('ui: dashboard listening', { port: PORT, auth: UI_PASS ? 'basic' : 'none' });
+    if (!UI_PASS) {
+      // compose publishes this on the host now. Loopback keeps it off the
+      // internet, but every local user and process can still reach it, and it
+      // reads memory, logs and cron config. Say so once, loudly.
+      logger.warn('ui: NO PASSWORD SET — anyone who can reach this port has full dashboard access. Set YODA_UI_PASS.');
+    }
   });
 }
 
 export function stopUI() {
+  // server.close() stops accepting but does NOT touch sockets already upgraded
+  // to WebSockets — they and their tail children would outlive a restart-in-place.
+  if (closeSockets) { closeSockets(); closeSockets = null; }
   if (server) {
     server.close();
     server = null;

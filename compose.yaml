@@ -91,6 +91,10 @@ services:
       YODA_CODEX_MODEL: ${YODA_CODEX_MODEL:-}
       YODA_DM_AUTHORIZED_USERS: ${YODA_DM_AUTHORIZED_USERS:-}
       YODA_MENTION_CHANNELS: ${YODA_MENTION_CHANNELS:-}
+      # Who may say "stop". Without this the container's allowlist is empty and
+      # isStopMessage() never matches, so "stop" silently runs as a normal turn
+      # on every surface.
+      YODA_STOP_AUTHORIZED_USERS: ${YODA_STOP_AUTHORIZED_USERS:-}
       YODA_SKILL_REFLECTOR_ENABLED: ${YODA_SKILL_REFLECTOR_ENABLED:-0}
       YODA_MEMORY_REFLECTOR_ENABLED: ${YODA_MEMORY_REFLECTOR_ENABLED:-0}
       YODA_UPDATE_CHECK: ${YODA_UPDATE_CHECK:-1}
@@ -108,6 +112,7 @@ services:
       YODA_VOICE_TOKEN: ${YODA_VOICE_TOKEN:-}
       YODA_VOICE_USER_ID: ${YODA_VOICE_USER_ID:-}
       YODA_VOICE_WAKE_WORDS: ${YODA_VOICE_WAKE_WORDS:-}
+      YODA_VOICE_MIC_MODE: ${YODA_VOICE_MIC_MODE:-}
       YODA_VOICE_MAX_SPEAK_CHARS: ${YODA_VOICE_MAX_SPEAK_CHARS:-}
     # Loopback only. The browser needs HTTPS or localhost to grant microphone
     # access, and both supported routes keep this off the public interface: an

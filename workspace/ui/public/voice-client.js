@@ -196,17 +196,31 @@
   }
 
   function send(msg) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    ws.send(JSON.stringify(msg));
+    return true;
   }
 
   function handleServerMessage(msg) {
     switch (msg.type) {
       case 'ready':
-        if (Array.isArray(msg.wakeWords) && msg.wakeWords.length) {
-          wakeWords = msg.wakeWords.map(normalise).filter(Boolean);
+        if (Array.isArray(msg.wakeWords)) {
+          // Keep the fallback if nothing survives normalising — an operator who
+          // configures a phrase this can't match should still have a working
+          // wake word rather than a silently deaf page.
+          const usable = msg.wakeWords.map(normalise).filter(Boolean);
+          if (usable.length) wakeWords = usable;
+          else addRow('sys', '·', 'Configured wake words are unusable here; keeping the default.');
         }
         if (!localStorage.getItem(KEY_MODE) && msg.micMode) micMode = msg.micMode;
-        applyMode();
+        if (micFatal) {
+          // The socket is fine; the microphone is not. Keep the true state
+          // rather than painting over it with a green "listening".
+          renderModeLabel();
+          setState('error', micFatal);
+        } else {
+          applyMode();
+        }
         break;
       case 'ack':
         // The echo of what was heard. No chime — you only just stopped talking.
@@ -249,6 +263,10 @@
   let awake = false;           // wake word heard, waiting for the command
   let awakeTimer = null;
   let muted = false;
+  let recogFailures = 0;      // consecutive non-routine recognition errors
+  let micFatal = null;        // set once the microphone cannot recover unattended
+
+  const RECOG_FAILURES_BEFORE_NOTICE = 3;
 
   const AWAKE_WINDOW_MS = 8000;
 
@@ -282,7 +300,8 @@
 
   function initRecognition() {
     if (!SR) {
-      setState('error', 'this browser has no speech recognition');
+      micFatal = 'this browser has no speech recognition';
+      setState('error', micFatal);
       addRow('sys', '·', 'Speech recognition needs Chrome or Edge. Safari and Firefox will not work.');
       return false;
     }
@@ -291,7 +310,11 @@
     recog.interimResults = false;   // only settled text; interim is too noisy to match on
     recog.lang = navigator.language || 'en-GB';
 
-    recog.onstart = () => { recognising = true; };
+    recog.onstart = () => {
+      recognising = true;
+      recogFailures = 0;   // it started, so whatever was wrong has cleared
+      if (state === 'error' && !micFatal) applyMode();
+    };
 
     recog.onresult = (ev) => {
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -303,11 +326,24 @@
 
     recog.onerror = (ev) => {
       // 'no-speech' and 'aborted' are routine — a quiet room, or our own
-      // suspend while speaking. Only a permissions failure is terminal.
+      // suspend while speaking. Reset the backoff on those.
+      if (ev.error === 'no-speech' || ev.error === 'aborted') { recogFailures = 0; return; }
+
       if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
         wantListening = false;
-        setState('error', 'microphone permission denied');
+        micFatal = 'microphone permission denied';
+        setState('error', micFatal);
         addRow('sys', '·', 'Allow microphone access for this site, then reload.');
+        return;
+      }
+
+      // Anything else — 'audio-capture' (mic unplugged, or another app holding
+      // it), 'network' — can persist. Restarting three times a second behind a
+      // green light for the rest of the day is the worst possible response.
+      recogFailures++;
+      if (recogFailures === RECOG_FAILURES_BEFORE_NOTICE) {
+        addRow('sys', '·', `Microphone trouble (${ev.error}). Still retrying, more slowly.`);
+        setState('error', `microphone: ${ev.error}`);
       }
     };
 
@@ -317,7 +353,12 @@
       // intend to listen, start again — this loop IS the always-on microphone.
       if (wantListening) {
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(startRecognition, 350);
+        // Backs off once errors start repeating, so an unplugged microphone
+        // costs one retry every few seconds rather than three every second.
+        const delay = recogFailures > 0
+          ? Math.min(1000 * 2 ** Math.min(recogFailures, 5), 30000)
+          : 350;
+        restartTimer = setTimeout(startRecognition, delay);
       }
     };
     return true;
@@ -359,6 +400,9 @@
   function applyMode() {
     renderModeLabel();
     if (muted) { stopListening(); setState('muted'); return; }
+    // Mid-sentence: leave the microphone suspended. The utterance's own done()
+    // calls applyMode() again when it finishes, which is the right moment.
+    if (state === 'speaking' && speechSynthesis.speaking) return;
     if (micMode === 'wake') {
       startListening();
       setState('listening');
@@ -394,16 +438,22 @@
     clearTimeout(awakeTimer);
     awakeTimer = setTimeout(() => {
       awake = false;
-      // Nothing was said — in hotkey mode that means the microphone goes back
-      // off rather than quietly staying on.
-      applyMode();
+      // Only reclaim the display if we're still the ones holding it. A reply
+      // that started arriving during the window owns the state now, and pulling
+      // it out from under that hides the Stop-speaking button mid-sentence.
+      if (state === 'awake') applyMode();
     }, AWAKE_WINDOW_MS);
   }
 
   function stopListening() {
     wantListening = false;
     clearTimeout(restartTimer);
-    if (recog && recognising) { try { recog.stop(); } catch (_) { /* already stopped */ } }
+    // Unconditionally, not only when `recognising`: that flag is set at onstart,
+    // so between start() and onstart it reads false while the engine is very
+    // much live. Skipping stop() there leaves the microphone on for the whole
+    // reply — the feedback loop, arriving through the back door. abort() is the
+    // harder of the two and won't emit a trailing result.
+    if (recog) { try { recog.abort(); } catch (_) { /* not started yet */ } }
   }
 
   function onHeard(raw) {
@@ -438,11 +488,18 @@
 
   function dispatch(text) {
     addRow('you', 'you', text);
+    if (!send({ type: 'utterance', text })) {
+      // Not connected. Saying nothing here is the worst outcome: you spoke, the
+      // transcript showed it, and nothing ever happened.
+      addRow('sys', '·', 'Not connected — that did not get through. Try again in a moment.');
+      blip();
+      applyMode();
+      return;
+    }
     setState('working');
-    send({ type: 'utterance', text });
     // In hotkey mode the window is over: the microphone goes back off until the
     // key is pressed again. In wake mode this is a no-op beyond the state.
-    if (micMode === 'hotkey') { stopListening(); }
+    if (micMode === 'hotkey') stopListening();
   }
 
   // ─── speaking ─────────────────────────────────────────────────────────────
@@ -451,6 +508,10 @@
   let chosenVoice = null;
   let keepAlive = null;
   let speechWatchdog = null;
+  // Bumped for every utterance. cancel() fires onend on the utterance it just
+  // killed, so without this the cancelled one's handler runs and reopens the
+  // microphone while its replacement is mid-sentence.
+  let speechGen = 0;
 
   function loadVoices() {
     voices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
@@ -483,9 +544,10 @@
     u.rate = 1.0;
     u.pitch = 1.0;
 
+    const gen = ++speechGen;
     let finished = false;
     const done = () => {
-      if (finished) return;
+      if (finished || gen !== speechGen) return; // superseded by a newer utterance
       finished = true;
       clearInterval(keepAlive);
       clearTimeout(speechWatchdog);
