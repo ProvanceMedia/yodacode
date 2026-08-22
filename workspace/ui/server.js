@@ -19,6 +19,7 @@ import { execSync, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { config } from '../lib/config.js';
 import { logger } from '../lib/logger.js';
+import { voiceBus } from '../lib/voice-bus.js';
 
 const PORT = parseInt(process.env.YODA_UI_PORT || '7890', 10);
 const UI_USER = process.env.YODA_UI_USER || 'yoda';
@@ -355,42 +356,145 @@ function handleRequest(req, res) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-// ─── WebSocket (live log streaming) ────────────────────────────────────────
+// ─── WebSocket (live log streaming + voice) ────────────────────────────────
+//
+// Both endpoints run in noServer mode with one shared upgrade router. They
+// cannot each be constructed with { server, path }: ws attaches its own
+// 'upgrade' listener per instance and aborts the handshake for any path it
+// doesn't own, so the second endpoint added would kill the first one's
+// connections depending on listener order.
+
+function handleLogsConnection(ws, req) {
+  // Auth check for WS — token in query param since WS can't send Basic Auth headers
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const token = url.searchParams.get('token');
+  if (UI_PASS && token !== UI_PASS) {
+    ws.close(4001, 'Unauthorized');
+    return;
+  }
+
+  const logName = url.searchParams.get('log') || 'yoda.log';
+  if (!/^[\w.-]+\.log$/.test(logName)) {
+    ws.close(4002, 'Invalid log name');
+    return;
+  }
+
+  const logPath = path.join(LOGS_DIR, logName);
+  if (!fs.existsSync(logPath)) {
+    ws.close(4003, 'Log not found');
+    return;
+  }
+
+  // Spawn tail -f and stream to websocket
+  const tail = spawn('tail', ['-f', '-n', '50', logPath]);
+  tail.stdout.on('data', (data) => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(data.toString());
+    }
+  });
+
+  ws.on('close', () => { tail.kill(); });
+  ws.on('error', () => { tail.kill(); });
+}
+
+// A spoken turn is a few hundred bytes of JSON. Anything approaching this cap
+// is not a sentence someone said.
+const VOICE_MAX_PAYLOAD = 64 * 1024;
+// A laptop lid closing doesn't send a FIN, so a dead client looks connected
+// forever and replies get broadcast into nothing. Ping on a timer, drop what
+// doesn't pong back.
+const VOICE_PING_MS = 30_000;
+
+function handleVoiceConnection(ws, req) {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  // Its own token, not YODA_UI_PASS: this one travels in a query string, which
+  // lands in proxy logs and browser history. An unset token means voice was
+  // never configured — refuse rather than defaulting open.
+  if (!config.voice.token || url.searchParams.get('token') !== config.voice.token) {
+    ws.close(4001, 'Unauthorized');
+    return;
+  }
+  if (!voiceBus.isReady()) {
+    ws.close(4004, 'voice surface not enabled — add "voice" to YODA_SURFACES');
+    return;
+  }
+
+  const client = {
+    send: (msg) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+    },
+    close: (code, reason) => { try { ws.close(code, reason); } catch (_) { /* already closing */ } },
+  };
+  const clientId = voiceBus.addClient(client);
+
+  let alive = true;
+  ws.on('pong', () => { alive = true; });
+  const pinger = setInterval(() => {
+    if (!alive) { ws.terminate(); return; }
+    alive = false;
+    try { ws.ping(); } catch (_) { ws.terminate(); }
+  }, VOICE_PING_MS);
+  pinger.unref?.();
+
+  client.send({
+    type: 'ready',
+    wakeWords: config.voice.wakeWords,
+    maxSpeakChars: config.voice.maxSpeakChars,
+    micMode: config.voice.micMode,
+  });
+
+  ws.on('message', async (data) => {
+    let msg;
+    try {
+      msg = JSON.parse(data.toString());
+    } catch {
+      client.send({ type: 'error', text: 'malformed message' });
+      return;
+    }
+    if (msg?.type === 'ping') { client.send({ type: 'pong' }); return; }
+    if (msg?.type !== 'utterance') return;
+
+    const text = String(msg.text ?? '').trim();
+    if (!text) return;
+    try {
+      // The surface turns this into a normal dispatcher event — from here on a
+      // spoken turn is indistinguishable from a typed one, including the stop
+      // handler, the queue, session resume and background watches.
+      const accepted = await voiceBus.submit({ text, clientId });
+      if (!accepted) client.send({ type: 'error', text: 'Voice is not running right now.' });
+    } catch (e) {
+      logger.error('voice: submit failed', { err: e.message });
+      client.send({ type: 'error', text: 'Something went wrong handling that.' });
+    }
+  });
+
+  const teardown = () => {
+    clearInterval(pinger);
+    voiceBus.removeClient(client);
+  };
+  ws.on('close', teardown);
+  ws.on('error', teardown);
+}
 
 function setupWebSocket(server) {
-  const wss = new WebSocketServer({ server, path: '/ws/logs' });
+  const logsWss = new WebSocketServer({ noServer: true });
+  const voiceWss = new WebSocketServer({ noServer: true, maxPayload: VOICE_MAX_PAYLOAD });
 
-  wss.on('connection', (ws, req) => {
-    // Auth check for WS — token in query param since WS can't send Basic Auth headers
-    const url = new URL(req.url, `http://localhost:${PORT}`);
-    const token = url.searchParams.get('token');
-    if (UI_PASS && token !== UI_PASS) {
-      ws.close(4001, 'Unauthorized');
+  logsWss.on('connection', handleLogsConnection);
+  voiceWss.on('connection', handleVoiceConnection);
+
+  server.on('upgrade', (req, socket, head) => {
+    let pathname;
+    try {
+      pathname = new URL(req.url, `http://localhost:${PORT}`).pathname;
+    } catch {
+      socket.destroy();
       return;
     }
-
-    const logName = url.searchParams.get('log') || 'yoda.log';
-    if (!/^[\w.-]+\.log$/.test(logName)) {
-      ws.close(4002, 'Invalid log name');
-      return;
-    }
-
-    const logPath = path.join(LOGS_DIR, logName);
-    if (!fs.existsSync(logPath)) {
-      ws.close(4003, 'Log not found');
-      return;
-    }
-
-    // Spawn tail -f and stream to websocket
-    const tail = spawn('tail', ['-f', '-n', '50', logPath]);
-    tail.stdout.on('data', (data) => {
-      if (ws.readyState === ws.OPEN) {
-        ws.send(data.toString());
-      }
-    });
-
-    ws.on('close', () => { tail.kill(); });
-    ws.on('error', () => { tail.kill(); });
+    const wss = pathname === '/ws/logs' ? logsWss : pathname === '/ws/voice' ? voiceWss : null;
+    if (!wss) { socket.destroy(); return; }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 }
 
