@@ -71,6 +71,8 @@ own workspace. Just ask it in Slack:
 - *"Change your name to Jarvis"* → edits its identity files.
 - *"Write a cron that checks my inbox every 30 minutes"* → drops a task file in `cron-tasks/`; the
   scheduler picks it up.
+- *"Set up voice so I can talk to you"* → tells you which settings to add and warns you about the
+  one thing that trips everyone up (see [Talking to it out loud](#talking-to-it-out-loud)).
 - *"Connect my GitHub"* → it researches how the service authenticates, prepares everything, and
   tells you to run `yodacode addkey` on the server, where you paste the key at a hidden prompt.
   Keys go in on the server, never into chat.
@@ -214,8 +216,10 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 
 ## Configuration
 
-The installer writes `.env` for you. To change something later, edit `.env` and
-`docker compose restart`. See `.env.example` for the full list with documentation.
+The installer writes `.env` for you. To change something later, edit `.env` and run
+`yodacode restart`. Not `docker compose restart` — that reuses each container's existing
+config and never re-reads `.env`, so your change appears to do nothing. See `.env.example`
+for the full list with documentation.
 
 ```bash
 CLAUDE_CODE_OAUTH_TOKEN=       # set by the installer (claude sign-in)
@@ -322,7 +326,8 @@ there.
 ## Adding a surface
 
 Create `workspace/lib/surfaces/<name>.js` implementing the surface contract (see `lib/surface.js`
-for the interface). Add `<name>` to `YODA_SURFACES` in `.env` and `docker compose restart`.
+for the interface). Add `<name>` to `YODA_SURFACES` in `.env` and run `yodacode restart` (which
+re-reads `.env`; plain `docker compose restart` does not).
 
 ## Closed-loop self-improvement (opt-in)
 

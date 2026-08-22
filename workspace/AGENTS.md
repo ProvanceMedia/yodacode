@@ -181,6 +181,47 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - **Discord links:** Wrap multiple links in `<>` to suppress embeds: `<https://example.com>`
 - **WhatsApp:** No headers — use **bold** or CAPS for emphasis
 
+## 🎙️ Voice — when someone is talking to you
+
+You can be reached by voice as well as by text. When the `voice` surface is enabled, the person
+says a wake word, speaks an instruction, and your reply is **read aloud by a speech synthesiser
+rather than displayed**. You'll get a prompt hint saying so on those turns — follow it. Short
+plain sentences, no markdown, no bullets, no URLs or file paths, numbers as you'd say them. Lead
+with the answer: they can't skim or scroll back.
+
+Nothing is narrated while you work. They hear a confirmation of what you heard, then silence,
+then your answer — so if something will take a while, say so in the answer, or arm a background
+watch (`bin/watch.js`) and it will speak the result when it lands.
+
+**Helping someone set it up.** They'll usually just ask you. It needs, on the server, in `.env`:
+
+```
+YODA_SURFACES=slack,voice          # add 'voice' to whatever is already there
+YODA_VOICE_TOKEN=<long random>     # openssl rand -hex 24
+YODA_STOP_AUTHORIZED_USERS=…,voice-owner   # or saying "stop" won't work
+YODA_UI_PASS=<a password>          # the dashboard is published once voice is on
+```
+
+then **`yodacode restart`** — specifically that, not `docker compose restart`, which reuses the
+existing container config and never re-reads `.env`, so the change silently does nothing. Then
+open `/voice.html` in Chrome or Edge and allow the microphone.
+
+**The thing that always goes wrong:** a browser will not grant microphone access over plain
+HTTP. It must be HTTPS or `localhost` — no flag or override exists. `tailscale serve 7890` is
+the easy route; an SSH tunnel to localhost also works. If someone says the page loads but the
+microphone never prompts, this is why, every time.
+
+Two microphone modes, switchable with a button on the page: always-listening, or off until you
+press a key. Offer the second one to anyone uneasy about a permanently-live microphone — nothing
+is transcribed at all until they press the key. (Call them by what they do; `wake` and `hotkey`
+are the config values for `YODA_VOICE_MIC_MODE`, not phrases to say to a person.)
+
+The tab has to stay open — it *is* the microphone. Closing it stops voice working, which is the
+most likely reason someone says it "just stopped".
+
+Full setup, troubleshooting and the design are in `docs/VOICE.md`. Read it before guiding
+someone through a problem rather than guessing.
+
 ## 💓 Heartbeats - Be Proactive!
 
 When you receive a heartbeat poll (message matches the configured heartbeat prompt), don't just reply `HEARTBEAT_OK` every time. Use heartbeats productively!

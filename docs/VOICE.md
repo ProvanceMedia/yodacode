@@ -30,7 +30,7 @@ no API key and no meter.
 YODA_SURFACES=slack,voice
 YODA_VOICE_TOKEN=$(openssl rand -hex 24)   # paste the value, not the command
 YODA_VOICE_USER_ID=voice-owner
-YODA_VOICE_WAKE_WORDS=hey yoda,hello yoda
+YODA_VOICE_WAKE_WORDS=hey yoda,hello yoda,ok yoda
 
 # Say "stop" out loud and have it actually stop:
 YODA_STOP_AUTHORIZED_USERS=U01234ABCDE,voice-owner
@@ -38,6 +38,10 @@ YODA_STOP_AUTHORIZED_USERS=U01234ABCDE,voice-owner
 # The dashboard is now reachable. Set a password.
 YODA_UI_PASS=something-long
 ```
+
+Apply it with **`yodacode restart`**. Not `docker compose restart` — that reuses
+each container's existing config and never re-reads `.env`, so your changes
+appear to do nothing at all.
 
 ### 2. Reach it over HTTPS or localhost
 
@@ -82,6 +86,14 @@ elsewhere in this project, that would be the weakest thing in it. Don't.
 
 Go to `/voice.html`, enter the token when asked, and allow the microphone.
 Chrome or Edge — Safari and Firefox have no usable speech recognition.
+
+**The tab has to stay open.** It *is* the microphone: it does the listening, the
+transcribing and the speaking. Close it and voice stops until you open it again.
+Pin it, or use a separate window you leave alone.
+
+**On a phone?** Chrome on Android works. iOS does not — every browser there is
+Safari underneath, and Safari has no usable speech recognition, so the page
+loads and the microphone never does anything useful.
 
 You can also launch it with `?token=…` in the URL. The page saves the token and
 strips it from the address bar so it doesn't sit in your history.
