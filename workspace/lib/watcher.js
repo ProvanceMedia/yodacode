@@ -27,7 +27,7 @@ import { logger } from './logger.js';
 import { watchStore } from './watch-store.js';
 import { getSurface } from './surface.js';
 import { handleMessage } from './dispatcher.js';
-import { curatedAgentEnv } from './agent-query.js';
+import { curatedAgentEnv, stripAgentSecrets } from './agent-query.js';
 import { buildAgentEnv, derootEnabled, resolveAgentIds } from './deroot.js';
 
 const WORKSPACE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,9 +44,11 @@ let dispatchFn = handleMessage;       // seam: overridable in tests via startWat
 // so a watch's poll runs in the identical environment (and identity) the agent
 // authored it in, and can never read more than a turn could.
 function legacyEnv() {
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY; // never API-key auth; OAuth/sub only
-  return env;
+  // Via the shared stripper, not a local copy: this list drifted once already
+  // (the Google Chat service-account key stayed readable here after the runner
+  // dropped it), and a watch's check command is agent-authored shell, so any
+  // gap is directly reachable from a turn.
+  return stripAgentSecrets({ ...process.env });
 }
 function checkIsolation() {
   if (!derootEnabled()) return { env: legacyEnv(), ids: null };

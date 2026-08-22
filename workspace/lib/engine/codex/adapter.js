@@ -7,6 +7,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createTranslatorState, translateEvent } from './translate.js';
+import { stripAgentSecrets } from '../../agent-query.js';
 
 const FLOCK_BIN = '/usr/bin/flock';
 /** Refresh the credential under a lock when it expires within this window. */
@@ -95,7 +96,12 @@ export async function* runCodex({
 
   const child = spawn(cmd, argv, {
     cwd,
-    env: { ...(env || process.env), ...(extraEnv || {}), CODEX_HOME: codexHome },
+    // The `env` the runner resolves is already curated. The fallback is not —
+    // a bare process.env would hand the turn the supervisor's whole
+    // environment, including the model credential and the surface transport
+    // secrets the Claude path strips. Same stripper, so the two engines can't
+    // disagree about what a turn may read.
+    env: { ...(env || stripAgentSecrets({ ...process.env })), ...(extraEnv || {}), CODEX_HOME: codexHome },
     // stdin MUST be closed. codex exec reads stdin as ADDITIONAL prompt input
     // even when the prompt is an argument, and with stdin left open it waits
     // forever, produces nothing, and never starts the turn.

@@ -51,6 +51,10 @@ test('speechify turns bullets into sentences so they do not run together', () =>
 test('speechify removes emoji that yoda prefixes to its own notices', () => {
   assert.equal(speechify('⚠️ Run failed: timeout').text, 'Run failed: timeout.');
   assert.equal(speechify('🛑 Stopped by user').text, 'Stopped by user.');
+  // U+2300–U+23FF: the watch footer and the timeout notices live here, and they
+  // are the messages most likely to be read aloud.
+  assert.equal(speechify('⏳ Watching: prod deploy').text, 'Watching: prod deploy.');
+  assert.equal(speechify('⏱️ No activity for 5m').text, 'No activity for 5m.');
 });
 
 test('speechify trims at a sentence boundary and flags truncation', () => {
@@ -215,13 +219,52 @@ test('a real utterance arms exactly one ack, consumed once', async () => {
   assert.ok(handle);
 });
 
-test('a non-working placeholder (the stop ack) is spoken as written', async () => {
+test('a non-working placeholder is a FINAL message, not an ack', async () => {
   const cap = captureClient();
   await surface.postPlaceholder({ conversationId: 'voice:voice-owner' },
     "🛑 Nothing to stop — I'm idle.", { working: false });
   cap.done();
 
   assert.equal(cap.sent[0].text, "Nothing to stop — I'm idle.");
+  // 'ack' tells the client a reply is still coming, so sending this as an ack
+  // would leave it showing "working on it" forever — nothing else follows.
+  assert.equal(cap.sent[0].type, 'speak');
+});
+
+test('a stale armed ack expires instead of surfacing on a later turn', async () => {
+  // tryHandleStop short-circuits before any placeholder, so "stop" arms an echo
+  // that nothing consumes. Left unbounded it waits for the next turn — which is
+  // how you end up hearing "Got it: stop" when a watch fires an hour later.
+  const cap = captureClient();
+  await surface.start(async () => {});
+  await voiceBus.submit({ text: 'stop', clientId: 'vc-test' });
+
+  const realNow = Date.now;
+  Date.now = () => realNow() + 120_000;      // two minutes later
+  try {
+    await surface.postPlaceholder(
+      { conversationId: 'voice:voice-owner' }, 'on it', { working: true },
+    );
+  } finally {
+    Date.now = realNow;
+  }
+  cap.done();
+  await surface.stop();
+
+  assert.deepEqual(cap.sent.map((m) => m.type), ['working'], 'the stale echo was dropped');
+});
+
+test('a reply that shapes down to nothing still ends the turn', async () => {
+  // "<say>👍</say>" — real text on a screen, nothing at all to a synthesiser.
+  // Without a cue the client sits on "working on it" indefinitely.
+  const cap = captureClient();
+  const { handle } = await beginTurn('thanks');
+  await surface.updateMessage(handle, '👍');
+  cap.done();
+  await surface.stop();
+
+  assert.deepEqual(cap.sent.map((m) => m.type), ['ack', 'silent']);
+  assert.equal(handle.finished, true);
 });
 
 // ─── transcript ─────────────────────────────────────────────────────────────
@@ -266,4 +309,42 @@ test('prompt hints tell the model it is writing for the ear', () => {
   const hints = surface.formatPromptHints();
   assert.match(hints, /READ ALOUD/);
   assert.match(hints, /No markdown/i);
+});
+
+// ─── credential isolation ───────────────────────────────────────────────────
+
+test('the voice token is withheld from every agent turn', async () => {
+  // It is a surface transport credential: the agent never dials its own
+  // /ws/voice, and a turn that could read it could mint itself a voice client.
+  const { stripAgentSecrets, AGENT_WITHHELD_ENV } = await import('../workspace/lib/agent-query.js');
+
+  const env = stripAgentSecrets({
+    YODA_VOICE_TOKEN: 'secret', GOOGLE_CHAT_SA_KEY: 'key',
+    ANTHROPIC_API_KEY: 'k', SLACK_BOT_TOKEN: 'xoxb-keep', PATH: '/usr/bin',
+  });
+  assert.equal(env.YODA_VOICE_TOKEN, undefined);
+  assert.equal(env.GOOGLE_CHAT_SA_KEY, undefined);
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  // The Slack token stays: the agent genuinely uses it via bin/slack-tools.sh.
+  assert.equal(env.SLACK_BOT_TOKEN, 'xoxb-keep');
+  assert.equal(env.PATH, '/usr/bin');
+
+  const { ENV_ALLOWLIST_FOR_TEST } = await import('../workspace/lib/deroot.js')
+    .then((m) => ({ ENV_ALLOWLIST_FOR_TEST: m.buildAgentEnv }));
+  // Under deroot the allowlist is the mechanism: a withheld key must not be on it.
+  process.env.YODA_VOICE_TOKEN = 'secret';
+  const derootEnv = ENV_ALLOWLIST_FOR_TEST();
+  for (const k of AGENT_WITHHELD_ENV) {
+    assert.equal(derootEnv[k], undefined, `${k} must not survive the deroot allowlist`);
+  }
+  delete process.env.YODA_VOICE_TOKEN;
+});
+
+test('the background watcher withholds the same secrets as a normal turn', async () => {
+  // watcher.js used to keep its own copy of this stripper, and it drifted: the
+  // Google Chat key stayed readable there after the runner dropped it. A watch
+  // check command is agent-authored shell, so a gap is directly reachable.
+  const src = await import('node:fs').then((fs) => fs.readFileSync('workspace/lib/watcher.js', 'utf8'));
+  assert.match(src, /stripAgentSecrets/,
+    'the watcher must use the shared stripper, not a second hand-maintained list');
 });

@@ -207,3 +207,72 @@ test('a client that goes away is removed from the bus', async () => {
   ws.close();
   assert.equal(await settle(), 0, 'the client was removed on close');
 });
+
+// ─── cross-site protection ──────────────────────────────────────────────────
+// Publishing the dashboard port is what makes these reachable: a page the
+// operator merely visits can send requests to their own machine. The browser
+// won't ask permission first for a "simple" POST, and WebSockets aren't subject
+// to CORS at all — so both gates have to live here.
+
+const http = await import('node:http');
+
+function post(pathname, body, headers = {}) {
+  return new Promise((resolve) => {
+    const data = JSON.stringify(body);
+    const req = http.request({
+      host: '127.0.0.1', port: PORT, path: pathname, method: 'POST',
+      headers: { 'Content-Length': Buffer.byteLength(data), ...headers },
+    }, (res) => {
+      let out = '';
+      res.on('data', (c) => { out += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body: out }));
+    });
+    req.on('error', () => resolve({ status: 0, body: '' }));
+    req.end(data);
+  });
+}
+
+test('a simple-request POST is refused, so a drive-by cannot rewrite the persona', async () => {
+  // text/plain needs no CORS preflight, which is exactly why it must not work.
+  const res = await post('/api/memory/write',
+    { path: 'MEMORY.md', content: 'pwned' }, { 'Content-Type': 'text/plain' });
+  assert.equal(res.status, 415);
+  assert.doesNotMatch(res.body, /"ok":true/);
+});
+
+test('a cross-origin JSON POST is refused even with the right content type', async () => {
+  const res = await post('/api/memory/write',
+    { path: 'MEMORY.md', content: 'pwned' },
+    { 'Content-Type': 'application/json', Origin: 'https://evil.example' });
+  assert.equal(res.status, 403);
+});
+
+test('the dashboard\'s own same-origin POST still works', async () => {
+  const res = await post('/api/memory/write',
+    { path: 'nope.txt', content: 'x' },
+    { 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${PORT}` });
+  // Reaches the handler (which rejects the path on its own merits) rather than
+  // being turned away as cross-origin.
+  assert.equal(res.status, 200);
+  assert.match(res.body, /only \.md files/);
+});
+
+test('a websocket upgrade from a foreign origin is refused', async () => {
+  // WebSockets ignore CORS entirely, so any page could otherwise read the live
+  // log stream — which has no token of its own.
+  const res = await new Promise((resolve) => {
+    const req = http.request({
+      host: '127.0.0.1', port: PORT, path: '/ws/logs?log=yoda.log', method: 'GET',
+      headers: {
+        Connection: 'Upgrade', Upgrade: 'websocket',
+        'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        Origin: 'https://evil.example',
+      },
+    });
+    req.on('upgrade', () => resolve('upgraded'));
+    req.on('response', (r) => resolve(`http ${r.statusCode}`));
+    req.on('error', () => resolve('refused'));
+    req.end();
+  });
+  assert.notEqual(res, 'upgraded', 'a foreign origin must not get a socket');
+});

@@ -25,19 +25,34 @@ export function curatedAgentEnv() {
   return env;
 }
 
+/**
+ * Secrets the supervisor holds that an agent turn must never inherit, beyond
+ * the model credential itself.
+ *
+ * These are SURFACE TRANSPORT credentials: the Google Chat service-account
+ * private key, and the voice socket's shared token (the agent never dials its
+ * own /ws/voice — only a browser does, and a turn that could read this could
+ * mint itself a voice client). Under YODA_DEROOT=1 they're already excluded by
+ * deroot.js's ENV_ALLOWLIST; this list closes the same gap everywhere that
+ * builds a legacy/non-deroot env.
+ *
+ * Exported because more than one place builds that env — the runner here and
+ * the background watcher, whose agent-authored check commands run with an
+ * agent's environment. A second hand-maintained copy is how a secret quietly
+ * comes back, so there is exactly one list.
+ */
+export const AGENT_WITHHELD_ENV = ['GOOGLE_CHAT_SA_KEY', 'YODA_VOICE_TOKEN'];
+
+/** Strip the model credential and every withheld surface secret, in place. */
+export function stripAgentSecrets(env) {
+  delete env.ANTHROPIC_API_KEY; // never API-key auth; OAuth/sub only
+  for (const k of AGENT_WITHHELD_ENV) delete env[k];
+  return env;
+}
+
 /** Legacy (non-deroot) child env: full env minus the API key — OAuth/sub auth only. */
 function legacyEnv() {
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;
-  // Surface transport secrets the supervisor holds but the model never needs:
-  // the Google Chat service-account private key, and the voice socket's shared
-  // token (the agent never dials its own /ws/voice — only a browser does, and a
-  // turn that could read this could mint itself a voice client). Both are
-  // already excluded under YODA_DEROOT=1 by deroot.js's ENV_ALLOWLIST; this
-  // closes the same gap in legacy/non-deroot mode.
-  delete env.GOOGLE_CHAT_SA_KEY;
-  delete env.YODA_VOICE_TOKEN;
-  return env;
+  return stripAgentSecrets({ ...process.env });
 }
 
 let derootNoticeLogged = false;

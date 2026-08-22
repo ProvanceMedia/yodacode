@@ -69,6 +69,15 @@ quiet and nothing tells you.
 internet behind nothing but `YODA_UI_PASS`. Given the broker and the de-rooting
 elsewhere in this project, that would be the weakest thing in it. Don't.
 
+> **Set `YODA_UI_PASS`.** Publishing the port is what makes the dashboard
+> reachable at all, and with the password empty it has no authentication —
+> anyone who can reach the port can read your memory files and rewrite
+> `CLAUDE.md`. Cross-site requests and foreign-origin WebSocket upgrades are
+> refused regardless, so a website you visit can't reach it, but that is a
+> backstop and not a substitute for the password. If a proxy rewrites the
+> `Host` header so the page's origin differs from what it connects to, list the
+> real origin in `YODA_UI_ALLOWED_ORIGINS`.
+
 ### 3. Open it
 
 Go to `/voice.html`, enter the token when asked, and allow the microphone.

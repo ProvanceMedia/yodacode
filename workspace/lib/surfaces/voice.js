@@ -46,7 +46,10 @@ const HISTORY_FILE = path.join(config.stateDir, 'voice-history.json');
 // everything gets shaped here on the way out, and nothing depends on the model
 // having complied.
 
-const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu;
+// U+2300–U+23FF matters more than it looks: ⏳ and ⏱ live there, and those are
+// the watch footer and the timeout notices — the messages most likely to be
+// spoken. A synthesiser reads a stray one as "hourglass with flowing sand".
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}\u{FE00}-\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu;
 
 /**
  * Turn display text into something worth hearing. Pure — exported for tests.
@@ -88,6 +91,11 @@ export function speechify(raw, maxChars = 0) {
   t = t.replace(/\s+/g, ' ').trim();
   // The line-to-sentence pass can leave "word. ." where a line was punctuation.
   t = t.replace(/\s+([.,!?;:])/g, '$1').replace(/([.!?])\1+/g, '$1');
+
+  // Nothing a voice could actually say. A reply of "👍" survives the emoji strip
+  // as the full stop the sentence pass added — truthy, silent, and enough to
+  // make a caller think it delivered something.
+  if (!/[\p{L}\p{N}]/u.test(t)) return { text: '', truncated: false };
 
   if (!maxChars || t.length <= maxChars) return { text: t, truncated: false };
 
@@ -201,14 +209,22 @@ let started = false;
 // confirm, so it stays quiet and lets the answer arrive on its own.
 const pendingAck = new Map();
 
+// A placeholder follows its utterance within milliseconds, so anything older
+// than this belongs to a turn that never produced one — a "stop" the stop
+// handler short-circuited, an event authorisation rejected. Without the bound,
+// that echo waits indefinitely and gets spoken by whatever turn comes next,
+// which is how you end up hearing "Got it: stop" an hour later.
+const ACK_TTL_MS = 60_000;
+
 function armAck(conversationId, utterance) {
-  if (utterance) pendingAck.set(conversationId, utterance);
+  if (utterance) pendingAck.set(conversationId, { utterance, at: Date.now() });
 }
 
 function consumeAck(conversationId) {
-  const u = pendingAck.get(conversationId);
+  const entry = pendingAck.get(conversationId);
   pendingAck.delete(conversationId);
-  return u || null;
+  if (!entry) return null;
+  return Date.now() - entry.at <= ACK_TTL_MS ? entry.utterance : null;
 }
 
 /** Speak on every connected client, unless there's nothing worth saying. */
@@ -313,7 +329,7 @@ const voiceSurface = {
       spoken = utterance ? ackText(utterance) : null;
     }
 
-    if (spoken) say(spoken, { kind: 'ack' });
+    if (spoken) say(spoken, { kind: working ? 'ack' : 'speak' });
     else voiceBus.broadcast({ type: 'working' });
 
     return {
@@ -334,7 +350,14 @@ const voiceSurface = {
     if (opts && opts.status) return;
 
     const { text: spoken, truncated } = speechify(text, config.voice.maxSpeakChars);
-    if (!spoken) return;
+    if (!spoken) {
+      // Shaped down to nothing — a reply that was only an emoji, or only a link.
+      // There is nothing to say, but the turn IS over, and the client is still
+      // showing "working". Tell it, or it waits forever.
+      voiceBus.broadcast({ type: 'silent' });
+      if (handle) handle.finished = true;
+      return;
+    }
     // A late duplicate (an error notice restating what was just delivered)
     // would be read out twice, which sounds broken in a way it doesn't look on
     // a screen.
