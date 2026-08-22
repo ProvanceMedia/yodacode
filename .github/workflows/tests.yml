@@ -1,0 +1,62 @@
+# Runs the test suite on every pull request and every push to main.
+#
+# Two things about this repo's layout that the obvious workflow gets wrong:
+#
+#   * `npm test` lives in the ROOT package.json, but the dependencies it needs
+#     live in ./workspace. The tests import ../workspace/lib/*, and those modules
+#     resolve their own deps from workspace/node_modules — so deps are installed
+#     there and the suite is run from the root.
+#   * workspace/package-lock.json is gitignored, so `npm ci` has nothing to read.
+#     `npm install` is the only option here, which also means no setup-node
+#     dependency cache (it keys off a committed lockfile).
+#
+# Node 22 matches the Docker image (node:22-bookworm-slim), so that row is the
+# one that mirrors production. Node 20 is here because the root package.json
+# still declares engines >=20: it proves the suite holds for a contributor on
+# the oldest supported runtime, where the WebSocket tests skip themselves
+# (tests/voice-endpoint.test.mjs explains why).
+
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only: this workflow never needs to write to the repo.
+permissions:
+  contents: read
+
+# A new push supersedes the run in flight for the same ref.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Report both rows. Knowing it passes on 22 but fails on 20 is the useful
+      # signal; stopping at the first failure hides it.
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install runtime dependencies
+        working-directory: workspace
+        run: npm install --omit=dev --no-audit --no-fund
+
+      # Nothing else covers the browser client — it can't be imported by the
+      # node test runner, so a syntax error in it would otherwise ship green.
+      - name: Syntax-check the browser client
+        run: node --check workspace/ui/public/voice-client.js
+
+      - name: Run tests
+        run: npm test

@@ -11,6 +11,14 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 // Node's own global WebSocket (undici), not the `ws` package: the runtime deps
 // live in workspace/node_modules and aren't resolvable from here, and the rest
 // of this suite is dependency-free too.
+//
+// That global landed unflagged in Node 22.4, but the root package.json still
+// declares engines >=20 (the Docker image is node:22, so the deployed runtime
+// is fine either way). Rather than fail confusingly for a contributor on Node
+// 20, the socket tests skip themselves there and say why. The HTTP tests below
+// have no such dependency and always run.
+const NO_WS = typeof WebSocket === 'undefined';
+const wsOnly = { skip: NO_WS && 'needs the global WebSocket from Node 22.4+' };
 
 const PORT = 7890 + (process.pid % 900) + 1;
 const ROOT = path.join(os.tmpdir(), `yc-voice-ep-${process.pid}`);
@@ -79,6 +87,10 @@ before(async () => {
   writeFileSync(path.join(LOGS_DIR, 'yoda.log'), 'existing line\n');
   startUI();
   await new Promise((r) => setTimeout(r, 150));
+  // The "refuses before the surface is running" test starts it in-line, but it
+  // is skipped without a global WebSocket — so start it here too when the
+  // socket tests won't. Idempotent either way.
+  if (NO_WS) await surface.start(fakeDispatcher);
 });
 
 after(async () => {
@@ -89,23 +101,23 @@ after(async () => {
 
 // ─── handshake ──────────────────────────────────────────────────────────────
 
-test('the socket refuses a connection before the voice surface is running', async () => {
+test('the socket refuses a connection before the voice surface is running', wsOnly, async () => {
   const { code } = await collect(url('/ws/voice', 'good-token'));
   assert.equal(code, 4004, 'told plainly that voice is not enabled, not left hanging');
 });
 
-test('a wrong token is rejected once the surface IS running', async () => {
+test('a wrong token is rejected once the surface IS running', wsOnly, async () => {
   await surface.start(fakeDispatcher);
   const { code } = await collect(url('/ws/voice', 'wrong-token'));
   assert.equal(code, 4001);
 });
 
-test('a missing token is rejected', async () => {
+test('a missing token is rejected', wsOnly, async () => {
   const { code } = await collect(url('/ws/voice'));
   assert.equal(code, 4001);
 });
 
-test('a good token gets the wake words the server is configured with', async () => {
+test('a good token gets the wake words the server is configured with', wsOnly, async () => {
   const { msgs } = await collect(url('/ws/voice', 'good-token'), {
     until: (m) => m.type === 'ready',
   });
@@ -118,7 +130,7 @@ test('a good token gets the wake words the server is configured with', async () 
 
 // ─── upgrade routing (the refactor's real risk) ─────────────────────────────
 
-test('the logs socket still works after the noServer refactor', async () => {
+test('the logs socket still works after the noServer refactor', wsOnly, async () => {
   const { msgs } = await collect(`ws://127.0.0.1:${PORT}/ws/logs?log=yoda.log`, {
     until: (m) => Boolean(m.raw),
     timeoutMs: 2500,
@@ -127,14 +139,14 @@ test('the logs socket still works after the noServer refactor', async () => {
     'tail -f still streams — the second WSS did not steal its upgrades');
 });
 
-test('an unknown websocket path is refused, not routed to either endpoint', async () => {
+test('an unknown websocket path is refused, not routed to either endpoint', wsOnly, async () => {
   const res = await collect(`ws://127.0.0.1:${PORT}/ws/nope`, { timeoutMs: 1500 });
   assert.equal(res.msgs.length, 0);
 });
 
 // ─── a whole spoken turn ────────────────────────────────────────────────────
 
-test('a spoken turn: ack immediately, tool chatter never, answer at the end', async () => {
+test('a spoken turn: ack immediately, tool chatter never, answer at the end', wsOnly, async () => {
   received.length = 0;
 
   const result = await collect(url('/ws/voice', 'good-token'), {
@@ -171,7 +183,7 @@ test('a spoken turn: ack immediately, tool chatter never, answer at the end', as
 
 // ─── hostile input ──────────────────────────────────────────────────────────
 
-test('malformed and unknown messages are answered, not crashed on', async () => {
+test('malformed and unknown messages are answered, not crashed on', wsOnly, async () => {
   const res = await collect(url('/ws/voice', 'good-token'), {
     timeoutMs: 1500,
     onOpen: (ws) => {
@@ -186,7 +198,7 @@ test('malformed and unknown messages are answered, not crashed on', async () => 
   assert.ok(types.includes('pong'), 'and the socket is still alive afterwards');
 });
 
-test('a client that goes away is removed from the bus', async () => {
+test('a client that goes away is removed from the bus', wsOnly, async () => {
   const { voiceBus } = await import('../workspace/lib/voice-bus.js');
 
   // Sockets from earlier tests close asynchronously; wait for the bus to settle
