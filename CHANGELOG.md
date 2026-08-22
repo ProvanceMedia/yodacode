@@ -3,6 +3,21 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.30.0 — 2026-08-22
+
+- voice: a hands-free surface — say a wake word, speak an instruction, hear the answer spoken
+  back when it's done. The microphone stays in your browser; no speech vendor, nothing metered
+- voice: two microphone modes — always-listening, or off entirely until you press a key
+- ui: the dashboard port is now published on `127.0.0.1` (needed to reach the voice page).
+  **Set `YODA_UI_PASS`** — with it empty the dashboard has no authentication
+- security: refuse cross-origin writes and foreign-origin WebSocket upgrades on the dashboard;
+  a site you merely visit could otherwise have rewritten `CLAUDE.md`
+- security: withhold the voice token from agent turns, and stop the background watcher and the
+  Codex adapter handing turns the supervisor's own environment
+- fix: pass `YODA_STOP_AUTHORIZED_USERS` through compose — "stop" could not work in Docker on
+  any surface without it
+- ci: run the test suite on pull requests, on Node 20 and 22
+
 ## v2.29.11 — 2026-08-19
 
 - docs: make the engine page an actual comparison
