@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.32.0 — 2026-09-02
+
+- feat(slack): /fable shortcut, and shortcuts pin the tier's effort
+- feat(engine): extraDeep tier for Fable 5.1
+
 ## v2.31.1 — 2026-09-02
 
 - fix(engine): keep the deep tier on Opus 5
