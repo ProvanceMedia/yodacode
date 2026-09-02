@@ -3,6 +3,16 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.31.0 — 2026-09-02
+
+- feat(engine): deep tier is now Claude Fable 5.1
+- chore(engine): update the Agent SDK to 0.3.258
+- docs(voice): teach the agent about voice, and fix what stops setup working
+- ci: bump checkout and setup-node to v5
+- ci: run the test suite on pull requests
+- fix(voice): harden the voice surface and the newly-published dashboard
+- feat(voice): hands-free voice surface
+
 ## v2.30.0 — 2026-08-22
 
 - voice: a hands-free surface — say a wake word, speak an instruction, hear the answer spoken
