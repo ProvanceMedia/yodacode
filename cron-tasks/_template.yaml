@@ -27,6 +27,7 @@ schedule: "0 9 * * *"          # 09:00 daily  (min hour dom mon dow)
 #   fast      quick and cheap
 #   balanced  the everyday choice
 #   deep      slower, for real judgement
+#   extraDeep the most capable, for the hardest work
 #
 # You can name an exact model instead (claude-sonnet-5, gpt-5.5, …), but it
 # pins this task to one engine: after a switch the task refuses to run and

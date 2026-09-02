@@ -30,6 +30,7 @@ test('the Claude tiers name current models', () => {
   assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
   assert.equal(resolveModel('claude', 'balanced').model, 'claude-sonnet-5');
   assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5');
+  assert.equal(resolveModel('claude', 'extraDeep').model, 'claude-fable-5-1');
 });
 
 test('the Codex tiers name current models, strongest at deep', () => {
@@ -39,6 +40,26 @@ test('the Codex tiers name current models, strongest at deep', () => {
   assert.equal(resolveModel('codex', 'fast').model, 'gpt-5.6-luna');
   assert.equal(resolveModel('codex', 'balanced').model, 'gpt-5.6-terra');
   assert.equal(resolveModel('codex', 'deep').model, 'gpt-5.6-sol');
+});
+
+test('extraDeep on Codex is Sol at xhigh — there is no model above it', () => {
+  const r = resolveModel('codex', 'extraDeep');
+  assert.equal(r.model, 'gpt-5.6-sol');
+  assert.equal(r.effort, 'xhigh');
+  // The task's own effort still wins.
+  assert.equal(resolveModel('codex', 'extraDeep', 'low').effort, 'low');
+  // On Claude it is a different model, and effort is left to the model.
+  assert.equal(resolveModel('claude', 'extraDeep').effort, undefined);
+});
+
+test('extraDeep tolerates the ways people will spell it', () => {
+  for (const spelling of ['extraDeep', 'extradeep', 'EXTRADEEP', 'extra-deep', 'extra_deep', ' Extra Deep ']) {
+    const r = resolveModel('claude', spelling);
+    assert.equal(r.tier, 'extraDeep', spelling);
+    assert.equal(r.model, 'claude-fable-5-1', spelling);
+  }
+  assert.equal(isTier('extra-deep'), true);
+  assert.equal(isTier('extra'), false);
 });
 
 test('effort is left to each model, which the vendor tunes per model', () => {
@@ -71,7 +92,7 @@ test('a literal name for the running engine passes through untouched', () => {
 test("a literal name from the OTHER engine throws, and says what to do", () => {
   assert.throws(() => resolveModel('codex', 'claude-sonnet-4-6'), (e) => {
     assert.match(e.message, /belongs to the claude engine/);
-    assert.match(e.message, /fast, balanced, deep/, 'must point at the portable option');
+    assert.match(e.message, /fast, balanced, deep, extraDeep/, 'must point at the portable option');
     return true;
   });
   assert.throws(() => resolveModel('claude', 'gpt-5.5'), /belongs to the codex engine/);

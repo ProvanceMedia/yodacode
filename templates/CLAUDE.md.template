@@ -200,7 +200,7 @@ are no systemd timers and no shell wrappers. To add one, write `../cron-tasks/<n
 ```yaml
 name: my-task                  # must match the filename
 on_calendar: "Mon-Fri 09:00"   # when to run (systemd OnCalendar syntax)
-model: balanced                # fast | balanced | deep — works on either engine
+model: balanced                # fast | balanced | deep | extraDeep — works on either engine
 timeout: 600                   # seconds; raise to 1800 for heavy runs (see below)
 prompt: |
   Plain-English instructions for the run. {{today}} substitution works.

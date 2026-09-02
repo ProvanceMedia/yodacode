@@ -5,14 +5,24 @@
 // on its next scheduled run — which is the worst time to find out, because
 // nobody is watching at 3am and the failure looks like the cron itself breaking.
 //
-// So a task can name a TIER instead: fast, balanced or deep. Each engine says
+// So a task can name a TIER instead: fast, balanced, deep or extraDeep. Each engine says
 // what a tier means for it — on Claude mostly a different model, on Codex mostly
 // a different reasoning effort. Literal model names still work for anyone who
 // wants an exact one; they simply do not survive an engine change, and both the
 // switch command and the scheduler say so out loud rather than letting a task
 // discover it alone at 3am.
 
-export const TIERS = ['fast', 'balanced', 'deep'];
+export const TIERS = ['fast', 'balanced', 'deep', 'extraDeep'];
+
+/**
+ * The canonical tier a value names, or null. Case, spaces, hyphens and
+ * underscores are ignored, so `extradeep`, `extra-deep` and `ExtraDeep` all
+ * mean extraDeep — a YAML file should not fail on how someone spelt it.
+ */
+function canonicalTier(value) {
+  const key = String(value || '').trim().toLowerCase().replace(/[-_\s]/g, '');
+  return key ? (TIERS.find((t) => t.toLowerCase() === key) || null) : null;
+}
 
 /**
  * What each tier means per engine.
@@ -28,6 +38,10 @@ const TIER_MAP = {
     fast: { model: 'claude-haiku-4-5' },
     balanced: { model: 'claude-sonnet-5' },
     deep: { model: 'claude-opus-5' },
+    // Fable 5.1 needs Claude Code 2.1.255 or newer; the Agent SDK pin in
+    // workspace/package.json bundles 2.1.258. On some plans it bills to usage
+    // credits rather than the plan's allowance — docs/ENGINES.md says how to check.
+    extraDeep: { model: 'claude-fable-5-1' },
   },
   codex: {
     // OpenAI names the 5.6 family along the same axis these tiers use — Luna
@@ -39,6 +53,8 @@ const TIER_MAP = {
     fast: { model: 'gpt-5.6-luna' },
     balanced: { model: 'gpt-5.6-terra' },
     deep: { model: 'gpt-5.6-sol' },
+    // No model above Sol to reach for, so extraDeep is Sol thinking hardest.
+    extraDeep: { model: 'gpt-5.6-sol', effort: 'xhigh' },
   },
 };
 
@@ -56,7 +72,7 @@ export function modelEngine(model) {
 }
 
 export function isTier(value) {
-  return TIERS.includes(String(value || '').trim().toLowerCase());
+  return canonicalTier(value) !== null;
 }
 
 /**
@@ -72,9 +88,10 @@ export function isTier(value) {
 export function resolveModel(engineId, value, effort) {
   const raw = String(value || '').trim();
 
-  if (isTier(raw)) {
-    const spec = (TIER_MAP[engineId] || {})[raw.toLowerCase()] || {};
-    return { model: spec.model, effort: effort || spec.effort, tier: raw.toLowerCase() };
+  const tier = canonicalTier(raw);
+  if (tier) {
+    const spec = (TIER_MAP[engineId] || {})[tier] || {};
+    return { model: spec.model, effort: effort || spec.effort, tier };
   }
 
   if (raw) {

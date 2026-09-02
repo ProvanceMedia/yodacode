@@ -728,7 +728,7 @@ cmd_engine() {
     done
     echo ""
     note "Fix each one's 'model:' in cron-tasks/<name>.yaml — use a tier"
-    note "(fast, balanced, deep) and it works on either engine."
+    note "(fast, balanced, deep, extraDeep) and it works on either engine."
     echo ""
     local c; c="$(ask 'Switch anyway and leave those crons broken? [y/N]' 'N')"
     [[ "${c,,}" =~ ^y ]] || { note "Nothing changed."; return 1; }
