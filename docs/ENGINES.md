@@ -23,7 +23,7 @@ yodacode change llm codex     # or: yodacode change llm claude
 | **Delegating to subagents** | yes | yes |
 | **Resuming a thread** | usually, but sessions can vanish | yes, thread ids are stable |
 | **Reasoning effort** | `low` to `max` | `low` to `xhigh` |
-| **fast / balanced / deep** | Haiku, Sonnet 5, Opus 5 | Luna, Terra, Sol |
+| **fast / balanced / deep** | Haiku, Sonnet 5, Fable 5.1 | Luna, Terra, Sol |
 | **Your assistant's personality** | loaded from separate files | assembled into one file at startup |
 | **Sessions stored in** | `~/.claude` | `~/.codex/sessions` |
 
@@ -77,6 +77,13 @@ model: balanced        # fast | balanced | deep
 
 Those three work on either agent, and each picks its own model for them, as in
 the table above. Use tiers and your tasks survive a switch untouched.
+
+On Claude, `deep` is Fable 5.1, the strongest model there is. On some plans
+Fable bills to usage credits instead of the allowance that comes with the plan,
+and a scheduled task or a Slack question never stops to ask first. To check,
+open `/model` in Claude Code on any machine signed in to the same account: if
+the Fable row says "Requires usage credits", that's what every `deep` task will
+spend. Name `claude-opus-5` in those tasks if you'd rather they didn't.
 
 You can name an exact model instead, like `claude-sonnet-5` or `gpt-5.6-sol`.
 That's fine, and sometimes exactly what you want. It does pin the task to one
