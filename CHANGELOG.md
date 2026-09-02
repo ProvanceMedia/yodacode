@@ -3,6 +3,11 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.31.1 — 2026-09-02
+
+- fix(engine): keep the deep tier on Opus 5
+- docs: list only this release's changes under v2.31.0
+
 ## v2.31.0 — 2026-09-02
 
 - feat(engine): deep tier is now Claude Fable 5.1
