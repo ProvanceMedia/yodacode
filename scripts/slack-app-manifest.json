@@ -16,8 +16,14 @@
     },
     "slash_commands": [
       {
+        "command": "/fable",
+        "description": "Ask YodaCode with the most capable model (thread-sticky)",
+        "usage_hint": "your question",
+        "should_escape": false
+      },
+      {
         "command": "/opus",
-        "description": "Ask YodaCode with the deepest model (thread-sticky)",
+        "description": "Ask YodaCode with the deep model (thread-sticky)",
         "usage_hint": "your question",
         "should_escape": false
       },

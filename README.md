@@ -206,7 +206,7 @@ on the host. Set `PUID`/`PGID` in `.env` to your host user if you want those fil
 | **Loop guardrails** | Repeat-failure, no-progress, and iteration-cap detection. See [Loop guardrails](#loop-guardrails). |
 | **In-container crons** | YAML tasks run on their own timers, with no host systemd. See [Cron tasks](#adding-a-cron-task). |
 | **Model fallback** | Sonnet to Haiku (configurable chain). Fail-fast on 529. |
-| **Slash commands** | `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread; `/yodacode` shows help & setup. |
+| **Slash commands** | `/fable`, `/opus`, `/sonnet`, `/haiku <question>` pick a model per thread; `/yodacode` shows help & setup. Installed before `/fable` existed? Add it to your Slack app under *Slash Commands*, or re-import the manifest. |
 | **Effort levels** | Reasoning depth (`low` to `max`) set globally, per cron, or per thread. See [Effort levels](#effort-levels). |
 | **Browser automation** | Playwright headless Chromium for JS-rendered pages and screenshots. Enable once with `yodacode install-browsers` (~300MB download into a persistent volume; the image ships the system libraries, so the bot honestly reports ❌/✅ in its capabilities until/once enabled). |
 | **Subagents** | `Task` tool for parallel work and context protection. |

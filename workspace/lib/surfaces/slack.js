@@ -25,11 +25,15 @@ let sm;
 let botUserId = null;
 
 // Thread-sticky model overrides: conversationId ("channel:threadTs") → model id.
-// When a user invokes /opus, /sonnet, or /haiku, the override is pinned to that
+// When a user invokes /fable, /opus, /sonnet, or /haiku, the override is pinned to that
 // thread so every follow-up message in the same thread keeps using the chosen
 // model. In-memory only — resets on yoda restart, which is fine for short-lived
 // threads.
 const threadModelOverrides = new Map();
+// Same again for effort: a tier can be defined by effort rather than model
+// (extraDeep on Codex is the deep model thinking harder), so a shortcut that
+// only pinned the model would quietly mean the same thing as the tier below.
+const threadEffortOverrides = new Map();
 
 // Conversation info cache so we know if a channel is an IM
 const convInfoCache = new Map();
@@ -167,8 +171,9 @@ async function normalize(event) {
   const threadTs = event.thread_ts || event.ts;
   const conversationId = `${event.channel}:${threadTs}`;
 
-  // If this thread was started with /opus, /sonnet, /haiku — inherit that model.
+  // If this thread was started with /fable, /opus, /sonnet, /haiku — inherit that model.
   const modelOverride = threadModelOverrides.get(conversationId);
+  const effortOverride = threadEffortOverrides.get(conversationId);
 
   return {
     surface: 'slack',
@@ -180,6 +185,7 @@ async function normalize(event) {
     isDirect: isIm,
     isMention,
     modelOverride,
+    effortOverride,
     replyTarget: {
       channel: event.channel,
       threadTs,
@@ -226,7 +232,7 @@ const slackSurface = {
     sm.on('app_mention', async ({ ack }) => { try { await ack(); } catch (_) {} });
 
     // Slash commands — let the user pick a specific model for a one-off reply.
-    // Registered in Slack app config: /opus, /sonnet, /haiku. Each takes the
+    // Registered in Slack app config: /fable, /opus, /sonnet, /haiku. Each takes the
     // user's question as its argument. Ack fast, post a public echo that
     // becomes the thread root, then dispatch through the normal pipeline with
     // modelOverride set.
@@ -236,6 +242,7 @@ const slackSurface = {
     // inert on Codex: the engine correctly discards a model that isn't its own,
     // so the shortcut silently did nothing.
     const SLASH_TIERS = {
+      '/fable': { tier: 'extraDeep', label: 'extraDeep' },
       '/opus': { tier: 'deep', label: 'deep' },
       '/sonnet': { tier: 'balanced', label: 'balanced' },
       '/haiku': { tier: 'fast', label: 'fast' },
@@ -254,7 +261,7 @@ const slackSurface = {
             `*${name} — quick help*`,
             '',
             '*Talk to me.* Just DM me, or @-mention me in a channel I am in.',
-            '`/opus` · `/sonnet` · `/haiku` `<question>` — ask using a specific model (sticks to that thread).',
+            '`/fable` · `/opus` · `/sonnet` · `/haiku` `<question>` — ask using a specific model (sticks to that thread).',
             '',
             '*Connect a service* (GitHub, Stripe, Notion, …)',
             'Just ask me — e.g. _"set up Notion"_. I research how the service works and prepare',
@@ -293,10 +300,8 @@ const slackSurface = {
 
         const slash = SLASH_TIERS[body.command];
         if (!slash) return;
-        const spec = {
-          model: resolveModel(config.engine.id, slash.tier).model,
-          label: slash.label,
-        };
+        const resolved = resolveModel(config.engine.id, slash.tier);
+        const spec = { model: resolved.model, effort: resolved.effort, label: slash.label };
         const text = (body.text || '').trim();
         if (!text) {
           const usage = `Usage: \`${body.command} <your question>\``;
@@ -318,6 +323,7 @@ const slackSurface = {
         const conversationId = `${body.channel_id}:${rootTs}`;
         // Pin this model to the thread so follow-up messages keep using it.
         threadModelOverrides.set(conversationId, spec.model);
+        if (spec.effort) threadEffortOverrides.set(conversationId, spec.effort);
         const convInfo = await getConvInfo(body.channel_id);
         const isIm = !!(convInfo && convInfo.is_im);
         const normalised = {
@@ -331,6 +337,7 @@ const slackSurface = {
           isMention: true,
           isSlashCommand: true,
           modelOverride: spec.model,
+          effortOverride: spec.effort,
           replyTarget: {
             channel: body.channel_id,
             threadTs: rootTs,

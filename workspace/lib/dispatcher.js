@@ -127,7 +127,7 @@ async function processReply(event, surface) {
   // fallbacks automatically.
   const effort = resolveEffort(event, ctx);
   if (effort === 'xhigh') {
-    logger.info('effort escalated to xhigh (thread-sticky)', {
+    logger.info('running at xhigh effort (thread-sticky)', {
       surface: event.surface,
       conversationId: event.conversationId,
     });
@@ -363,8 +363,11 @@ async function processReply(event, surface) {
 // human messages (newest first) for an escalate ("xhigh"/"ultrathink") or
 // de-escalate ("xhigh off"/"normal effort") signal; the most recent wins. Bot
 // and the agent's own messages are skipped so it can't self-trigger by quoting
-// the keyword. Falls back to the global YODA_CLAUDE_EFFORT default.
-function resolveEffort(event, ctx) {
+// the keyword. With no signal, an effort the surface pinned to the thread (a
+// shortcut whose tier is defined by effort) applies; otherwise the global
+// YODA_CLAUDE_EFFORT default. An explicit "off" drops both — the person asked
+// for normal effort and gets it.
+export function resolveEffort(event, ctx) {
   let onRe, offRe;
   try {
     onRe = new RegExp(config.claude.effortEscalatePattern, 'i');
@@ -383,7 +386,7 @@ function resolveEffort(event, ctx) {
     if (offRe.test(text)) return config.claude.effort || undefined;  // explicit off wins
     if (onRe.test(text)) return 'xhigh';
   }
-  return config.claude.effort || undefined;
+  return event.effortOverride || config.claude.effort || undefined;
 }
 
 // True when a failed run's error indicates the SDK couldn't find the session
