@@ -27,9 +27,7 @@ const TIER_MAP = {
   claude: {
     fast: { model: 'claude-haiku-4-5' },
     balanced: { model: 'claude-sonnet-5' },
-    // Fable 5.1 needs Claude Code 2.1.255 or newer; older runtimes reject it
-    // outright. The Agent SDK pin in workspace/package.json bundles 2.1.258.
-    deep: { model: 'claude-fable-5-1' },
+    deep: { model: 'claude-opus-5' },
   },
   codex: {
     // OpenAI names the 5.6 family along the same axis these tiers use — Luna

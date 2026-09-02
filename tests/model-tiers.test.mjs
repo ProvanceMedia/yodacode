@@ -29,7 +29,7 @@ test('the Claude tiers name current models', () => {
   // written the portable way.
   assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
   assert.equal(resolveModel('claude', 'balanced').model, 'claude-sonnet-5');
-  assert.equal(resolveModel('claude', 'deep').model, 'claude-fable-5-1');
+  assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5');
 });
 
 test('the Codex tiers name current models, strongest at deep', () => {

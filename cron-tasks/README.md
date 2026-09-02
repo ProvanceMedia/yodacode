@@ -34,7 +34,7 @@ See [`_template.yaml`](_template.yaml) for the full annotated example. Required 
 
 - `name` — must match the filename (without `.yaml`)
 - `prompt` — multi-line task description (use YAML `|` literal block)
-- `model` — every cron yaml must name its model or tier explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Prefer a tier — `fast`, `balanced`, `deep` — which works whichever AI the assistant runs on. Exact names (`claude-haiku-4-5`, `claude-sonnet-5`, `claude-fable-5-1`) pin the task to one engine.
+- `model` — every cron yaml must name its model or tier explicitly. No implicit defaults, so you can `head -8 <task>.yaml` and immediately see what it runs on. Prefer a tier — `fast`, `balanced`, `deep` — which works whichever AI the assistant runs on. Exact names (`claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`, `claude-fable-5-1`) pin the task to one engine.
 
 Optional:
 
