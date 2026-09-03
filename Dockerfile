@@ -50,15 +50,22 @@ RUN groupadd --gid 1001 yodacode \
 
 WORKDIR /app
 
-# Install workspace deps first (better layer caching).
+# Install workspace deps first (better layer caching). At runtime node_modules is
+# a named volume, which Docker fills from the image only when the volume is NEW —
+# so a pristine copy is staged outside the mount path (hard links, same layer:
+# no extra size) with a stamp of the package.json it came from. The entrypoint
+# copies it over an existing volume whose stamp differs (docker/refresh-deps.sh).
+# The stamp also ships inside node_modules so a fresh volume starts in sync.
 COPY workspace/package.json workspace/package-lock.json* ./workspace/
-RUN cd workspace && (npm ci --omit=dev 2>/dev/null || npm install --omit=dev)
+RUN cd workspace && (npm ci --omit=dev 2>/dev/null || npm install --omit=dev) \
+    && mkdir -p /opt/yodacode && cp -al node_modules /opt/yodacode/node_modules \
+    && sha256sum package.json | cut -c1-64 | tee /opt/yodacode/deps.stamp > node_modules/.yodacode-deps.stamp
 
 # Copy the rest of the project.
 COPY . .
 
 # Entry scripts + a sane default for where the broker socket lives.
-RUN chmod +x docker/entrypoint.sh workspace/bin/broker workspace/broker/brokerd.js \
+RUN chmod +x docker/entrypoint.sh docker/refresh-deps.sh workspace/bin/broker workspace/broker/brokerd.js \
     && ln -sf /app/workspace/bin/broker /usr/local/bin/broker
 ENV YODA_BROKER_SOCK=/run/yodacode-broker/broker.sock \
     YODA_WORKSPACE=/app/workspace \

@@ -85,6 +85,10 @@ if [[ "$(id -u)" == "0" ]]; then
     echo "[entrypoint] fixing node_modules volume ownership (one-time)…"
     chown -R yoda:yodacode "$NM"/. 2>/dev/null && chown yoda:yodacode "$NM" 2>/dev/null || true
   fi
+  # A dependency bump in package.json reaches an EXISTING volume only through
+  # this: the image's pristine tree is copied over the volume when its stamp
+  # differs. A failed refresh must not stop the agent starting on what it has.
+  /app/docker/refresh-deps.sh || echo "[entrypoint] dependency refresh failed — continuing on the current tree"
   exec gosu yoda "$0" "$@"
 fi
 

@@ -140,6 +140,13 @@ cmd_doctor() {
   [[ -f compose.yaml || -f docker-compose.yml ]] && ok "compose file present" || { fail "no compose.yaml in $PWD"; problems=$((problems+1)); }
   if docker image inspect yodacode:local >/dev/null 2>&1; then ok "Image built (yodacode:local)"
   else warn "Image not built yet — run: yodacode update"; fi
+  # The dependency volume is brought up to date with the image at container
+  # start; a mismatch here means that start hasn't happened yet.
+  if agent_running && docker compose exec -T agent test -s /opt/yodacode/deps.stamp >/dev/null 2>&1; then
+    if docker compose exec -T agent sh -c '[ "$(cat /opt/yodacode/deps.stamp)" = "$(cat /app/workspace/node_modules/.yodacode-deps.stamp 2>/dev/null)" ]' >/dev/null 2>&1; then
+      ok "Workspace dependencies match the image"
+    else warn "Workspace dependencies are older than the image"; note "   fix: yodacode restart (the refresh runs at start)"; fi
+  fi
 
   # .env keys
   if [[ -f .env ]]; then
