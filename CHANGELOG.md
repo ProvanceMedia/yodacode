@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.32.1 — 2026-09-03
+
+- fix(docker): refresh the dependency volume when the image's package.json changes
+
 ## v2.32.0 — 2026-09-02
 
 - feat(slack): /fable shortcut, and shortcuts pin the tier's effort
