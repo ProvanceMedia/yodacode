@@ -12,6 +12,7 @@
 // the scheduler watches the directory and reloads. No host privileges involved.
 import { readFileSync, readdirSync, existsSync, watch, mkdirSync, unlinkSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -115,15 +116,36 @@ function cronFor(def) {
 
 // ── scheduling loop ──────────────────────────────────────────────────────────
 const timers = new Map(); // name -> Timeout
+const MAX_DELAY = 2147483647; // Node turns larger delays into 1 ms.
+const MIN_RUN_INTERVAL = 10_000; // Last line of defence against rapid spawn loops.
 
 function clearAll() {
   for (const t of timers.values()) clearTimeout(t);
   timers.clear();
 }
 
-const running = new Map(); // name -> child (used to refuse overlapping manual fires)
+const running = new Map(); // name -> child (refuse overlapping fires from any source)
+const lastRun = new Map(); // monotonic timestamps; deliberately survive schedule reloads
+const lastRefusal = new Map(); // throttle guard warnings too
+
+function refuseTask(name, reason, now) {
+  if (now - (lastRefusal.get(name) ?? -Infinity) >= MIN_RUN_INTERVAL) {
+    log(`WARN: refusing ${name}: ${reason}`);
+    lastRefusal.set(name, now);
+  }
+}
 
 function runTask(name, source = 'schedule') {
+  const now = performance.now();
+  if (running.has(name)) {
+    refuseTask(name, 'already running', now);
+    return;
+  }
+  if (now - (lastRun.get(name) ?? -Infinity) < MIN_RUN_INTERVAL) {
+    refuseTask(name, `minimum run interval is ${MIN_RUN_INTERVAL} ms`, now);
+    return;
+  }
+  lastRun.set(name, now);
   log(`firing ${name}${source === 'manual' ? ' (manual trigger)' : ''}`);
   if (DRY) { log(`DRY: would spawn cron-runner.js ${name}`); return; }
   const child = spawn(process.execPath, [path.join(BIN_DIR, 'cron-runner.js'), name], {
@@ -134,6 +156,10 @@ function runTask(name, source = 'schedule') {
   child.on('exit', (code) => {
     running.delete(name);
     log(`${name} exited ${code}`);
+  });
+  child.on('error', (err) => {
+    running.delete(name);
+    log(`ERROR: could not spawn ${name}: ${err.message}`);
   });
 }
 
@@ -159,10 +185,6 @@ function checkTriggers() {
       log(`trigger for unknown task "${name}" ignored (no cron-tasks/${name}.yaml)`);
       continue;
     }
-    if (running.has(name)) {
-      log(`trigger for ${name} ignored — already running`);
-      continue;
-    }
     runTask(name, 'manual');
   }
 }
@@ -178,22 +200,41 @@ function watchTriggers() {
   if (poll.unref) poll.unref();
 }
 
+// Wait against an absolute deadline so chunk boundaries and late callbacks do
+// not accumulate drift. Keep the current chunk in timers so reload/shutdown
+// always cancels it. Never pass a long cron delay directly to setTimeout.
+function armTimer(name, targetMs, fire) {
+  if (!Number.isFinite(targetMs)) {
+    log(`ERROR: refusing invalid timer target for ${name}: ${targetMs}`);
+    return;
+  }
+  const delay = Math.min(MAX_DELAY, Math.max(1, targetMs - Date.now()));
+  const t = setTimeout(() => {
+    if (timers.get(name) !== t) return;
+    if (Date.now() < targetMs) {
+      armTimer(name, targetMs, fire);
+      return;
+    }
+    timers.delete(name);
+    fire();
+  }, delay);
+  if (t.unref) t.unref();
+  timers.set(name, t);
+}
+
 function scheduleNext(name, cronExpr) {
-  let it;
+  let next;
   try {
-    it = CronExpressionParser.parse(cronExpr, { tz: TZ });
+    next = CronExpressionParser.parse(cronExpr, { tz: TZ }).next().toDate();
   } catch (e) {
     log(`WARN: bad cron "${cronExpr}" for ${name}: ${e.message}`);
     return;
   }
-  const next = it.next().toDate();
-  const delay = Math.max(1000, next.getTime() - Date.now());
-  const t = setTimeout(() => {
+  const target = Math.max(Date.now() + 1000, next.getTime());
+  armTimer(name, target, () => {
     runTask(name);
     scheduleNext(name, cronExpr); // re-arm for the following occurrence
-  }, delay);
-  if (t.unref) t.unref();
-  timers.set(name, t);
+  });
   log(`${name}: next run ${next.toISOString()} (cron "${cronExpr}", tz ${TZ})`);
 }
 
@@ -235,6 +276,11 @@ function watchTasks() {
 }
 
 function main() {
+  process.on('warning', (warning) => {
+    if (warning.name === 'TimeoutOverflowWarning') {
+      log(`ERROR: timer overflow detected; check scheduler timers: ${warning.message}`);
+    }
+  });
   log(`starting (tz ${TZ})`);
   loadAll();
   watchTasks();

@@ -51,6 +51,9 @@ services:
 
   agent:
     <<: *image
+    # Bound a runaway worker's impact. Tune to the host and expected workload.
+    mem_limit: ${YODA_AGENT_MEM_LIMIT:-1g}
+    pids_limit: ${YODA_AGENT_PIDS_LIMIT:-256}
     depends_on: [broker]
     environment:
       ROLE: agent

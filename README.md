@@ -284,6 +284,16 @@ optional Slack delivery and skill/memory reflection. Delete or rename a file to 
 [`cron-tasks/README.md`](cron-tasks/README.md) for the full schema. (You can also just ask the bot
 to write one for you.)
 
+Monthly and annual schedules wait in bounded timer chunks. The scheduler allows
+at most one start per task every 10 seconds and skips triggers while that task is
+still running; skipped runs are not queued. This also applies to manual triggers
+and six-field crons with seconds. Refusal warnings are rate-limited.
+
+The agent container defaults to a 1 GiB memory limit and a 256 PID/thread limit.
+Set `YODA_AGENT_MEM_LIMIT` and `YODA_AGENT_PIDS_LIMIT` in `.env` to suit your host
+and workload, leaving memory for the broker and operating system. Apply changed
+limits with `docker compose up -d agent` (a restart alone does not apply them).
+
 ## Adding a tool
 
 Drop a script into `workspace/bin/` with a `@yoda-tool` manifest block at the top. On the next
