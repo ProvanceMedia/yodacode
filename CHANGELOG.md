@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.32.2 — 2026-09-21
+
+- fix(scheduler): prevent long-cron timer overflow and runaway spawning
+
 ## v2.32.1 — 2026-09-03
 
 - fix(docker): refresh the dependency volume when the image's package.json changes
