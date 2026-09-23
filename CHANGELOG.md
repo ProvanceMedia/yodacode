@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.33.2 — 2026-09-23
+
+- fix(docker): pin Codex CLI to 0.156.1 for the full GPT-6 model catalog, invalidating cached older installs; verify its version during the image build
+
 ## v2.33.1 — 2026-09-23
 
 - fix(engine): upgrade the bundled Claude Agent SDK to 0.3.281 (Claude Code 2.1.281), meeting Opus 5.5's minimum runtime of 2.1.280

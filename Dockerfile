@@ -27,10 +27,10 @@ RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 # Installed globally rather than as a workspace dependency: the node_modules
 # volume shadows the image's copy, so a workspace dep would never reach an
 # existing install.
-# NOT pinned to an old version deliberately — an out-of-date CLI fails to parse
-# the live model catalogue (it rejects reasoning levels added since its release)
-# and floods stderr with the whole catalogue on every successful turn.
-RUN npm install -g @openai/codex && npm cache clean --force
+# Pin alongside model upgrades: a floating install can remain cached across
+# rebuilds. 0.156.1 includes GPT-6 Astra, Sol and Luna in its model catalogue.
+# Revisit this pin when changing models or reasoning levels.
+RUN npm install -g @openai/codex@0.156.1 && test "$(codex --version)" = "codex-cli 0.156.1" && npm cache clean --force
 
 # Playwright: the MODULE and Chromium's SYSTEM LIBRARIES (~325MB layer) are baked
 # in — both need root. The browser itself (~300MB download / ~650MB on disk) is

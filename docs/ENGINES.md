@@ -109,6 +109,14 @@ settings and literal cron model names remain pinned. The regular tiers leave
 effort to the model; Opus 5.5 defaults to `medium`. Codex `extraDeep` keeps
 `xhigh`, which this adapter supports, even though the GPT-6 API also offers `max`.
 
+The Docker image pins Codex CLI to `0.156.1`, whose bundled catalog includes
+Astra, Sol and Luna. See the [official Codex changelog](https://learn.chatgpt.com/docs/changelog).
+The explicit version also invalidates Docker's cached install layer when we
+upgrade it; an unversioned npm install can otherwise keep an older CLI through
+a normal rebuild. Run `yodacode update` to install the updated image, then check
+with `docker compose exec -T agent codex --version` from your install directory.
+Model access still depends on the account's rollout and workspace settings.
+
 Opus 5.5 requires Claude Code 2.1.280 or newer. YodaCode pins Agent SDK
 0.3.281, which bundles Claude Code 2.1.281. Run `yodacode update` to rebuild
 the container and refresh its dependency volume; updating a separate global
