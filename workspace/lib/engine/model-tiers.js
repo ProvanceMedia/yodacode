@@ -37,8 +37,8 @@ const TIER_MAP = {
     fast: { model: 'claude-haiku-4-5' },
     balanced: { model: 'claude-sonnet-5' },
     deep: { model: 'claude-opus-5-5' },
-    // Fable 5.1 needs Claude Code 2.1.255 or newer; the Agent SDK pin in
-    // workspace/package.json bundles 2.1.258. On some plans it bills to usage
+    // Opus 5.5 needs Claude Code >=2.1.280; the Agent SDK pin in
+    // workspace/package.json bundles 2.1.281, also supporting Fable 5.1. On some plans it bills to usage
     // credits rather than the plan's allowance — docs/ENGINES.md says how to check.
     extraDeep: { model: 'claude-fable-5-1' },
   },

@@ -109,6 +109,11 @@ settings and literal cron model names remain pinned. The regular tiers leave
 effort to the model; Opus 5.5 defaults to `medium`. Codex `extraDeep` keeps
 `xhigh`, which this adapter supports, even though the GPT-6 API also offers `max`.
 
+Opus 5.5 requires Claude Code 2.1.280 or newer. YodaCode pins Agent SDK
+0.3.281, which bundles Claude Code 2.1.281. Run `yodacode update` to rebuild
+the container and refresh its dependency volume; updating a separate global
+`claude` executable does not upgrade the SDK runtime.
+
 Opus 5.5 requires adaptive thinking and rejects manual thinking budgets or
 disabled thinking. GPT-6 reasoning with tools requires Responses. YodaCode
 delegates those request formats to Claude Code and Codex rather than building

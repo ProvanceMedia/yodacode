@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.33.1 — 2026-09-23
+
+- fix(engine): upgrade the bundled Claude Agent SDK to 0.3.281 (Claude Code 2.1.281), meeting Opus 5.5's minimum runtime of 2.1.280
+
 ## v2.33.0 — 2026-09-23
 
 - feat(engine): update Claude's deep tier to Opus 5.5; update Codex to GPT-6 Luna (fast), Sol (balanced/default), and Astra (deep, extraDeep at xhigh)
