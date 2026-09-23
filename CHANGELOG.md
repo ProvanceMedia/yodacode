@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.33.0 — 2026-09-23
+
+- feat(engine): update Claude's deep tier to Opus 5.5; update Codex to GPT-6 Luna (fast), Sol (balanced/default), and Astra (deep, extraDeep at xhigh)
+
 ## v2.32.2 — 2026-09-21
 
 - fix(scheduler): prevent long-cron timer overflow and runaway spawning

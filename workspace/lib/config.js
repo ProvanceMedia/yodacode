@@ -216,9 +216,9 @@ export const config = {
     // Codex ships an explicit default rather than deferring to the CLI's own
     // pick: which model that is has changed between CLI versions, so leaving it
     // implicit means the agent quietly runs on a different model after an image
-    // rebuild. Terra is the vendor's "balanced, everyday work" model.
+    // rebuild. GPT-6 Sol balances intelligence and cost.
     model: (process.env.YODA_ENGINE === 'codex'
-      ? (process.env.YODA_CODEX_MODEL || 'gpt-5.6-terra')
+      ? (process.env.YODA_CODEX_MODEL || 'gpt-6-sol')
       : process.env.YODA_CLAUDE_MODEL) || '',
   },
 

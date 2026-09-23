@@ -779,7 +779,7 @@ cmd_model() {
     local key cur; key="$(model_env_key)"; cur="$(env_get "$key")"
     if [[ -n "$cur" ]]; then echo "  Primary: $cur"; else echo -e "  Primary: ${D}(default — Claude Code picks)${X}"; fi
     echo ""
-    note "Set:   yodacode model <name>   e.g. claude-opus-5 / claude-sonnet-5 / claude-fable-5-1"
+    note "Set:   yodacode model <name>   e.g. claude-opus-5-5 / claude-sonnet-5 / claude-fable-5-1"
     note "Reset: yodacode model default"
     return 0
   fi

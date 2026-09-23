@@ -228,7 +228,7 @@ SLACK_APP_TOKEN=               # set by the installer
 YODA_DM_AUTHORIZED_USERS=      # comma-separated Slack user IDs allowed to DM the bot
 YODA_ENGINE=claude             # claude | codex, set by the installer
 YODA_CLAUDE_MODEL=             # primary model on Claude (empty = engine default)
-YODA_CODEX_MODEL=              # primary model on Codex (empty = gpt-5.6-terra)
+YODA_CODEX_MODEL=              # primary model on Codex (empty = gpt-6-sol)
 YODA_CLAUDE_FALLBACK_MODELS=claude-haiku-4-5
 YODA_CLAUDE_EFFORT=            # low|medium|high|xhigh|max (empty = model default)
 BOT_NAME=                      # your assistant's name

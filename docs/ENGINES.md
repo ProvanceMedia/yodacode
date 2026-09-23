@@ -23,7 +23,7 @@ yodacode change llm codex     # or: yodacode change llm claude
 | **Delegating to subagents** | yes | yes |
 | **Resuming a thread** | usually, but sessions can vanish | yes, thread ids are stable |
 | **Reasoning effort** | `low` to `max` | `low` to `xhigh` |
-| **fast / balanced / deep / extraDeep** | Haiku, Sonnet 5, Opus 5, Fable 5.1 | Luna, Terra, Sol, Sol at `xhigh` |
+| **fast / balanced / deep / extraDeep** | Haiku, Sonnet 5, Opus 5.5, Fable 5.1 | GPT-6 Luna, Sol, Astra, Astra at `xhigh` |
 | **Your assistant's personality** | loaded from separate files | assembled into one file at startup |
 | **Sessions stored in** | `~/.claude` | `~/.codex/sessions` |
 
@@ -78,18 +78,45 @@ model: balanced        # fast | balanced | deep | extraDeep
 All four work on either agent, and each picks its own model for them, as in
 the table above. Use tiers and your tasks survive a switch untouched.
 
-`extraDeep` is Fable 5.1 on Claude. On Codex there's no model above Sol, so it
-is Sol at `xhigh` effort. In Slack, `/fable` asks with it. On some plans Fable
+`extraDeep` is Fable 5.1 on Claude. On Codex it uses GPT-6 Astra
+at `xhigh` effort. In Slack, `/fable` asks with it. On some plans Fable
 bills to usage credits instead of the allowance that comes with the plan, and a
 scheduled task never stops to ask first. To check, open `/model` in Claude Code
 on any machine signed in to the same account: if the Fable row says "Requires
 usage credits", that's what `extraDeep` runs will spend.
 
-You can name an exact model instead, like `claude-sonnet-5` or `gpt-5.6-sol`.
+You can name an exact model instead, like `claude-sonnet-5` or `gpt-6-astra`.
 That's fine, and sometimes exactly what you want. It does pin the task to one
 agent. If you switch, `yodacode change llm` lists every task that would break
 and asks before going ahead. Any task you leave pinned refuses to run and says
 why, rather than failing quietly at 3am.
+
+## Model update checked on 2026-09-23
+
+The latest Opus model is `claude-opus-5-5`, with a 1M-token context window
+and 128K maximum output. Standard API pricing is $4 input / $20 output per
+million tokens. See [Anthropic's model catalog](https://platform.claude.com/docs/en/models/overview).
+
+The GPT-6 family has three models, each with a 1.05M-token context window and
+128K maximum output. Standard API prices per million input / output tokens are
+$0.10 / $0.50 for Luna, $2 / $10 for Sol, and $10 / $50 for Astra.
+See the [official OpenAI model catalog](https://developers.openai.com/api/docs/models).
+These API prices are a comparison, not the billing rates for YodaCode's
+subscription-based CLI sessions; account access and allowances vary.
+
+Codex defaults to `gpt-6-sol` when `YODA_CODEX_MODEL` is empty. Explicit model
+settings and literal cron model names remain pinned. The regular tiers leave
+effort to the model; Opus 5.5 defaults to `medium`. Codex `extraDeep` keeps
+`xhigh`, which this adapter supports, even though the GPT-6 API also offers `max`.
+
+Opus 5.5 requires adaptive thinking and rejects manual thinking budgets or
+disabled thinking. GPT-6 reasoning with tools requires Responses. YodaCode
+delegates those request formats to Claude Code and Codex rather than building
+API requests itself. See the [Opus migration guide](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)
+and [GPT-6 migration guide](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart).
+Local routing tests do not establish account access or end-to-end compatibility
+with the installed CLI versions; validate a fresh and resumed turn on each
+engine before deploying the update.
 
 ## Switching
 

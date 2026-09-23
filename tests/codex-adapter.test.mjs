@@ -8,10 +8,22 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { buildArgs, tokenExpiryMs, needsRefreshLock, trackDelegation } from '../workspace/lib/engine/codex/adapter.js';
+import { resolveModel } from '../workspace/lib/engine/model-tiers.js';
 
 // ── argument construction ────────────────────────────────────────────────────
 
 const BASE = { prompt: 'do a thing', cwd: '/workspace', lastMessageFile: '/tmp/last.txt' };
+
+test('GPT-6 tiers reach fresh and resumed Codex turns with their effort intact', () => {
+  for (const resume of [undefined, 'thread-abc']) {
+    for (const tier of ['fast', 'balanced', 'deep', 'extraDeep']) {
+      const spec = resolveModel('codex', tier);
+      const args = buildArgs({ ...BASE, ...spec, resume });
+      assert.equal(args[args.indexOf('--model') + 1], spec.model);
+      assert.equal(args.includes('model_reasoning_effort="xhigh"'), tier === 'extraDeep');
+    }
+  }
+});
 
 test('a fresh turn passes the working directory and sandbox as flags', () => {
   const a = buildArgs(BASE);

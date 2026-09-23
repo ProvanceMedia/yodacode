@@ -6,8 +6,7 @@
 // nobody is watching at 3am and the failure looks like the cron itself breaking.
 //
 // So a task can name a TIER instead: fast, balanced, deep or extraDeep. Each engine says
-// what a tier means for it — on Claude mostly a different model, on Codex mostly
-// a different reasoning effort. Literal model names still work for anyone who
+// what a tier means for it — a different model or reasoning effort. Literal model names still work for anyone who
 // wants an exact one; they simply do not survive an engine change, and both the
 // switch command and the scheduler say so out loud rather than letting a task
 // discover it alone at 3am.
@@ -37,24 +36,21 @@ const TIER_MAP = {
   claude: {
     fast: { model: 'claude-haiku-4-5' },
     balanced: { model: 'claude-sonnet-5' },
-    deep: { model: 'claude-opus-5' },
+    deep: { model: 'claude-opus-5-5' },
     // Fable 5.1 needs Claude Code 2.1.255 or newer; the Agent SDK pin in
     // workspace/package.json bundles 2.1.258. On some plans it bills to usage
     // credits rather than the plan's allowance — docs/ENGINES.md says how to check.
     extraDeep: { model: 'claude-fable-5-1' },
   },
   codex: {
-    // OpenAI names the 5.6 family along the same axis these tiers use — Luna
-    // "fast and affordable", Terra "balanced ... for everyday work", Sol the
-    // "latest frontier" model. Effort is left at each model's own default,
-    // which OpenAI tunes per model (Sol defaults LOW on purpose: it is strong
-    // at lighter reasoning). Naming the model rather than only raising effort
-    // matters — otherwise the deep tier just thinks harder on a weaker model.
-    fast: { model: 'gpt-5.6-luna' },
-    balanced: { model: 'gpt-5.6-terra' },
-    deep: { model: 'gpt-5.6-sol' },
-    // No model above Sol to reach for, so extraDeep is Sol thinking hardest.
-    extraDeep: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+    // GPT-6 Luna handles fast work, Sol balances intelligence and cost, and
+    // Astra is the flagship. Leave effort at each model's default unless the
+    // task or tier explicitly asks for more reasoning.
+    fast: { model: 'gpt-6-luna' },
+    balanced: { model: 'gpt-6-sol' },
+    deep: { model: 'gpt-6-astra' },
+    // Keep the existing xhigh effort contract for the most demanding tier.
+    extraDeep: { model: 'gpt-6-astra', effort: 'xhigh' },
   },
 };
 

@@ -29,22 +29,22 @@ test('the Claude tiers name current models', () => {
   // written the portable way.
   assert.equal(resolveModel('claude', 'fast').model, 'claude-haiku-4-5');
   assert.equal(resolveModel('claude', 'balanced').model, 'claude-sonnet-5');
-  assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5');
+  assert.equal(resolveModel('claude', 'deep').model, 'claude-opus-5-5');
   assert.equal(resolveModel('claude', 'extraDeep').model, 'claude-fable-5-1');
 });
 
 test('the Codex tiers name current models, strongest at deep', () => {
-  // OpenAI names the 5.6 family along this same axis. Pinned deliberately: a
+  // OpenAI names the GPT-6 family along this same axis. Pinned deliberately: a
   // tier that only raised EFFORT would make `deep` think harder on whatever
   // model was configured — possibly an older one than `fast` would have used.
-  assert.equal(resolveModel('codex', 'fast').model, 'gpt-5.6-luna');
-  assert.equal(resolveModel('codex', 'balanced').model, 'gpt-5.6-terra');
-  assert.equal(resolveModel('codex', 'deep').model, 'gpt-5.6-sol');
+  assert.equal(resolveModel('codex', 'fast').model, 'gpt-6-luna');
+  assert.equal(resolveModel('codex', 'balanced').model, 'gpt-6-sol');
+  assert.equal(resolveModel('codex', 'deep').model, 'gpt-6-astra');
 });
 
-test('extraDeep on Codex is Sol at xhigh — there is no model above it', () => {
+test('extraDeep on Codex is Astra at xhigh', () => {
   const r = resolveModel('codex', 'extraDeep');
-  assert.equal(r.model, 'gpt-5.6-sol');
+  assert.equal(r.model, 'gpt-6-astra');
   assert.equal(r.effort, 'xhigh');
   // The task's own effort still wins.
   assert.equal(resolveModel('codex', 'extraDeep', 'low').effort, 'low');
@@ -63,8 +63,7 @@ test('extraDeep tolerates the ways people will spell it', () => {
 });
 
 test('effort is left to each model, which the vendor tunes per model', () => {
-  // Sol defaults to LOW on purpose — it is strong at lighter reasoning — so
-  // forcing an effort per tier would override a deliberate vendor choice.
+  // The regular tiers use vendor defaults; only extraDeep pins effort.
   for (const t of ['fast', 'balanced', 'deep']) {
     assert.equal(resolveModel('codex', t).effort, undefined);
   }
@@ -73,7 +72,7 @@ test('effort is left to each model, which the vendor tunes per model', () => {
 });
 
 test('tiers are case- and whitespace-insensitive', () => {
-  assert.equal(resolveModel('codex', '  DEEP ').model, 'gpt-5.6-sol');
+  assert.equal(resolveModel('codex', '  DEEP ').model, 'gpt-6-astra');
   assert.equal(resolveModel('claude', 'Balanced').model, 'claude-sonnet-5');
 });
 

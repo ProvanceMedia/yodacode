@@ -125,3 +125,16 @@ test('a configured Codex model is used instead of a leftover Claude one', () => 
   assert.equal(out.trim(), 'gpt-5.4',
     "the operator's choice for THIS engine must win over the other engine's leftover");
 });
+
+test('an empty Codex model uses GPT-6 Sol even with a leftover Claude selection', () => {
+  const script = `
+    import { selectEngine } from './workspace/lib/engine/index.js';
+    process.stdout.write(String(selectEngine('codex').mapModel('claude-opus-5-5')));
+  `;
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: path.join(path.dirname(fileURLToPath(import.meta.url)), '..'),
+    env: { ...process.env, YODA_ENGINE: 'codex', YODA_CODEX_MODEL: '' },
+    encoding: 'utf8',
+  });
+  assert.equal(out.trim(), 'gpt-6-sol');
+});
