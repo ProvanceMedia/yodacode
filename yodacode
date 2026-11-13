@@ -111,6 +111,7 @@ $(echo -e "${B}Configure${X}")
   yodacode addkey       give the bot an API key (via the broker)
   yodacode connect      sign the bot into an OAuth service (Gmail etc.)
   yodacode install-browsers  give the bot a headless browser (one-time ~300MB)
+  yodacode chrome       let the bot drive YOUR logged-in Chrome (on/off/status)
 
 $(echo -e "${B}Info${X}")
   yodacode status       what's configured + container state
@@ -629,6 +630,71 @@ cmd_install_browsers() {
   fi
 }
 
+# ── claude in chrome ──────────────────────────────────────────────────────────
+# Let the agent drive the operator's OWN logged-in Chrome (real cookies and
+# sessions) instead of the anonymous headless Chromium. The browser lives on the
+# operator's own machine; the server-side runtime reaches it over Anthropic's
+# account bridge, so BOTH sides must be signed into the SAME Claude account.
+# Turning it on is just two non-secret env vars the bundled runtime reads to
+# auto-register the claude-in-chrome MCP server: CLAUDE_CODE_ENABLE_CFC and an
+# optional paired-device id. No Docker needed to flip them — only to restart.
+_chrome_setup_checklist() {
+  echo -e "  ${B}What it gives you${X}"
+  echo -e "  ${D}The bot works in your real, signed-in Chrome, so it can act on sites where"
+  echo -e "  you're already logged in instead of only reading public pages.${X}"
+  echo ""
+  echo -e "  ${B}Connect your browser${X}"
+  echo "  1. Install the Claude extension for Chrome (Chrome Web Store — search \"Claude\")."
+  echo "  2. Sign the extension into the SAME Claude account this bot runs on."
+  echo -e "     ${D}That shared sign-in is what lets a bot on a server reach the browser on your laptop.${X}"
+  echo "  3. Keep a Chrome window open — the open browser IS the connection."
+  echo ""
+  echo -e "  ${D}Needs a Claude Pro, Max or Team plan. If the bot says it can't see your browser,${X}"
+  echo -e "  ${D}it's one of: the extension isn't on this account, no Chrome window is open, or${X}"
+  echo -e "  ${D}(only with several browsers) it picked the wrong one — pin it with${X}"
+  echo -e "  ${D}'yodacode chrome device <id>'.${X}"
+}
+
+cmd_chrome() {
+  local sub="${1:-status}"
+  case "$sub" in
+    on|enable)
+      set_env CLAUDE_CODE_ENABLE_CFC 1
+      [[ -n "${2:-}" ]] && set_env CLAUDE_CHROME_PAIRED_DEVICE_ID "$2"
+      title "Claude in Chrome: on"
+      _chrome_setup_checklist
+      echo ""
+      restart_if_running
+      ;;
+    off|disable)
+      set_env CLAUDE_CODE_ENABLE_CFC 0
+      ok "Claude in Chrome off — the agent falls back to the headless browser."
+      restart_if_running
+      ;;
+    device)
+      [[ -n "${2:-}" ]] || { fail "Which browser? Usage: yodacode chrome device <device-id>"; return 1; }
+      set_env CLAUDE_CODE_ENABLE_CFC 1
+      set_env CLAUDE_CHROME_PAIRED_DEVICE_ID "$2"
+      ok "Pinned browser device: $2 (Claude in Chrome also turned on)."
+      restart_if_running
+      ;;
+    status|"")
+      title "Claude in Chrome"
+      if [[ "$(env_get CLAUDE_CODE_ENABLE_CFC)" == 1 ]]; then
+        ok "On."
+        local dev; dev="$(env_get CLAUDE_CHROME_PAIRED_DEVICE_ID)"
+        if [[ -n "$dev" ]]; then note "Pinned device: $dev"
+        else note "No device pinned — uses your paired browser automatically. Pin one with 'yodacode chrome device <id>' if you run several."; fi
+      else
+        warn "Off. Turn it on with: yodacode chrome on"
+      fi
+      echo ""
+      _chrome_setup_checklist
+      ;;
+    *) fail "Unknown: yodacode chrome $sub"; note "Use one of: on | off | device <id> | status"; return 1 ;;
+  esac
+}
+
 # ── engine ───────────────────────────────────────────────────────────────────
 # `yodacode change llm` / `yodacode engine [name]`.
 #
@@ -1016,6 +1082,7 @@ case "$CMD" in
   release)              cmd_release "$@" ;;
   addkey)               cmd_addkey "$@" ;;
   install-browsers)     cmd_install_browsers ;;
+  chrome)               cmd_chrome "$@" ;;
   connect)              cmd_connect "$@" ;;
   status)               cmd_status ;;
   version|-v|--version) cmd_version ;;

@@ -24,6 +24,34 @@ broker manifest        # list every host/service currently configured
 
 `CAPABILITIES.md` (auto-generated) lists the hosts/services available right now.
 
+## Driving the operator's real browser (Claude in Chrome)
+
+You have **two** browsers, and they're for different jobs:
+
+- **`./bin/browser-tools.sh`** — an anonymous headless Chromium. Use it to read or
+  screenshot **public** pages. It has none of the operator's logins.
+- **`mcp__claude-in-chrome__*`** — the operator's **own, signed-in Chrome**. Use it
+  to act on sites where they're already logged in (their email in the browser, a SaaS
+  dashboard, an account page). This is only present when `CAPABILITIES.md` shows
+  *"Your real browser (Claude in Chrome)"* as ✅.
+
+Prefer the headless one for plain reading; reach for the real browser only when a task
+genuinely needs the operator's logged-in session.
+
+**When a `claude-in-chrome` call comes back "not connected"**, the browser side isn't
+live. Don't retry in a loop and don't claim you can't browse at all (you still have the
+headless browser). Tell the operator, in plain language, how to connect it:
+
+> I can drive your own signed-in Chrome, but I can't see it right now. To connect it:
+> 1. Install the Claude extension for Chrome (Chrome Web Store — search "Claude").
+> 2. Sign the extension into the **same** Claude account this bot runs on.
+> 3. Keep a Chrome window open — the open browser is the connection.
+> Then it's on. (If it's your first time, run `yodacode chrome on` on the server. Needs a Pro/Max/Team plan.)
+
+That's the whole setup — you don't touch any keys or config for this; the operator runs
+`yodacode chrome` on the server. If they have several browsers and the wrong one is
+picked, they can pin one with `yodacode chrome device <id>`.
+
 ## Adding a new service
 
 The secret itself is always entered on the **server** (never in chat) — but YOU do the

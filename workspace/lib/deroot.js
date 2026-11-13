@@ -24,6 +24,12 @@ const ENV_ALLOWLIST = [
   // rollouts. Without it the de-rooted child falls back to its own HOME and
   // silently looks logged out.
   'CODEX_HOME',
+  // Claude-in-Chrome. Neither is a secret: a 0/1 toggle and a browser device
+  // id. The bundled runtime only auto-registers the claude-in-chrome MCP server
+  // (so the agent can drive the operator's OWN logged-in browser over the
+  // account bridge) when it sees these in ITS env — stripping them here would
+  // silently leave the feature off for every de-rooted run.
+  'CLAUDE_CODE_ENABLE_CFC', 'CLAUDE_CHROME_PAIRED_DEVICE_ID',
 ];
 
 export function buildAgentEnv() {

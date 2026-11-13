@@ -80,6 +80,12 @@ services:
       # Commitments sweep (cron-tasks/commitments.yaml): where the digest DM goes.
       YODA_COMMITMENTS_DM: ${YODA_COMMITMENTS_DM:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Claude-in-Chrome (yodacode chrome). Lets the agent drive the operator's
+      # OWN logged-in browser over the account bridge instead of the anonymous
+      # headless Chromium. Both are non-secret: a 0/1 toggle and a browser device
+      # id. Empty/unset = feature off. Enabled via `yodacode chrome on`.
+      CLAUDE_CODE_ENABLE_CFC: ${CLAUDE_CODE_ENABLE_CFC:-}
+      CLAUDE_CHROME_PAIRED_DEVICE_ID: ${CLAUDE_CHROME_PAIRED_DEVICE_ID:-}
       # Which engine runs a turn. Changed deliberately (see the CLI), never
       # automatically. An unknown value fails at boot rather than falling back.
       YODA_ENGINE: ${YODA_ENGINE:-claude}

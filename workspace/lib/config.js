@@ -226,8 +226,13 @@ export const config = {
   // runtime, so there is no CLAUDE_BIN knob any more — pin the runtime
   // version via workspace/package.json instead.
   claude: {
-    allowedTools: process.env.YODA_ALLOWED_TOOLS ||
-      'Bash,Read,Write,Edit,WebFetch,WebSearch,Glob,Grep,Task',
+    allowedTools: (process.env.YODA_ALLOWED_TOOLS ||
+      'Bash,Read,Write,Edit,WebFetch,WebSearch,Glob,Grep,Task') +
+      // Claude-in-Chrome: when CFC is on, the bundled runtime auto-registers the
+      // claude-in-chrome MCP server. Its tools must be allow-listed or the agent
+      // can see the browser but can't act in it. No-op when the feature is off,
+      // and additive so it survives a custom YODA_ALLOWED_TOOLS.
+      (process.env.CLAUDE_CODE_ENABLE_CFC === '1' ? ',mcp__claude-in-chrome' : ''),
     permissionMode: process.env.YODA_PERMISSION_MODE || 'acceptEdits',
     // Idle watchdog per agent run (ms). The runner RESETS this timer on
     // every stream event (each status tick), so it only fires when claude has

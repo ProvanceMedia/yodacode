@@ -259,7 +259,17 @@ def main() -> int:
         out.append("- ✅ **Browser automation** — Playwright + headless Chromium via `./bin/browser-tools.sh` (`fetch`, `text`, `screenshot`, `script`). Screenshots save to `/tmp/`; `Read` them to view.")
     else:
         out.append("- ❌ **Browser automation** *(not installed — the operator can enable it with `yodacode install-browsers`, one-time ~300MB download)* — do NOT claim you can browse, screenshot, or render JS pages until this shows ✅.")
-    out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`")
+    # Claude-in-Chrome: drives the operator's OWN logged-in browser (real
+    # sessions/cookies), as opposed to the anonymous headless Chromium above.
+    # Only usable when the operator ran `yodacode chrome on` AND the extension is
+    # installed and signed into the same account; a tool call still returns "not
+    # connected" if no browser tab is live, so say that rather than assume.
+    chrome_on = os.environ.get("CLAUDE_CODE_ENABLE_CFC") == "1"
+    if chrome_on:
+        out.append("- ✅ **Your real browser (Claude in Chrome)** — the `mcp__claude-in-chrome__*` tools drive the operator's OWN signed-in Chrome, so you can act on sites where they're already logged in. If a call returns \"not connected\", the browser/extension isn't live — tell the operator how to set it up (see TOOLS.md → *Driving the operator's real browser*). Use the headless browser above when you just need to read a public page.")
+        out.append("- ✅ **Native MCP: claude-in-chrome** — the only native MCP server; everything else goes through `broker call http_call`.")
+    else:
+        out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`. (The operator can turn on `claude-in-chrome` to drive their real browser with `yodacode chrome on` — see TOOLS.md.)")
     out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — call the relevant API through the broker when needed")
     out.append("")
     if engine == "codex":
