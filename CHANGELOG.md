@@ -3,6 +3,10 @@
 All notable changes to YodaCode are documented here.
 Versions follow [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
+## v2.34.2 — 2026-11-13
+
+- fix: run Claude in Chrome on a full login instead of the setup token
+
 ## v2.34.1 — 2026-11-13
 
 - chore: upgrade bundled Claude Code runtime to 2.1.323
