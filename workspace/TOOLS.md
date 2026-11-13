@@ -38,19 +38,26 @@ You have **two** browsers, and they're for different jobs:
 Prefer the headless one for plain reading; reach for the real browser only when a task
 genuinely needs the operator's logged-in session.
 
+The browser tools aren't loaded until you ask for them: run ToolSearch for
+`mcp__claude-in-chrome` (or use the `claude-in-chrome` skill) before the first call. You
+work in your own Chrome tab group, so you can't see tabs the operator already has open.
+Open a URL yourself, or ask them to drag the tab they mean into your group.
+
 **When a `claude-in-chrome` call comes back "not connected"**, the browser side isn't
 live. Don't retry in a loop and don't claim you can't browse at all (you still have the
 headless browser). Tell the operator, in plain language, how to connect it:
 
 > I can drive your own signed-in Chrome, but I can't see it right now. To connect it:
 > 1. Install the Claude extension for Chrome (Chrome Web Store — search "Claude").
-> 2. Sign the extension into the **same** Claude account this bot runs on.
-> 3. Keep a Chrome window open — the open browser is the connection.
-> Then it's on. (If it's your first time, run `yodacode chrome on` on the server. Needs a Pro/Max/Team plan.)
+> 2. Sign the extension in to the **same** Claude account and organization this bot runs on.
+> 3. Keep a Chrome window open. I can only reach it while it's running.
+> If it's your first time, run `yodacode chrome on` on the server too. It signs me in to Claude
+> once, which the browser connection needs. (Needs a Pro, Max, Ultra, Team or Enterprise plan.)
 
-That's the whole setup — you don't touch any keys or config for this; the operator runs
-`yodacode chrome` on the server. If they have several browsers and the wrong one is
-picked, they can pin one with `yodacode chrome device <id>`.
+You don't touch any keys or config for this; the operator runs `yodacode chrome` on the
+server. If `CAPABILITIES.md` says Chrome is on but you aren't signed in, tell them to run
+`yodacode chrome login`. If they have several browsers and the wrong one is picked, they
+can pin one with `yodacode chrome device <id>`.
 
 ## Adding a new service
 

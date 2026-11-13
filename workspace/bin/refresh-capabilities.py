@@ -261,13 +261,20 @@ def main() -> int:
         out.append("- ❌ **Browser automation** *(not installed — the operator can enable it with `yodacode install-browsers`, one-time ~300MB download)* — do NOT claim you can browse, screenshot, or render JS pages until this shows ✅.")
     # Claude-in-Chrome: drives the operator's OWN logged-in browser (real
     # sessions/cookies), as opposed to the anonymous headless Chromium above.
-    # Only usable when the operator ran `yodacode chrome on` AND the extension is
-    # installed and signed into the same account; a tool call still returns "not
-    # connected" if no browser tab is live, so say that rather than assume.
+    # Needs BOTH: the operator turned it on (`yodacode chrome on`), and the agent
+    # is signed in with a full login — the runtime keeps Chrome off on the usual
+    # setup token (see applyChromeLogin in lib/agent-query.js). A tool call can
+    # still return "not connected" if no browser is live, so say that rather
+    # than assume.
     chrome_on = os.environ.get("CLAUDE_CODE_ENABLE_CFC") == "1"
-    if chrome_on:
-        out.append("- ✅ **Your real browser (Claude in Chrome)** — the `mcp__claude-in-chrome__*` tools drive the operator's OWN signed-in Chrome, so you can act on sites where they're already logged in. If a call returns \"not connected\", the browser/extension isn't live — tell the operator how to set it up (see TOOLS.md → *Driving the operator's real browser*). Use the headless browser above when you just need to read a public page.")
+    claude_cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    chrome_login = os.path.isfile(os.path.join(claude_cfg, ".credentials.json"))
+    if chrome_on and chrome_login:
+        out.append("- ✅ **Your real browser (Claude in Chrome)** — the `mcp__claude-in-chrome__*` tools drive the operator's OWN signed-in Chrome, so you can act on sites where they're already logged in. Load them first (ToolSearch, or the `claude-in-chrome` skill). If a call returns \"not connected\", the browser/extension isn't live — tell the operator how to set it up (see TOOLS.md → *Driving the operator's real browser*). Use the headless browser above when you just need to read a public page.")
         out.append("- ✅ **Native MCP: claude-in-chrome** — the only native MCP server; everything else goes through `broker call http_call`.")
+    elif chrome_on:
+        out.append("- ❌ **Your real browser (Claude in Chrome)** *(turned on, but the bot itself isn't signed in yet — the operator finishes setup with `yodacode chrome login` on the server)* — do NOT claim you can use their browser until this shows ✅.")
+        out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`.")
     else:
         out.append("- ❌ **No native MCP servers** — use `broker call http_call` for APIs, or `./bin/browser-tools.sh`. (The operator can turn on `claude-in-chrome` to drive their real browser with `yodacode chrome on` — see TOOLS.md.)")
     out.append("- ❌ **No native `image_generate`, `pdf`, or `tts` tools** — call the relevant API through the broker when needed")

@@ -8,7 +8,9 @@
 // us parsed message objects instead of stream-json lines to parse.
 
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { AbortError } from '@anthropic-ai/claude-agent-sdk';
 import { logger } from './logger.js';
 import { buildAgentEnv, derootEnabled, resolveAgentIds } from './deroot.js';
@@ -103,6 +105,31 @@ function resolveRunIsolation(deroot) {
   return { env: curatedAgentEnv(), spawnHook: null };
 }
 
+/**
+ * Claude in Chrome will not start on a long-lived setup token: with
+ * CLAUDE_CODE_OAUTH_TOKEN set, the runtime keeps the integration off even
+ * when CLAUDE_CODE_ENABLE_CFC=1, because the browser extension can't
+ * authenticate with that credential. It needs a full `claude auth login`.
+ *
+ * So when the operator has turned Chrome on AND signed the agent in
+ * (`yodacode chrome on`, which saves a login under the agent's own Claude
+ * config dir), drop the token and let the runtime use that login. With no
+ * saved login, keep the token: the agent stays signed in, just without
+ * browser tools — never trade a working bot for a browser.
+ *
+ * Mutates and returns `env`; callers pass a copy.
+ */
+export function applyChromeLogin(env) {
+  if (env.CLAUDE_CODE_ENABLE_CFC !== '1' || !env.CLAUDE_CODE_OAUTH_TOKEN) return env;
+  const configDir = env.CLAUDE_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.claude');
+  try {
+    if (fs.statSync(path.join(configDir, '.credentials.json')).size > 0) {
+      delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    }
+  } catch { /* no saved login — keep the token */ }
+  return env;
+}
+
 /** Normalise an allowed-tools knob (CSV string or array) to the SDK's array. */
 export function toolList(tools) {
   if (Array.isArray(tools)) return tools.map((s) => String(s).trim()).filter(Boolean);
@@ -138,7 +165,7 @@ export function buildAgentOptions({
     allowedTools: toolList(allowedTools),
     systemPrompt: { type: 'preset', preset: 'claude_code' },
     settingSources: ['user', 'project', 'local'],
-    env: extraEnv ? { ...isolation.env, ...extraEnv } : isolation.env,
+    env: applyChromeLogin(extraEnv ? { ...isolation.env, ...extraEnv } : { ...isolation.env }),
   };
   if (hooks) options.hooks = hooks;
   if (isolation.spawnHook) options.spawnClaudeCodeProcess = isolation.spawnHook;

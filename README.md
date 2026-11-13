@@ -126,7 +126,7 @@ yodacode tools       # toggle reflectors & guardrails
 yodacode addkey      # give the bot an API key (via the broker)
 yodacode connect     # sign the bot into an OAuth service (Google, Microsoft 365)
 yodacode install-browsers  # give the bot a headless browser (one-time ~300MB download)
-yodacode chrome      # let the bot drive YOUR own logged-in Chrome (on/off/status)
+yodacode chrome      # let the bot drive YOUR own logged-in Chrome (on/login/off/status)
 ```
 
 Plain `docker compose …` from the install folder still works if you prefer. The `yodacode`

@@ -111,7 +111,7 @@ $(echo -e "${B}Configure${X}")
   yodacode addkey       give the bot an API key (via the broker)
   yodacode connect      sign the bot into an OAuth service (Gmail etc.)
   yodacode install-browsers  give the bot a headless browser (one-time ~300MB)
-  yodacode chrome       let the bot drive YOUR logged-in Chrome (on/off/status)
+  yodacode chrome       let the bot drive YOUR logged-in Chrome (on/login/off/status)
 
 $(echo -e "${B}Info${X}")
   yodacode status       what's configured + container state
@@ -631,27 +631,62 @@ cmd_install_browsers() {
 }
 
 # ── claude in chrome ──────────────────────────────────────────────────────────
-# Let the agent drive the operator's OWN logged-in Chrome (real cookies and
-# sessions) instead of the anonymous headless Chromium. The browser lives on the
-# operator's own machine; the server-side runtime reaches it over Anthropic's
-# account bridge, so BOTH sides must be signed into the SAME Claude account.
-# Turning it on is just two non-secret env vars the bundled runtime reads to
-# auto-register the claude-in-chrome MCP server: CLAUDE_CODE_ENABLE_CFC and an
-# optional paired-device id. No Docker needed to flip them — only to restart.
+# Let the agent drive the operator's OWN signed-in Chrome (real cookies and
+# sessions) through the Claude in Chrome extension. The browser stays on the
+# operator's machine; the server-side runtime reaches it over Anthropic's
+# account bridge, so the extension and the bot must be on the SAME Claude
+# account and organization.
+#
+# Two things switch it on:
+#   1. CLAUDE_CODE_ENABLE_CFC=1 (plus an optional pinned device id) in .env.
+#   2. The agent signed in with a full `claude auth login`. The runtime keeps
+#      Chrome off on the long-lived setup token the bot normally runs on, so the
+#      login is saved in the agent's home volume and, while Chrome is on, the
+#      agent runs on it instead (applyChromeLogin in lib/agent-query.js). No
+#      saved login → the agent keeps the token: signed in, just no browser.
+CHROME_AGENT_CREDS=/home/yoda/.claude/.credentials.json
+
+_chrome_agent_signed_in() {
+  docker compose exec -T agent sh -c "test -s $CHROME_AGENT_CREDS" >/dev/null 2>&1
+}
+
+# One-time sign-in for the agent user. Runs as `yoda` with ITS home: a bare
+# numeric uid gets HOME=/ and the login can't be saved. The token is blanked so
+# it can't shadow the login being created.
+_chrome_agent_login() {
+  require_docker
+  agent_running || { fail "The bot isn't running. Start it first: yodacode start"; return 1; }
+  echo -e "  ${B}Sign the bot in to Claude${X} (one time, about a minute)"
+  echo -e "  ${D}Claude in Chrome won't run on the bot's usual setup token, so the bot needs its own${X}"
+  echo -e "  ${D}sign-in. Use the same Claude account as your Chrome extension.${X}"
+  echo ""
+  echo "  1. A sign-in link appears below. Open it in your browser and approve."
+  echo "  2. The page then shows a code. Copy all of it and paste it here."
+  echo ""
+  if docker compose exec -it -u yoda -e HOME=/home/yoda -e CLAUDE_CODE_OAUTH_TOKEN= \
+       agent claude auth login --claudeai && _chrome_agent_signed_in; then
+    ok "Bot signed in."
+  else
+    fail "Sign-in didn't finish. Try again with: yodacode chrome login"
+    return 1
+  fi
+}
+
 _chrome_setup_checklist() {
   echo -e "  ${B}What it gives you${X}"
-  echo -e "  ${D}The bot works in your real, signed-in Chrome, so it can act on sites where"
-  echo -e "  you're already logged in instead of only reading public pages.${X}"
+  echo -e "  ${D}The bot works in your real, signed-in Chrome, so it can act on sites where you're${X}"
+  echo -e "  ${D}already logged in instead of only reading public pages.${X}"
   echo ""
-  echo -e "  ${B}Connect your browser${X}"
-  echo "  1. Install the Claude extension for Chrome (Chrome Web Store — search \"Claude\")."
-  echo "  2. Sign the extension into the SAME Claude account this bot runs on."
-  echo -e "     ${D}That shared sign-in is what lets a bot on a server reach the browser on your laptop.${X}"
-  echo "  3. Keep a Chrome window open — the open browser IS the connection."
+  echo -e "  ${B}Set it up${X}"
+  echo "  1. Install the Claude extension for Chrome (Chrome Web Store, search \"Claude\")."
+  echo "  2. Sign the extension in to the same Claude account and organization as this bot."
+  echo "  3. Sign the bot in once. 'yodacode chrome on' walks you through it."
+  echo "  4. Keep Chrome open. The bot can only reach it while it's running."
   echo ""
-  echo -e "  ${D}Needs a Claude Pro, Max or Team plan. If the bot says it can't see your browser,${X}"
-  echo -e "  ${D}it's one of: the extension isn't on this account, no Chrome window is open, or${X}"
-  echo -e "  ${D}(only with several browsers) it picked the wrong one — pin it with${X}"
+  echo -e "  ${D}Needs a Claude Pro, Max, Ultra, Team or Enterprise plan. The bot works in its own${X}"
+  echo -e "  ${D}tab group: give it a URL, or drag a tab you already have open into its group.${X}"
+  echo -e "  ${D}If it can't see your browser, check the extension's account, that Chrome is open,${X}"
+  echo -e "  ${D}and that the bot is signed in ('yodacode chrome'). Several browsers? Pin one with${X}"
   echo -e "  ${D}'yodacode chrome device <id>'.${X}"
 }
 
@@ -664,11 +699,22 @@ cmd_chrome() {
       title "Claude in Chrome: on"
       _chrome_setup_checklist
       echo ""
+      if ! agent_running; then
+        note "Start the bot, then finish setup with: yodacode chrome login"
+      elif _chrome_agent_signed_in; then
+        ok "The bot is already signed in."
+      else
+        _chrome_agent_login || note "Chrome is turned on, but the bot can't use it until it's signed in: yodacode chrome login"
+        echo ""
+      fi
       restart_if_running
+      ;;
+    login)
+      _chrome_agent_login && restart_if_running
       ;;
     off|disable)
       set_env CLAUDE_CODE_ENABLE_CFC 0
-      ok "Claude in Chrome off — the agent falls back to the headless browser."
+      ok "Claude in Chrome off. The bot goes back to its usual sign-in and the headless browser."
       restart_if_running
       ;;
     device)
@@ -682,16 +728,22 @@ cmd_chrome() {
       title "Claude in Chrome"
       if [[ "$(env_get CLAUDE_CODE_ENABLE_CFC)" == 1 ]]; then
         ok "On."
+        if ! agent_running; then
+          note "The bot isn't running, so its sign-in can't be checked."
+        elif _chrome_agent_signed_in; then
+          ok "Bot signed in."
+        else
+          warn "The bot isn't signed in yet, so it can't use Chrome. Finish with: yodacode chrome login"
+        fi
         local dev; dev="$(env_get CLAUDE_CHROME_PAIRED_DEVICE_ID)"
-        if [[ -n "$dev" ]]; then note "Pinned device: $dev"
-        else note "No device pinned — uses your paired browser automatically. Pin one with 'yodacode chrome device <id>' if you run several."; fi
+        [[ -n "$dev" ]] && note "Pinned device: $dev"
       else
         warn "Off. Turn it on with: yodacode chrome on"
       fi
       echo ""
       _chrome_setup_checklist
       ;;
-    *) fail "Unknown: yodacode chrome $sub"; note "Use one of: on | off | device <id> | status"; return 1 ;;
+    *) fail "Unknown: yodacode chrome $sub"; note "Use one of: on | login | off | device <id> | status"; return 1 ;;
   esac
 }
 

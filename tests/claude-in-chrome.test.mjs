@@ -55,3 +55,45 @@ test('allowedTools includes claude-in-chrome only when CFC is on', async () => {
     process.env = prev;
   }
 });
+
+// Claude in Chrome refuses the long-lived setup token, so with Chrome on and a
+// saved login the agent must run on the login (token dropped). Without a saved
+// login it must keep the token — never sign the bot out for a browser.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+function homeWithLogin(withCreds) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cic-home-'));
+  if (withCreds) {
+    fs.mkdirSync(path.join(home, '.claude'));
+    fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), '{"claudeAiOauth":{}}');
+  }
+  return home;
+}
+
+test('Chrome on + saved login: the setup token is dropped', async () => {
+  const { applyChromeLogin } = await import('../workspace/lib/agent-query.js');
+  const env = applyChromeLogin({ CLAUDE_CODE_ENABLE_CFC: '1', CLAUDE_CODE_OAUTH_TOKEN: 't', HOME: homeWithLogin(true) });
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+});
+
+test('Chrome on but no saved login: the token is kept', async () => {
+  const { applyChromeLogin } = await import('../workspace/lib/agent-query.js');
+  const env = applyChromeLogin({ CLAUDE_CODE_ENABLE_CFC: '1', CLAUDE_CODE_OAUTH_TOKEN: 't', HOME: homeWithLogin(false) });
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, 't');
+});
+
+test('Chrome off: the token is kept even with a saved login', async () => {
+  const { applyChromeLogin } = await import('../workspace/lib/agent-query.js');
+  const env = applyChromeLogin({ CLAUDE_CODE_OAUTH_TOKEN: 't', HOME: homeWithLogin(true) });
+  assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, 't');
+});
+
+test('buildAgentOptions applies it without mutating the caller env', async () => {
+  const { buildAgentOptions } = await import('../workspace/lib/agent-query.js');
+  const callerEnv = { CLAUDE_CODE_ENABLE_CFC: '1', CLAUDE_CODE_OAUTH_TOKEN: 't', HOME: homeWithLogin(true) };
+  const opts = buildAgentOptions({ env: callerEnv, cwd: '/tmp' });
+  assert.equal(opts.env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+  assert.equal(callerEnv.CLAUDE_CODE_OAUTH_TOKEN, 't');
+});
